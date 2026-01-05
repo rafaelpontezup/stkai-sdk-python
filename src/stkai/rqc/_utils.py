@@ -2,8 +2,6 @@
 Utility functions for Remote Quick Command module.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import random

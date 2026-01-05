@@ -5,8 +5,6 @@ This module provides a synchronous client for executing Remote Quick Commands
 with built-in polling, retries, and thread-based concurrency.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import time

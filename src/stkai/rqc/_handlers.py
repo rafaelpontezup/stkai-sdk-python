@@ -5,8 +5,6 @@ This module contains concrete implementations of RqcResultHandler
 for processing RQC execution results.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 from copy import deepcopy
@@ -30,7 +28,7 @@ class ChainedResultHandler(RqcResultHandler):
         return result
 
     @staticmethod
-    def of(handlers: RqcResultHandler | Sequence[RqcResultHandler]) -> ChainedResultHandler:
+    def of(handlers: RqcResultHandler | Sequence[RqcResultHandler]) -> "ChainedResultHandler":
         """Create a ChainedResultHandler from a single handler or sequence of handlers."""
         return ChainedResultHandler(
             [handlers] if isinstance(handlers, RqcResultHandler) else list(handlers)

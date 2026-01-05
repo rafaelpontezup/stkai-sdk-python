@@ -5,8 +5,6 @@ This module contains concrete implementations of RqcHttpClient
 for making authorized HTTP requests to the StackSpot AI API.
 """
 
-from __future__ import annotations
-
 import random
 from typing import Optional, override
 
