@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import requests
 
@@ -30,15 +30,15 @@ class RqcRequest:
     """Represents a Remote QuickCommand request."""
     payload: Any
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    metadata: Optional[dict[str, Any]] = None
-    _execution_id: Optional[str] = None
+    metadata: dict[str, Any] | None = None
+    _execution_id: str | None = None
 
     def __post_init__(self):
         assert self.id, "Request ID can not be empty."
         assert self.payload, "Request payload can not be empty."
 
     @property
-    def execution_id(self) -> Optional[str]:
+    def execution_id(self) -> str | None:
         return self._execution_id
 
     def mark_as_finished(self, execution_id: str) -> None:
@@ -76,16 +76,16 @@ class RqcResponse:
     """Represents the full Remote QuickCommand response."""
     request: RqcRequest
     status: RqcResponseStatus
-    result: Optional[Any] = None
-    error: Optional[str] = None
-    raw_response: Optional[Any] = None
+    result: Any | None = None
+    error: str | None = None
+    raw_response: Any | None = None
 
     def __post_init__(self):
         assert self.request, "RQC-Request can not be empty."
         assert self.status, "Status can not be empty."
 
     @property
-    def execution_id(self) -> Optional[str]:
+    def execution_id(self) -> str | None:
         return self.request.execution_id
 
     @property
@@ -99,13 +99,13 @@ class RqcResponse:
 
         return _raw_result
 
-    def is_error(self):
+    def is_error(self) -> bool:
         return self.status == RqcResponseStatus.ERROR
 
-    def is_timeout(self):
+    def is_timeout(self) -> bool:
         return self.status == RqcResponseStatus.TIMEOUT
 
-    def is_failure(self):
+    def is_failure(self) -> bool:
         return self.status == RqcResponseStatus.FAILURE
 
     def is_completed(self) -> bool:
@@ -154,7 +154,7 @@ class RqcResultContext:
     """Context passed to result handlers during processing."""
     request: RqcRequest
     raw_result: Any
-    handled: Optional[bool] = False
+    handled: bool | None = False
 
     def __post_init__(self):
         assert self.request, "RQC-Request can not be empty."
@@ -183,12 +183,12 @@ class RqcHttpClient(ABC):
     """Abstract base class for RQC HTTP clients."""
 
     @abstractmethod
-    def get_with_authorization(self, execution_id: str, timeout: Optional[int] = 30) -> requests.Response:
+    def get_with_authorization(self, execution_id: str, timeout: int | None = 30) -> requests.Response:
         """Execute an authorized GET request to retrieve execution status."""
         pass
 
     @abstractmethod
-    def post_with_authorization(self, slug_name: str, data: Optional[dict] = None, timeout: Optional[int] = 20) -> requests.Response:
+    def post_with_authorization(self, slug_name: str, data: dict | None = None, timeout: int | None = 20) -> requests.Response:
         """Execute an authorized POST request to create an execution."""
         pass
 
@@ -200,7 +200,7 @@ class RqcHttpClient(ABC):
 class MaxRetriesExceededError(RuntimeError):
     """Raised when the maximum number of retries is exceeded."""
 
-    def __init__(self, message: str, last_exception: Optional[Exception] = None):
+    def __init__(self, message: str, last_exception: Exception | None = None):
         super().__init__(message)
         self.last_exception = last_exception
 
@@ -208,7 +208,7 @@ class MaxRetriesExceededError(RuntimeError):
 class RqcResultHandlerError(RuntimeError):
     """Raised when the result handler fails to process the result."""
 
-    def __init__(self, message: str, cause: Optional[Exception] = None, result_handler: Optional[RqcResultHandler] = None):
+    def __init__(self, message: str, cause: Exception | None = None, result_handler: "RqcResultHandler | None" = None):
         super().__init__(message)
         self.cause = cause
         self.result_handler = result_handler
@@ -234,13 +234,13 @@ class RemoteQuickCommand:
     def __init__(
         self,
         slug_name: str,
-        poll_interval: Optional[float] = 10.0,
-        poll_max_duration: Optional[float] = 600.0,  # 10min
-        max_workers: Optional[int] = 8,
-        max_retries: Optional[int] = 3,
-        backoff_factor: Optional[float] = 0.5,
-        output_dir: Optional[Path] = None,
-        http_client: Optional[RqcHttpClient] = None,
+        poll_interval: float | None = 10.0,
+        poll_max_duration: float | None = 600.0,  # 10min
+        max_workers: int | None = 8,
+        max_retries: int | None = 3,
+        backoff_factor: float | None = 0.5,
+        output_dir: Path | None = None,
+        http_client: RqcHttpClient | None = None,
     ):
         assert slug_name, "RQC slug_name can not be empty."
         assert poll_interval, "Poll interval (in seconds) can not be empty."
@@ -278,7 +278,7 @@ class RemoteQuickCommand:
     def execute_many(
         self,
         request_list: list[RqcRequest],
-        result_handler: Optional[RqcResultHandler] = None,
+        result_handler: RqcResultHandler | None = None,
     ) -> list[RqcResponse]:
         """
         Executes multiple RQC requests concurrently, waits for their completion (blocking),
@@ -362,7 +362,7 @@ class RemoteQuickCommand:
     def execute(
         self,
         request: RqcRequest,
-        result_handler: Optional[RqcResultHandler] = None,
+        result_handler: RqcResultHandler | None = None,
     ) -> RqcResponse:
         """
         Executes a Remote QuickCommand synchronously and waits for its completion (blocking).

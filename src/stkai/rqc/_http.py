@@ -6,7 +6,7 @@ for making authorized HTTP requests to the StackSpot AI API.
 """
 
 import random
-from typing import Optional, override
+from typing import override
 
 import requests
 
@@ -17,7 +17,7 @@ class StkCLIRqcHttpClient(RqcHttpClient):
     """HTTP client implementation using StackSpot CLI for authorization."""
 
     @override
-    def get_with_authorization(self, execution_id: str, timeout: Optional[int] = 30) -> requests.Response:
+    def get_with_authorization(self, execution_id: str, timeout: int | None = 30) -> requests.Response:
         assert execution_id, "Execution ID can not be empty."
         assert timeout, "Timeout can not be empty."
         assert timeout > 0, "Timeout must be greater than 0."
@@ -37,7 +37,7 @@ class StkCLIRqcHttpClient(RqcHttpClient):
         return response
 
     @override
-    def post_with_authorization(self, slug_name: str, data: Optional[dict] = None, timeout: Optional[int] = 20) -> requests.Response:
+    def post_with_authorization(self, slug_name: str, data: dict | None = None, timeout: int | None = 20) -> requests.Response:
         assert slug_name, "RQC slug-name can not be empty."
         assert timeout, "Timeout can not be empty."
         assert timeout > 0, "Timeout must be greater than 0."
