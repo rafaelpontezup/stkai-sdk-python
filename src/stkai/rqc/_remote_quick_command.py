@@ -112,6 +112,9 @@ class RqcResponse:
         return self.status == RqcResponseStatus.COMPLETED
 
     def error_with_details(self) -> dict:
+        if self.is_completed():
+            return {}
+
         return {
             "status": self.status,
             "error_message": self.error,
