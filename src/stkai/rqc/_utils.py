@@ -28,4 +28,4 @@ def save_json_file(data: dict, file_path: Path) -> None:
         logging.exception(
             f"❌ It's not possible to save JSON file in the disk ({file_path.name}: {e}"
         )
-        raise RuntimeError(f"It's not possible to save JSON file in the disk ({file_path.name}: {e}")
+        raise RuntimeError(f"It's not possible to save JSON file in the disk ({file_path.name}: {e}") from e

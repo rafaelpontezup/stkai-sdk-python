@@ -11,11 +11,10 @@ import requests
 
 from stkai.rqc import (
     RemoteQuickCommand,
+    RqcHttpClient,
     RqcRequest,
     RqcResponseStatus,
-    RqcHttpClient,
 )
-
 
 # ======================
 # Helper functions
@@ -451,7 +450,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.assertEqual(len(results), len(requests_list))
 
         # Validation 3: each response references its respective request (by identity and order)
-        for req, resp in zip(requests_list, results):
+        for req, resp in zip(requests_list, results, strict=True):
             self.assertIs(resp.request, req, "Response does not reference its respective request (identity mismatch)")
 
     def test_execute_many_when_request_list_is_empty(self):
@@ -473,7 +472,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Definition of polling behavior types
         # 7 COMPLETED, 1 FAILURE, 1 TIMEOUT (simulated via timeout), 1 ERROR (simulated via HTTP 500)
         behavior_by_id = {
-            **{i: "COMPLETED" for i in range(7)},
+            **dict.fromkeys(range(7), "COMPLETED"),
             7: "FAILURE",
             8: "TIMEOUT",
             9: "ERROR",
@@ -519,7 +518,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.assertEqual(len(results), num_requests)
 
         # Validation 2: each response references its respective request
-        for req, resp in zip(requests_list, results):
+        for req, resp in zip(requests_list, results, strict=True):
             self.assertIs(resp.request, req)
 
         # Validation 3: final statuses

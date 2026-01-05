@@ -20,7 +20,6 @@ import requests
 
 from stkai.rqc._utils import save_json_file, sleep_with_jitter
 
-
 # ======================
 # Data Models
 # ======================
@@ -341,7 +340,7 @@ class RemoteQuickCommand:
             f"🌀 Sanity check | Unexpected mismatch: responses(size={len(responses)}) is different from requests(size={len(request_list)})."
         )
         # Race-condition check: ensure each response points to its respective request
-        assert all(resp.request is req for req, resp in zip(request_list, responses)), (
+        assert all(resp.request is req for req, resp in zip(request_list, responses, strict=True)), (
             "🌀 Sanity check | Unexpected mismatch: some responses do not reference their corresponding requests."
         )
 
@@ -397,7 +396,7 @@ class RemoteQuickCommand:
             request.write_to_file(output_dir=self.output_dir)
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
-        assert request.execution_id, f"🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
+        assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
 
         # Poll for status
         if not result_handler:

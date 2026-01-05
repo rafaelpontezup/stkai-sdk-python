@@ -7,10 +7,11 @@ for processing RQC execution results.
 
 import json
 import logging
+from collections.abc import Sequence
 from copy import deepcopy
-from typing import Any, override, Sequence
+from typing import Any, override
 
-from stkai.rqc._remote_quick_command import RqcResultHandler, RqcResultContext
+from stkai.rqc._remote_quick_command import RqcResultContext, RqcResultHandler
 
 
 class ChainedResultHandler(RqcResultHandler):
