@@ -5,7 +5,7 @@ This module provides a client abstraction for executing Remote Quick Commands
 against the StackSpot AI API.
 """
 
-from stkai.rqc.client import (
+from stkai.rqc._remote_quick_command import (
     # Data models
     RqcRequest,
     RqcResponse,
