@@ -153,16 +153,16 @@ class RqcResultContext:
     """Context passed to result handlers during processing."""
     request: RqcRequest
     raw_result: Any
-    handled: bool | None = False
+    handled: bool = False
 
     def __post_init__(self) -> None:
         assert self.request, "RQC-Request can not be empty."
-        assert self.request.execution_id, "Execution ID can not be empty."
-        assert self.handled is not None, "Context handled flag can not be empty."
+        assert self.request.execution_id, "RQC-Request's execution_id can not be empty."
+        assert self.handled is not None, "Context's handled flag can not be None."
 
     @property
     def execution_id(self) -> str:
-        assert self.request.execution_id is not None
+        assert self.request.execution_id, "Execution ID is expected to exist at this point."
         return self.request.execution_id
 
 
@@ -183,12 +183,12 @@ class RqcHttpClient(ABC):
     """Abstract base class for RQC HTTP clients."""
 
     @abstractmethod
-    def get_with_authorization(self, execution_id: str, timeout: int | None = 30) -> requests.Response:
+    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
         """Execute an authorized GET request to retrieve execution status."""
         pass
 
     @abstractmethod
-    def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int | None = 20) -> requests.Response:
+    def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20) -> requests.Response:
         """Execute an authorized POST request to create an execution."""
         pass
 
@@ -234,11 +234,11 @@ class RemoteQuickCommand:
     def __init__(
         self,
         slug_name: str,
-        poll_interval: float | None = 10.0,
-        poll_max_duration: float | None = 600.0,  # 10min
-        max_workers: int | None = 8,
-        max_retries: int | None = 3,
-        backoff_factor: float | None = 0.5,
+        poll_interval: float = 10.0,
+        poll_max_duration: float = 600.0,  # 10min
+        max_workers: int = 8,
+        max_retries: int = 3,
+        backoff_factor: float = 0.5,
         output_dir: Path | None = None,
         http_client: RqcHttpClient | None = None,
     ):
