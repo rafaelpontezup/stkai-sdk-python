@@ -7,6 +7,7 @@ import logging
 import random
 import time
 from pathlib import Path
+from typing import Any
 
 
 def sleep_with_jitter(seconds: float, jitter_factor: float = 0.1) -> None:
@@ -16,7 +17,7 @@ def sleep_with_jitter(seconds: float, jitter_factor: float = 0.1) -> None:
     time.sleep(sleep_time)
 
 
-def save_json_file(data: dict, file_path: Path) -> None:
+def save_json_file(data: dict[str, Any], file_path: Path) -> None:
     """Save data as JSON to the specified file path."""
     try:
         with file_path.open(mode="w", encoding="utf-8") as file:

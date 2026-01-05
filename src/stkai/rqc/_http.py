@@ -6,7 +6,7 @@ for making authorized HTTP requests to the StackSpot AI API.
 """
 
 import random
-from typing import override
+from typing import Any, override
 
 import requests
 
@@ -33,11 +33,11 @@ class StkCLIRqcHttpClient(RqcHttpClient):
             'Pragma': 'no-cache'
         }
 
-        response = get_with_authorization(url=url, timeout=timeout, headers=headers)
+        response: requests.Response = get_with_authorization(url=url, timeout=timeout, headers=headers)
         return response
 
     @override
-    def post_with_authorization(self, slug_name: str, data: dict | None = None, timeout: int | None = 20) -> requests.Response:
+    def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int | None = 20) -> requests.Response:
         assert slug_name, "RQC slug-name can not be empty."
         assert timeout, "Timeout can not be empty."
         assert timeout > 0, "Timeout must be greater than 0."
@@ -48,5 +48,5 @@ class StkCLIRqcHttpClient(RqcHttpClient):
         codebuddy_base_url = __codebuddy_base_url__
         url = f"{codebuddy_base_url}/v1/quick-commands/create-execution/{slug_name}"
 
-        response = post_with_authorization(url=url, body=data, timeout=timeout)
+        response: requests.Response = post_with_authorization(url=url, body=data, timeout=timeout)
         return response

@@ -32,7 +32,7 @@ class RqcRequest:
     metadata: dict[str, Any] | None = None
     _execution_id: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert self.id, "Request ID can not be empty."
         assert self.payload, "Request payload can not be empty."
 
@@ -43,7 +43,7 @@ class RqcRequest:
     def mark_as_finished(self, execution_id: str) -> None:
         self._execution_id = execution_id
 
-    def to_input_data(self) -> dict:
+    def to_input_data(self) -> dict[str, Any]:
         return {
             "input_data": self.payload,
         }
@@ -79,7 +79,7 @@ class RqcResponse:
     error: str | None = None
     raw_response: Any | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert self.request, "RQC-Request can not be empty."
         assert self.status, "Status can not be empty."
 
@@ -110,7 +110,7 @@ class RqcResponse:
     def is_completed(self) -> bool:
         return self.status == RqcResponseStatus.COMPLETED
 
-    def error_with_details(self) -> dict:
+    def error_with_details(self) -> dict[str, Any]:
         if self.is_completed():
             return {}
 
@@ -120,7 +120,7 @@ class RqcResponse:
             "response_body": self.raw_response or {},
         }
 
-    def write_to_file(self, output_dir: Path):
+    def write_to_file(self, output_dir: Path) -> None:
         assert output_dir, "Output directory is required."
         assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
 
@@ -155,13 +155,14 @@ class RqcResultContext:
     raw_result: Any
     handled: bool | None = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert self.request, "RQC-Request can not be empty."
         assert self.request.execution_id, "Execution ID can not be empty."
         assert self.handled is not None, "Context handled flag can not be empty."
 
     @property
     def execution_id(self) -> str:
+        assert self.request.execution_id is not None
         return self.request.execution_id
 
 
@@ -187,7 +188,7 @@ class RqcHttpClient(ABC):
         pass
 
     @abstractmethod
-    def post_with_authorization(self, slug_name: str, data: dict | None = None, timeout: int | None = 20) -> requests.Response:
+    def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int | None = 20) -> requests.Response:
         """Execute an authorized POST request to create an execution."""
         pass
 
@@ -393,6 +394,7 @@ class RemoteQuickCommand:
             )
         finally:
             # Logs request payload to disk
+            assert self.output_dir is not None
             request.write_to_file(output_dir=self.output_dir)
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
@@ -418,6 +420,7 @@ class RemoteQuickCommand:
         finally:
             # Logs response result or error-details to disk
             if response:
+                assert self.output_dir is not None
                 response.write_to_file(output_dir=self.output_dir)
 
         assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
@@ -430,6 +433,7 @@ class RemoteQuickCommand:
     def _create_execution(self, request: RqcRequest) -> str:
         """Creates an RQC execution via POST with retries and exponential backoff."""
         assert request, "🌀 Sanity check | RQC-Request not provided to create-execution phase."
+        assert self.http_client is not None
 
         request_id = request.id
         input_data = request.to_input_data()
@@ -445,7 +449,7 @@ class RemoteQuickCommand:
                     f"🌀 Sanity check | Object returned by `post_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
 
                 response.raise_for_status()
-                execution_id = response.json()
+                execution_id: str = response.json()
                 if not execution_id:
                     raise ExecutionIdIsMissingError("No `execution_id` returned in the create execution response by server.")
 
@@ -489,6 +493,7 @@ class RemoteQuickCommand:
         assert request, "🌀 Sanity check | RQC-Request not provided to polling phase."
         assert handler, "🌀 Sanity check | Result Handler not provided to polling phase."
         assert request.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
+        assert self.http_client is not None
 
         start_time = time.time()
         execution_id = request.execution_id
