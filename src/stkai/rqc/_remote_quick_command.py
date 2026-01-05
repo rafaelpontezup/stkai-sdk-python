@@ -7,6 +7,7 @@ with built-in polling, retries, and thread-based concurrency.
 
 import json
 import logging
+import re
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -53,6 +54,7 @@ class RqcRequest:
         assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
 
         _tracking_id = self.execution_id or self.id
+        _tracking_id = re.sub(r'[^\w.$-]', '_', _tracking_id)
         save_json_file(
             data=self.to_input_data(),
             file_path=output_dir / f"{_tracking_id}-request.json"
