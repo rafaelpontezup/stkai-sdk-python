@@ -261,15 +261,16 @@ class RemoteQuickCommand:
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
-        self.output_dir = output_dir
-        self.http_client = http_client
 
-        if not self.output_dir:
-            self.output_dir = Path(f"output/rqc/{self.slug_name}")
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-        if not self.http_client:
+        if not output_dir:
+            output_dir = Path(f"output/rqc/{self.slug_name}")
+            output_dir.mkdir(parents=True, exist_ok=True)
+        if not http_client:
             from stkai.rqc._http import StkCLIRqcHttpClient
-            self.http_client = StkCLIRqcHttpClient()
+            http_client = StkCLIRqcHttpClient()
+
+        self.output_dir: Path = output_dir
+        self.http_client: RqcHttpClient = http_client
 
     # ======================
     # Public API
@@ -394,7 +395,6 @@ class RemoteQuickCommand:
             )
         finally:
             # Logs request payload to disk
-            assert self.output_dir is not None
             request.write_to_file(output_dir=self.output_dir)
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
@@ -420,7 +420,6 @@ class RemoteQuickCommand:
         finally:
             # Logs response result or error-details to disk
             if response:
-                assert self.output_dir is not None
                 response.write_to_file(output_dir=self.output_dir)
 
         assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
@@ -433,7 +432,6 @@ class RemoteQuickCommand:
     def _create_execution(self, request: RqcRequest) -> str:
         """Creates an RQC execution via POST with retries and exponential backoff."""
         assert request, "🌀 Sanity check | RQC-Request not provided to create-execution phase."
-        assert self.http_client is not None
 
         request_id = request.id
         input_data = request.to_input_data()
@@ -493,7 +491,6 @@ class RemoteQuickCommand:
         assert request, "🌀 Sanity check | RQC-Request not provided to polling phase."
         assert handler, "🌀 Sanity check | Result Handler not provided to polling phase."
         assert request.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
-        assert self.http_client is not None
 
         start_time = time.time()
         execution_id = request.execution_id
