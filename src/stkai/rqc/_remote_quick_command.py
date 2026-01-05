@@ -9,44 +9,18 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import time
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, override, Sequence
+from typing import Any, Optional
 
 import requests
 
-
-# ======================
-# Helper functions
-# ======================
-
-def sleep_with_jitter(seconds: float, jitter_factor: float = 0.1) -> None:
-    """Sleep for the given duration with random jitter to prevent thundering herd."""
-    jitter = random.uniform(-jitter_factor, jitter_factor)
-    sleep_time = max(0.0, seconds * (1 + jitter))
-    time.sleep(sleep_time)
-
-
-def save_json_file(data: dict, file_path: Path) -> None:
-    """Save data as JSON to the specified file path."""
-    try:
-        with file_path.open(mode="w", encoding="utf-8") as file:
-            json.dump(
-                data, file,
-                indent=4, ensure_ascii=False, default=str
-            )
-    except Exception as e:
-        logging.exception(
-            f"❌ It's not possible to save JSON file in the disk ({file_path.name}: {e}"
-        )
-        raise RuntimeError(f"It's not possible to save JSON file in the disk ({file_path.name}: {e}")
+from stkai.rqc._utils import save_json_file, sleep_with_jitter
 
 
 # ======================
@@ -154,6 +128,7 @@ class RqcResponse:
         if self.is_completed():
             # Tries to convert the JSON result to Python object...
             try:
+                from stkai.rqc._handlers import JsonResultHandler
                 response_result = JsonResultHandler().handle_result(
                     context=RqcResultContext(request=self.request, raw_result=response_result)
                 )
@@ -199,91 +174,6 @@ class RqcResultHandler(ABC):
         pass
 
 
-class ChainedResultHandler(RqcResultHandler):
-    """Handler that chains multiple handlers in sequence."""
-
-    def __init__(self, chained_handlers: Sequence[RqcResultHandler]):
-        self.chained_handlers = chained_handlers
-
-    @override
-    def handle_result(self, context: RqcResultContext) -> Any:
-        result = context.raw_result
-        for next_handler in self.chained_handlers:
-            result = next_handler.handle_result(context)
-            context = RqcResultContext(request=context.request, raw_result=result, handled=True)
-        return result
-
-    @staticmethod
-    def of(handlers: RqcResultHandler | Sequence[RqcResultHandler]) -> ChainedResultHandler:
-        """Create a ChainedResultHandler from a single handler or sequence of handlers."""
-        return ChainedResultHandler(
-            [handlers] if isinstance(handlers, RqcResultHandler) else list(handlers)
-        )
-
-
-class RawResultHandler(RqcResultHandler):
-    """Handler that returns the raw result without transformation."""
-
-    @override
-    def handle_result(self, context: RqcResultContext) -> Any:
-        return context.raw_result
-
-
-class JsonResultHandler(RqcResultHandler):
-    """Handler that parses JSON results into Python objects."""
-
-    @override
-    def handle_result(self, context: RqcResultContext) -> Any:
-        """
-        Attempts to parse the `result` attribute as JSON, sanitizing markdown-style code blocks if necessary.
-        Returns a Python dict if parsing succeeds; raises JSONDecodeError otherwise.
-
-        Examples:
-            - result = '{"ok": true}' -> {'ok': True}
-            - result = '```json\\n{"x":1}\\n```' -> {'x': 1}
-
-        Raises:
-            json.JSONDecodeError: if `result` is not valid JSON.
-        """
-        result = context.raw_result
-        if not result:
-            return None
-
-        if isinstance(result, dict):
-            return deepcopy(result)
-
-        if not isinstance(result, str):
-            _type_name = type(result).__name__
-            raise TypeError(
-                f"{context.execution_id} | RQC | Cannot parse JSON from non-string result (type={_type_name})"
-            )
-
-        # Remove Markdown code block wrappers (```json ... ```)
-        sanitized = result.replace("```json", "").replace("```", "").strip()
-
-        # Tries to convert JSON to Python object
-        try:
-            return json.loads(sanitized)
-        except json.JSONDecodeError:
-            # Log contextual warning with a short preview of the raw text
-            preview = result.strip().splitlines(keepends=True)[:3]
-            logging.warning(
-                f"{context.execution_id} | RQC | ⚠️ Response result not in JSON format. Treating it as plain text. "
-                f"Preview:\n | {' | '.join(preview)}"
-            )
-            raise
-
-    @staticmethod
-    def chain_with(other_handler: RqcResultHandler) -> RqcResultHandler:
-        """Create a chained handler with JSON parsing followed by another handler."""
-        json_handler = JsonResultHandler()
-        return ChainedResultHandler.of([json_handler, other_handler])
-
-
-DEFAULT_RESULT_HANDLER = JsonResultHandler()
-RAW_RESULT_RESULT_HANDLER = RawResultHandler()
-
-
 # ======================
 # HTTP Client
 # ======================
@@ -300,45 +190,6 @@ class RqcHttpClient(ABC):
     def post_with_authorization(self, slug_name: str, data: Optional[dict] = None, timeout: Optional[int] = 20) -> requests.Response:
         """Execute an authorized POST request to create an execution."""
         pass
-
-
-class StkCLIRqcHttpClient(RqcHttpClient):
-    """HTTP client implementation using StackSpot CLI for authorization."""
-
-    @override
-    def get_with_authorization(self, execution_id: str, timeout: Optional[int] = 30) -> requests.Response:
-        assert execution_id, "Execution ID can not be empty."
-        assert timeout, "Timeout can not be empty."
-        assert timeout > 0, "Timeout must be greater than 0."
-
-        from oscli import __codebuddy_base_url__
-        from oscli.core.http import get_with_authorization
-
-        codebuddy_base_url = __codebuddy_base_url__
-        nocache_param = random.randint(0, 1000000)
-        url = f"{codebuddy_base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
-        headers = {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-        }
-
-        response = get_with_authorization(url=url, timeout=timeout, headers=headers)
-        return response
-
-    @override
-    def post_with_authorization(self, slug_name: str, data: Optional[dict] = None, timeout: Optional[int] = 20) -> requests.Response:
-        assert slug_name, "RQC slug-name can not be empty."
-        assert timeout, "Timeout can not be empty."
-        assert timeout > 0, "Timeout must be greater than 0."
-
-        from oscli import __codebuddy_base_url__
-        from oscli.core.http import post_with_authorization
-
-        codebuddy_base_url = __codebuddy_base_url__
-        url = f"{codebuddy_base_url}/v1/quick-commands/create-execution/{slug_name}"
-
-        response = post_with_authorization(url=url, body=data, timeout=timeout)
-        return response
 
 
 # ======================
@@ -416,6 +267,7 @@ class RemoteQuickCommand:
             self.output_dir = Path(f"output/rqc/{self.slug_name}")
             self.output_dir.mkdir(parents=True, exist_ok=True)
         if not self.http_client:
+            from stkai.rqc._http import StkCLIRqcHttpClient
             self.http_client = StkCLIRqcHttpClient()
 
     # ======================
@@ -528,9 +380,9 @@ class RemoteQuickCommand:
         assert request, "🌀 Sanity check | RQC-Request can not be None."
         assert request.id, "🌀 Sanity check | RQC-Request ID can not be None."
 
+        # Try to create the remote execution
         request_id = request.id
         try:
-            # Try to create remote execution
             execution_id = self._create_execution(request=request)
         except Exception as e:
             logging.exception(f"{request_id[:26]:<26} | RQC | ❌ Failed to create execution: {e}")
@@ -547,11 +399,14 @@ class RemoteQuickCommand:
         assert request.execution_id, f"🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
 
         # Poll for status
+        if not result_handler:
+            from stkai.rqc._handlers import DEFAULT_RESULT_HANDLER
+            result_handler = DEFAULT_RESULT_HANDLER
+
         response = None
-        handler = result_handler or DEFAULT_RESULT_HANDLER
         try:
             response = self._poll_until_done(
-                request=request, handler=handler, execution_id=execution_id,
+                request=request, handler=result_handler
             )
         except Exception as e:
             logging.error(f"{execution_id} | RQC | ❌ Error during polling: {e}")
@@ -629,15 +484,14 @@ class RemoteQuickCommand:
         self,
         request: RqcRequest,
         handler: RqcResultHandler,
-        execution_id: Optional[str],
     ) -> RqcResponse:
         """Polls the status endpoint until the execution reaches a terminal state."""
-        start_time = time.time()
-        execution_id = execution_id or request.execution_id
-
         assert request, "🌀 Sanity check | RQC-Request not provided to polling phase."
-        assert execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
         assert handler, "🌀 Sanity check | Result Handler not provided to polling phase."
+        assert request.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
+
+        start_time = time.time()
+        execution_id = request.execution_id
 
         retry_created = 0
         max_retry_created = 3
