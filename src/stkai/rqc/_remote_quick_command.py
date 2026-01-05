@@ -44,7 +44,7 @@ def save_json_file(data: dict, file_path: Path) -> None:
             )
     except Exception as e:
         logging.exception(
-            f"It's not possible to save JSON file in the disk ({file_path.name}: {e}"
+            f"❌ It's not possible to save JSON file in the disk ({file_path.name}: {e}"
         )
         raise RuntimeError(f"It's not possible to save JSON file in the disk ({file_path.name}: {e}")
 
@@ -268,7 +268,7 @@ class JsonResultHandler(RqcResultHandler):
             # Log contextual warning with a short preview of the raw text
             preview = result.strip().splitlines(keepends=True)[:3]
             logging.warning(
-                f"{context.execution_id} | RQC | Response result not in JSON format. Treating it as plain text. "
+                f"{context.execution_id} | RQC | ⚠️ Response result not in JSON format. Treating it as plain text. "
                 f"Preview:\n | {' | '.join(preview)}"
             )
             raise
@@ -446,11 +446,11 @@ class RemoteQuickCommand:
 
         logging.info(
             f"{'RQC-Batch-Execution'[:26]:<26} | RQC | "
-            f"Starting batch execution of {len(request_list)} requests."
+            f"🛜 Starting batch execution of {len(request_list)} requests."
         )
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    | max_concurrent={self.max_workers}")
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    | slug_name='{self.slug_name}'")
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    | output_dir='{self.output_dir}'")
+        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ max_concurrent={self.max_workers}")
+        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ slug_name='{self.slug_name}'")
+        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ output_dir='{self.output_dir}'")
 
         # Use thread-pool for parallel calls to `execute`
         future_to_index = {
@@ -471,7 +471,7 @@ class RemoteQuickCommand:
             try:
                 responses_map[idx] = future.result()
             except Exception as e:
-                logging.exception(f"{correlated_request.id[:26]:<26} | RQC | Execution failed in batch(seq={idx}): {e}")
+                logging.exception(f"{correlated_request.id[:26]:<26} | RQC | ❌ Execution failed in batch(seq={idx}): {e}")
                 responses_map[idx] = RqcResponse(
                     request=correlated_request,
                     status=RqcResponseStatus.ERROR,
@@ -485,23 +485,23 @@ class RemoteQuickCommand:
 
         # Race-condition check: ensure both lists have the same length
         assert len(responses) == len(request_list), (
-            f"Sanity check | Unexpected mismatch: responses(size={len(responses)}) is different from requests(size={len(request_list)})."
+            f"🌀 Sanity check | Unexpected mismatch: responses(size={len(responses)}) is different from requests(size={len(request_list)})."
         )
         # Race-condition check: ensure each response points to its respective request
         assert all(resp.request is req for req, resp in zip(request_list, responses)), (
-            "Sanity check | Unexpected mismatch: some responses do not reference their corresponding requests."
+            "🌀 Sanity check | Unexpected mismatch: some responses do not reference their corresponding requests."
         )
 
         logging.info(
-            f"{'RQC-Batch-Execution'[:26]:<26} | RQC | Batch execution finished."
+            f"{'RQC-Batch-Execution'[:26]:<26} | RQC | 🛜 Batch execution finished."
         )
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    | total of responses = {len(responses)}")
+        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ total of responses = {len(responses)}")
 
         from collections import Counter
         totals_per_status = Counter(r.status for r in responses)
         items = totals_per_status.items()
         for idx, (status, total) in enumerate(items):
-            icon = "|" if idx == (len(items) - 1) else "|"
+            icon = "└" if idx == (len(items) - 1) else "├"
             logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    {icon} total of responses with status {status:<9} = {total}")
 
         return responses
@@ -525,15 +525,15 @@ class RemoteQuickCommand:
         Returns:
             RqcResponse: The final response object, always returned even if an error occurs.
         """
-        assert request, "Sanity check | RQC-Request can not be None."
-        assert request.id, "Sanity check | RQC-Request ID can not be None."
+        assert request, "🌀 Sanity check | RQC-Request can not be None."
+        assert request.id, "🌀 Sanity check | RQC-Request ID can not be None."
 
         request_id = request.id
         try:
             # Try to create remote execution
             execution_id = self._create_execution(request=request)
         except Exception as e:
-            logging.exception(f"{request_id[:26]:<26} | RQC | Failed to create execution: {e}")
+            logging.exception(f"{request_id[:26]:<26} | RQC | ❌ Failed to create execution: {e}")
             return RqcResponse(
                 request=request,
                 status=RqcResponseStatus.ERROR,
@@ -543,8 +543,8 @@ class RemoteQuickCommand:
             # Logs request payload to disk
             request.write_to_file(output_dir=self.output_dir)
 
-        assert execution_id, "Sanity check | Execution was created but `execution_id` is missing."
-        assert request.execution_id, f"Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
+        assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
+        assert request.execution_id, f"🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
 
         # Poll for status
         response = None
@@ -554,7 +554,7 @@ class RemoteQuickCommand:
                 request=request, handler=handler, execution_id=execution_id,
             )
         except Exception as e:
-            logging.error(f"{execution_id} | RQC | Error during polling: {e}")
+            logging.error(f"{execution_id} | RQC | ❌ Error during polling: {e}")
             response = RqcResponse(
                 request=request,
                 status=RqcResponseStatus.ERROR,
@@ -565,7 +565,7 @@ class RemoteQuickCommand:
             if response:
                 response.write_to_file(output_dir=self.output_dir)
 
-        assert response, "Sanity check | RQC-Response was not created during the polling phase."
+        assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
         return response
 
     # ======================
@@ -574,7 +574,7 @@ class RemoteQuickCommand:
 
     def _create_execution(self, request: RqcRequest) -> str:
         """Creates an RQC execution via POST with retries and exponential backoff."""
-        assert request, "Sanity check | RQC-Request not provided to create-execution phase."
+        assert request, "🌀 Sanity check | RQC-Request not provided to create-execution phase."
 
         request_id = request.id
         input_data = request.to_input_data()
@@ -587,7 +587,7 @@ class RemoteQuickCommand:
                     slug_name=self.slug_name, data=input_data, timeout=30
                 )
                 assert isinstance(response, requests.Response), \
-                    f"Sanity check | Object returned by `post_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
+                    f"🌀 Sanity check | Object returned by `post_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
 
                 response.raise_for_status()
                 execution_id = response.json()
@@ -597,7 +597,7 @@ class RemoteQuickCommand:
                 # Registers create execution response on its request
                 request.mark_as_finished(execution_id=execution_id)
                 logging.info(
-                    f"{request_id[:26]:<26} | RQC | Execution successfully created with Execution ID ({execution_id})."
+                    f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created with Execution ID ({execution_id})."
                 )
                 return execution_id
 
@@ -609,11 +609,11 @@ class RemoteQuickCommand:
                 # Retry up to max_retries
                 if attempt < self.max_retries:
                     sleep_time = self.backoff_factor * (2 ** attempt)
-                    logging.warning(f"{request_id[:26]:<26} | RQC | Failed to create execution: {e}")
-                    logging.warning(f"{request_id[:26]:<26} | RQC | Retrying to create execution in {sleep_time:.1f} seconds...")
+                    logging.warning(f"{request_id[:26]:<26} | RQC | ⚠️ Failed to create execution: {e}")
+                    logging.warning(f"{request_id[:26]:<26} | RQC | 🔁️ Retrying to create execution in {sleep_time:.1f} seconds...")
                     sleep_with_jitter(sleep_time)
                 else:
-                    logging.error(f"{request_id[:26]:<26} | RQC | Max retries exceeded while creating execution. Last error: {e}")
+                    logging.error(f"{request_id[:26]:<26} | RQC | ❌ Max retries exceeded while creating execution. Last error: {e}")
                     raise MaxRetriesExceededError(
                         message=f"Max retries exceeded while creating execution. Last error: {e}",
                         last_exception=e
@@ -635,9 +635,9 @@ class RemoteQuickCommand:
         start_time = time.time()
         execution_id = execution_id or request.execution_id
 
-        assert request, "Sanity check | RQC-Request not provided to polling phase."
-        assert execution_id, "Sanity check | Execution ID not provided to polling phase."
-        assert handler, "Sanity check | Result Handler not provided to polling phase."
+        assert request, "🌀 Sanity check | RQC-Request not provided to polling phase."
+        assert execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
+        assert handler, "🌀 Sanity check | Result Handler not provided to polling phase."
 
         retry_created = 0
         max_retry_created = 3
@@ -659,7 +659,7 @@ class RemoteQuickCommand:
                         execution_id=execution_id, timeout=30
                     )
                     assert isinstance(response, requests.Response), \
-                        f"Sanity check | Object returned by `get_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
+                        f"🌀 Sanity check | Object returned by `get_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
 
                     response.raise_for_status()
                     response_data = response.json()
@@ -670,7 +670,7 @@ class RemoteQuickCommand:
                         raise
                     # Sleeps a little bit before trying again
                     logging.warning(
-                        f"{execution_id} | RQC | Temporary polling failure: {e}"
+                        f"{execution_id} | RQC | ⚠️ Temporary polling failure: {e}"
                     )
                     sleep_with_jitter(self.poll_interval)
                     continue
@@ -687,7 +687,7 @@ class RemoteQuickCommand:
                         processed_result = handler.handle_result(
                             context=RqcResultContext(request, raw_result)
                         )
-                        logging.info(f"{execution_id} | RQC | Execution finished with status: {status}")
+                        logging.info(f"{execution_id} | RQC | ✅ Execution finished with status: {status}")
                         return RqcResponse(
                             request=request,
                             status=RqcResponseStatus.COMPLETED,
@@ -697,7 +697,7 @@ class RemoteQuickCommand:
                     except Exception as e:
                         handler_name = handler.__class__.__name__
                         logging.error(
-                            f"{execution_id} | RQC | It's not possible to handle the result (handler={handler_name}).",
+                            f"{execution_id} | RQC | ❌ It's not possible to handle the result (handler={handler_name}).",
                         )
                         raise RqcResultHandlerError(
                             cause=e,
@@ -707,7 +707,7 @@ class RemoteQuickCommand:
 
                 elif status == "FAILURE":
                     logging.error(
-                        f"{execution_id} | RQC | Execution failed on the server-side with the following response: "
+                        f"{execution_id} | RQC | ❌ Execution failed on the server-side with the following response: "
                         f"\n{json.dumps(response_data, indent=2)}"
                     )
                     return RqcResponse(
@@ -726,7 +726,7 @@ class RemoteQuickCommand:
                         )
 
                     logging.warning(
-                        f"{execution_id} | RQC | Retry count for status `CREATED`: {retry_created}/{max_retry_created}. "
+                        f"{execution_id} | RQC | ⚠️ Retry count for status `CREATED`: {retry_created}/{max_retry_created}. "
                         f"Retrying in {backoff_delay} seconds..."
                     )
                     sleep_with_jitter(backoff_delay)
@@ -737,7 +737,7 @@ class RemoteQuickCommand:
                     sleep_with_jitter(self.poll_interval)
 
         except TimeoutError as e:
-            logging.error(f"{execution_id} | RQC | Polling timed out due to: {e}")
+            logging.error(f"{execution_id} | RQC | ❌ Polling timed out due to: {e}")
             return RqcResponse(
                 request=request,
                 status=RqcResponseStatus.TIMEOUT,
