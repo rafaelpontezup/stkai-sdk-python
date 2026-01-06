@@ -2,7 +2,25 @@
 Remote Quick Commands (RQC) module for StackSpot AI.
 
 This module provides a client abstraction for executing Remote Quick Commands
-against the StackSpot AI API.
+against the StackSpot AI API with built-in support for:
+
+- Synchronous execution with automatic polling
+- Batch execution with thread-based concurrency
+- Automatic retries with exponential backoff
+- Customizable result handlers for response processing
+- Request/response logging to disk for debugging
+
+Example:
+    >>> from stkai.rqc import RemoteQuickCommand, RqcRequest
+    >>> rqc = RemoteQuickCommand(slug_name="my-quick-command")
+    >>> request = RqcRequest(payload={"input": "data"})
+    >>> response = rqc.execute(request)
+    >>> if response.is_completed():
+    ...     print(response.result)
+
+For batch execution:
+    >>> requests = [RqcRequest(payload={"id": i}) for i in range(10)]
+    >>> responses = rqc.execute_many(requests)
 """
 
 from stkai.rqc._handlers import (

@@ -27,7 +27,24 @@ from stkai.rqc._utils import save_json_file, sleep_with_jitter
 
 @dataclass
 class RqcRequest:
-    """Represents a Remote QuickCommand request."""
+    """
+    Represents a Remote QuickCommand request.
+
+    This class encapsulates all data needed to execute a Remote Quick Command,
+    including the payload to send and optional metadata for tracking purposes.
+
+    Attributes:
+        payload: The input data to send to the Quick Command. Can be any JSON-serializable object.
+        id: Unique identifier for this request. Auto-generated as UUID if not provided.
+        metadata: Optional dictionary for storing custom metadata (e.g., source file, context).
+
+    Example:
+        >>> request = RqcRequest(
+        ...     payload={"prompt": "Analyze this code", "code": "def foo(): pass"},
+        ...     id="my-custom-id",
+        ...     metadata={"source": "main.py", "line": 42}
+        ... )
+    """
     payload: Any
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -39,17 +56,36 @@ class RqcRequest:
 
     @property
     def execution_id(self) -> str | None:
+        """Returns the execution ID assigned by the server after creation, or None if not yet executed."""
         return self._execution_id
 
     def mark_as_finished(self, execution_id: str) -> None:
+        """
+        Marks the request as submitted by storing the server-assigned execution ID.
+
+        This method is called internally after a successful create-execution API call.
+
+        Args:
+            execution_id: The execution ID returned by the StackSpot AI API.
+        """
         self._execution_id = execution_id
 
     def to_input_data(self) -> dict[str, Any]:
+        """Converts the request payload to the format expected by the RQC API."""
         return {
             "input_data": self.payload,
         }
 
     def write_to_file(self, output_dir: Path) -> None:
+        """
+        Persists the request payload to a JSON file for debugging purposes.
+
+        Args:
+            output_dir: Directory where the JSON file will be saved.
+
+        The file is named `{tracking_id}-request.json` where tracking_id is either
+        the execution_id (if available) or the request id.
+        """
         assert output_dir, "Output directory is required."
         assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
 
@@ -62,7 +98,15 @@ class RqcRequest:
 
 
 class RqcResponseStatus(str, Enum):
-    """Status of an RQC execution."""
+    """
+    Status of an RQC execution.
+
+    Attributes:
+        COMPLETED: Execution finished successfully with a result.
+        FAILURE: Execution failed on the server-side (StackSpot AI returned an error).
+        ERROR: Client-side error occurred (network issues, invalid response, handler errors).
+        TIMEOUT: Execution did not complete within the configured poll_max_duration.
+    """
     COMPLETED = "COMPLETED"
     FAILURE = "FAILURE"
     ERROR = "ERROR"
@@ -74,7 +118,26 @@ class RqcResponseStatus(str, Enum):
 
 @dataclass(frozen=True)
 class RqcResponse:
-    """Represents the full Remote QuickCommand response."""
+    """
+    Represents the full Remote QuickCommand response.
+
+    This immutable class contains the execution result, status, and any error
+    information from a Remote Quick Command execution.
+
+    Attributes:
+        request: The original RqcRequest that generated this response.
+        status: The final status of the execution (COMPLETED, FAILURE, ERROR, or TIMEOUT).
+        result: The processed result from the result handler (only set when COMPLETED).
+        error: Error message describing what went wrong (only set on non-COMPLETED status).
+        raw_response: The raw JSON response from the StackSpot AI API (for debugging).
+
+    Example:
+        >>> response = rqc.execute(request)
+        >>> if response.is_completed():
+        ...     print(response.result)
+        ... else:
+        ...     print(f"Error: {response.error}")
+    """
     request: RqcRequest
     status: RqcResponseStatus
     result: Any | None = None
@@ -87,10 +150,12 @@ class RqcResponse:
 
     @property
     def execution_id(self) -> str | None:
+        """Returns the execution ID from the associated request."""
         return self.request.execution_id
 
     @property
     def raw_result(self) -> Any:
+        """Extracts the 'result' field from the raw API response, if available."""
         if not self.raw_response:
             return None
 
@@ -101,18 +166,23 @@ class RqcResponse:
         return _raw_result
 
     def is_error(self) -> bool:
+        """Returns True if a client-side error occurred during execution."""
         return self.status == RqcResponseStatus.ERROR
 
     def is_timeout(self) -> bool:
+        """Returns True if the execution timed out waiting for completion."""
         return self.status == RqcResponseStatus.TIMEOUT
 
     def is_failure(self) -> bool:
+        """Returns True if the execution failed on the server-side."""
         return self.status == RqcResponseStatus.FAILURE
 
     def is_completed(self) -> bool:
+        """Returns True if the execution completed successfully."""
         return self.status == RqcResponseStatus.COMPLETED
 
     def error_with_details(self) -> dict[str, Any]:
+        """Returns a dictionary with error details for non-completed responses."""
         if self.is_completed():
             return {}
 
@@ -123,6 +193,14 @@ class RqcResponse:
         }
 
     def write_to_file(self, output_dir: Path) -> None:
+        """
+        Persists the response to a JSON file for debugging purposes.
+
+        Args:
+            output_dir: Directory where the JSON file will be saved.
+
+        The file is named `{execution_id}-response-{status}.json`.
+        """
         assert output_dir, "Output directory is required."
         assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
 
@@ -144,7 +222,18 @@ class RqcResponse:
 
 @dataclass(frozen=True)
 class RqcResultContext:
-    """Context passed to result handlers during processing."""
+    """
+    Context passed to result handlers during processing.
+
+    This immutable class provides result handlers with all the information
+    needed to process an execution result, including the original request
+    and the raw result from the API.
+
+    Attributes:
+        request: The original RqcRequest (with execution_id already set).
+        raw_result: The unprocessed result from the StackSpot AI API.
+        handled: Flag indicating if a previous handler has already processed this result.
+    """
     request: RqcRequest
     raw_result: Any
     handled: bool = False
@@ -156,16 +245,38 @@ class RqcResultContext:
 
     @property
     def execution_id(self) -> str:
+        """Returns the execution ID from the associated request."""
         assert self.request.execution_id, "Execution ID is expected to exist at this point."
         return self.request.execution_id
 
 
 class RqcResultHandler(ABC):
-    """Abstract base class for result handlers."""
+    """
+    Abstract base class for result handlers.
+
+    Result handlers are responsible for transforming the raw API response
+    into a more useful format. Implement this class to create custom handlers.
+
+    Example:
+        >>> class MyHandler(RqcResultHandler):
+        ...     def handle_result(self, context: RqcResultContext) -> Any:
+        ...         return context.raw_result.upper()
+    """
 
     @abstractmethod
     def handle_result(self, context: RqcResultContext) -> Any:
-        """Process the result and return the transformed value."""
+        """
+        Process the result and return the transformed value.
+
+        Args:
+            context: The RqcResultContext containing the raw result and request info.
+
+        Returns:
+            The transformed result value.
+
+        Raises:
+            Any exception raised will be wrapped in RqcResultHandlerError.
+        """
         pass
 
 
@@ -174,16 +285,43 @@ class RqcResultHandler(ABC):
 # ======================
 
 class RqcHttpClient(ABC):
-    """Abstract base class for RQC HTTP clients."""
+    """
+    Abstract base class for RQC HTTP clients.
+
+    Implement this class to provide custom HTTP client implementations
+    for different authentication mechanisms or environments.
+
+    See Also:
+        StkCLIRqcHttpClient: Default implementation using StackSpot CLI credentials.
+    """
 
     @abstractmethod
     def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
-        """Execute an authorized GET request to retrieve execution status."""
+        """
+        Execute an authorized GET request to retrieve execution status.
+
+        Args:
+            execution_id: The execution ID to query.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response from the StackSpot AI API.
+        """
         pass
 
     @abstractmethod
     def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20) -> requests.Response:
-        """Execute an authorized POST request to create an execution."""
+        """
+        Execute an authorized POST request to create an execution.
+
+        Args:
+            slug_name: The Quick Command slug name to execute.
+            data: The request payload to send.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response from the StackSpot AI API.
+        """
         pass
 
 
@@ -192,7 +330,15 @@ class RqcHttpClient(ABC):
 # ======================
 
 class MaxRetriesExceededError(RuntimeError):
-    """Raised when the maximum number of retries is exceeded."""
+    """
+    Raised when the maximum number of retries is exceeded.
+
+    This exception is raised when all retry attempts to create an execution
+    have failed due to transient errors (5xx status codes or network issues).
+
+    Attributes:
+        last_exception: The last exception that caused the retry to fail.
+    """
 
     def __init__(self, message: str, last_exception: Exception | None = None):
         super().__init__(message)
@@ -200,7 +346,16 @@ class MaxRetriesExceededError(RuntimeError):
 
 
 class RqcResultHandlerError(RuntimeError):
-    """Raised when the result handler fails to process the result."""
+    """
+    Raised when the result handler fails to process the result.
+
+    This exception wraps any error that occurs during result processing,
+    providing access to the original cause and the handler that failed.
+
+    Attributes:
+        cause: The original exception that caused the handler to fail.
+        result_handler: The handler instance that raised the error.
+    """
 
     def __init__(self, message: str, cause: Exception | None = None, result_handler: "RqcResultHandler | None" = None):
         super().__init__(message)
@@ -209,7 +364,12 @@ class RqcResultHandlerError(RuntimeError):
 
 
 class ExecutionIdIsMissingError(RuntimeError):
-    """Raised when the execution ID is missing or not provided."""
+    """
+    Raised when the execution ID is missing or not provided.
+
+    This exception indicates that the StackSpot AI API returned an invalid
+    response without an execution ID after a create-execution request.
+    """
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -221,8 +381,32 @@ class ExecutionIdIsMissingError(RuntimeError):
 
 class RemoteQuickCommand:
     """
-    Synchronous client for executing Remote QuickCommands (RQC)
-    with built-in polling, retries, and thread-based concurrency.
+    Synchronous client for executing Remote QuickCommands (RQC).
+
+    This client provides a high-level interface for executing Remote Quick Commands
+    against the StackSpot AI API with built-in support for:
+
+    - Automatic polling until execution completes
+    - Exponential backoff with retries for transient failures
+    - Thread-based concurrency for batch execution
+    - Request/response logging to disk for debugging
+
+    Example:
+        >>> rqc = RemoteQuickCommand(slug_name="my-quick-command")
+        >>> request = RqcRequest(payload={"prompt": "Hello!"})
+        >>> response = rqc.execute(request)
+        >>> if response.is_completed():
+        ...     print(response.result)
+
+    Attributes:
+        slug_name: The Quick Command slug name to execute.
+        poll_interval: Seconds between status checks (default: 10.0).
+        poll_max_duration: Maximum seconds to wait for completion (default: 600.0).
+        max_workers: Maximum concurrent executions for batch mode (default: 8).
+        max_retries: Maximum retry attempts for create-execution (default: 3).
+        backoff_factor: Base delay multiplier for exponential backoff (default: 0.5).
+        output_dir: Directory for request/response logs (default: output/rqc/{slug_name}).
+        http_client: HTTP client for API calls (default: StkCLIRqcHttpClient).
     """
 
     def __init__(
@@ -236,6 +420,22 @@ class RemoteQuickCommand:
         output_dir: Path | None = None,
         http_client: RqcHttpClient | None = None,
     ):
+        """
+        Initialize the RemoteQuickCommand client.
+
+        Args:
+            slug_name: The Quick Command slug name (identifier) to execute.
+            poll_interval: Seconds to wait between polling status checks.
+            poll_max_duration: Maximum seconds to wait before timing out.
+            max_workers: Maximum number of concurrent threads for execute_many().
+            max_retries: Maximum retry attempts for failed create-execution calls.
+            backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
+            output_dir: Directory for saving request/response JSON files.
+            http_client: Custom HTTP client implementation for API calls.
+
+        Raises:
+            AssertionError: If any required parameter is invalid.
+        """
         assert slug_name, "RQC slug_name can not be empty."
         assert poll_interval, "Poll interval (in seconds) can not be empty."
         assert poll_interval > 0, "Poll interval (in seconds) must be greater than 0."

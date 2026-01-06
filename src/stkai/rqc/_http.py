@@ -3,6 +3,9 @@ HTTP client implementations for Remote Quick Command.
 
 This module contains concrete implementations of RqcHttpClient
 for making authorized HTTP requests to the StackSpot AI API.
+
+The default implementation (StkCLIRqcHttpClient) uses the StackSpot CLI
+for authentication, which requires the CLI to be installed and configured.
 """
 
 import random
@@ -14,12 +17,42 @@ from stkai.rqc._remote_quick_command import RqcHttpClient
 
 
 class StkCLIRqcHttpClient(RqcHttpClient):
-    """HTTP client implementation using StackSpot CLI for authorization."""
+    """
+    HTTP client implementation using StackSpot CLI for authorization.
+
+    This client delegates authentication to the StackSpot CLI (oscli),
+    which must be installed and logged in for this client to work.
+
+    The CLI handles token management, refresh, and injection of
+    authorization headers into HTTP requests.
+
+    Note:
+        Requires the `oscli` package to be installed and configured.
+        Install via: pip install oscli
+        Login via: stk login
+
+    See Also:
+        RqcHttpClient: Abstract base class defining the interface.
+    """
 
     @override
     def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+        """
+        Retrieves the execution status from the StackSpot AI API.
+
+        Args:
+            execution_id: The execution ID to query.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response containing execution status and result.
+
+        Raises:
+            AssertionError: If execution_id is empty or timeout is invalid.
+            requests.RequestException: If the HTTP request fails.
+        """
         assert execution_id, "Execution ID can not be empty."
-        assert timeout, "Timeout can not be empty."
+        assert timeout is not None, "Timeout can not be None."
         assert timeout > 0, "Timeout must be greater than 0."
 
         from oscli import __codebuddy_base_url__
@@ -38,8 +71,23 @@ class StkCLIRqcHttpClient(RqcHttpClient):
 
     @override
     def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20) -> requests.Response:
+        """
+        Creates a new Quick Command execution on the StackSpot AI API.
+
+        Args:
+            slug_name: The Quick Command slug name to execute.
+            data: The request payload containing input data.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response containing the execution ID.
+
+        Raises:
+            AssertionError: If slug_name is empty or timeout is invalid.
+            requests.RequestException: If the HTTP request fails.
+        """
         assert slug_name, "RQC slug-name can not be empty."
-        assert timeout, "Timeout can not be empty."
+        assert timeout is not None, "Timeout can not be None."
         assert timeout > 0, "Timeout must be greater than 0."
 
         from oscli import __codebuddy_base_url__
