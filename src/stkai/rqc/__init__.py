@@ -23,6 +23,10 @@ For batch execution:
     >>> responses = rqc.execute_many(requests)
 """
 
+from stkai.rqc._event_listeners import (
+    # Event listener implementations
+    FileLoggingListener,
+)
 from stkai.rqc._handlers import (
     DEFAULT_RESULT_HANDLER,
     RAW_RESULT_HANDLER,
@@ -41,6 +45,8 @@ from stkai.rqc._remote_quick_command import (
     MaxRetriesExceededError,
     # Main client
     RemoteQuickCommand,
+    # Event listener interface
+    RqcEventListener,
     # HTTP client interface
     RqcHttpClient,
     # Data models
@@ -67,6 +73,10 @@ __all__ = [
     "RawResultHandler",
     "DEFAULT_RESULT_HANDLER",
     "RAW_RESULT_HANDLER",
+    # Event listener interface
+    "RqcEventListener",
+    # Event listener implementations
+    "FileLoggingListener",
     # HTTP client interface
     "RqcHttpClient",
     # HTTP client implementations

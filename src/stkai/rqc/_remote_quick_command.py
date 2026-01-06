@@ -281,6 +281,80 @@ class RqcResultHandler(ABC):
 
 
 # ======================
+# Event Listener
+# ======================
+
+class RqcEventListener:
+    """
+    Base class for observing RQC execution lifecycle events.
+
+    Listeners are read-only observers: they can react to events, log, notify,
+    or collect metrics, but should NOT modify the request or response.
+
+    The `context` dict is shared across all listener calls for a single execution,
+    allowing listeners to store and retrieve state (e.g., start time for telemetry).
+
+    All methods have default empty implementations, so subclasses only need to
+    override the methods they care about.
+
+    Example:
+        >>> class MetricsListener(RqcEventListener):
+        ...     def on_before_execute(self, request, context):
+        ...         context['start_time'] = time.time()
+        ...
+        ...     def on_after_execute(self, request, response, context):
+        ...         duration = time.time() - context['start_time']
+        ...         statsd.timing('rqc.duration', duration)
+    """
+
+    def on_before_execute(self, request: "RqcRequest", context: dict[str, Any]) -> None:
+        """
+        Called before starting the execution.
+
+        Args:
+            request: The request about to be executed.
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    def on_status_change(
+        self,
+        request: "RqcRequest",
+        old_status: str,
+        new_status: str,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called when the execution status changes during polling.
+
+        Args:
+            request: The request being executed.
+            old_status: The previous status (e.g., "CREATED", "RUNNING").
+            new_status: The new status.
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    def on_after_execute(
+        self,
+        request: "RqcRequest",
+        response: "RqcResponse",
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called after execution completes (success or failure).
+
+        Check response.status or response.is_completed() to determine the outcome.
+
+        Args:
+            request: The executed request.
+            response: The final response (always provided, check status for outcome).
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+
+# ======================
 # HTTP Client
 # ======================
 
@@ -405,8 +479,8 @@ class RemoteQuickCommand:
         max_workers: Maximum concurrent executions for batch mode (default: 8).
         max_retries: Maximum retry attempts for create-execution (default: 3).
         backoff_factor: Base delay multiplier for exponential backoff (default: 0.5).
-        output_dir: Directory for request/response logs (default: output/rqc/{slug_name}).
         http_client: HTTP client for API calls (default: StkCLIRqcHttpClient).
+        listeners: List of event listeners for observing execution lifecycle.
     """
 
     def __init__(
@@ -419,6 +493,7 @@ class RemoteQuickCommand:
         backoff_factor: float = 0.5,
         output_dir: Path | None = None,
         http_client: RqcHttpClient | None = None,
+        listeners: list[RqcEventListener] | None = None,
     ):
         """
         Initialize the RemoteQuickCommand client.
@@ -430,8 +505,9 @@ class RemoteQuickCommand:
             max_workers: Maximum number of concurrent threads for execute_many().
             max_retries: Maximum retry attempts for failed create-execution calls.
             backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
-            output_dir: Directory for saving request/response JSON files.
+            output_dir: Directory for saving request/response JSON files (creates FileLoggingListener).
             http_client: Custom HTTP client implementation for API calls.
+            listeners: List of event listeners for observing execution lifecycle.
 
         Raises:
             AssertionError: If any required parameter is invalid.
@@ -458,13 +534,18 @@ class RemoteQuickCommand:
 
         if not output_dir:
             output_dir = Path(f"output/rqc/{self.slug_name}")
-            output_dir.mkdir(parents=True, exist_ok=True)
         if not http_client:
             from stkai.rqc._http import StkCLIRqcHttpClient
             http_client = StkCLIRqcHttpClient()
 
         self.output_dir: Path = output_dir
         self.http_client: RqcHttpClient = http_client
+
+        # Setup listeners
+        self.listeners: list[RqcEventListener] = list(listeners) if listeners else []
+        if not listeners:
+            from stkai.rqc._event_listeners import FileLoggingListener
+            self.listeners.append(FileLoggingListener(self.output_dir))
 
     # ======================
     # Public API
@@ -576,20 +657,28 @@ class RemoteQuickCommand:
         assert request, "🌀 Sanity check | RQC-Request can not be None."
         assert request.id, "🌀 Sanity check | RQC-Request ID can not be None."
 
+        # Create context for listeners (shared across all listener calls for this execution)
+        context: dict[str, Any] = {}
+
+        # Notify listeners: before execute
+        self._notify_listeners("on_before_execute", request=request, context=context)
+
         # Try to create the remote execution
-        request_id = request.id
+        response = None
         try:
             execution_id = self._create_execution(request=request)
         except Exception as e:
-            logging.exception(f"{request_id[:26]:<26} | RQC | ❌ Failed to create execution: {e}")
-            return RqcResponse(
+            logging.exception(f"{request.id[:26]:<26} | RQC | ❌ Failed to create execution: {e}")
+            response = RqcResponse(
                 request=request,
                 status=RqcResponseStatus.ERROR,
                 error=f"Failed to create execution: {e}",
             )
+            return response
         finally:
-            # Logs request payload to disk
-            request.write_to_file(output_dir=self.output_dir)
+            # Notify listeners: after execute (in case of error)
+            if response:
+                self._notify_listeners("on_after_execute", request=request, response=response, context=context)
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
         assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
@@ -602,7 +691,7 @@ class RemoteQuickCommand:
         response = None
         try:
             response = self._poll_until_done(
-                request=request, handler=result_handler
+                request=request, handler=result_handler, context=context
             )
         except Exception as e:
             logging.error(f"{execution_id} | RQC | ❌ Error during polling: {e}")
@@ -612,9 +701,9 @@ class RemoteQuickCommand:
                 error=f"Error during polling: {e}",
             )
         finally:
-            # Logs response body or error-details to disk
+            # Notify listeners: after execute (always called)
             if response:
-                response.write_to_file(output_dir=self.output_dir)
+                self._notify_listeners("on_after_execute", request=request, response=response, context=context)
 
         assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
         return response
@@ -680,6 +769,7 @@ class RemoteQuickCommand:
         self,
         request: RqcRequest,
         handler: RqcResultHandler,
+        context: dict[str, Any],
     ) -> RqcResponse:
         """Polls the status endpoint until the execution reaches a terminal state."""
         assert request, "🌀 Sanity check | RQC-Request not provided to polling phase."
@@ -728,6 +818,8 @@ class RemoteQuickCommand:
                 status = response_data.get('progress', {}).get('status').upper()
                 if status != last_status:
                     logging.info(f"{execution_id} | RQC | Current status: {status}")
+                    # Notify listeners: status change
+                    self._notify_listeners("on_status_change", request=request, old_status=last_status, new_status=status, context=context)
                     last_status = status
 
                 if status == "COMPLETED":
@@ -799,3 +891,28 @@ class RemoteQuickCommand:
             "Unexpected error while polling the status of execution: "
             "reached end of `_poll_until_done` method without returning the execution result."
         )
+
+    def _notify_listeners(
+        self,
+        event: str,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Notifies all registered listeners about an event.
+
+        Exceptions raised by listeners are logged but do not interrupt execution.
+
+        Args:
+            event: The event method name (e.g., 'on_before_execute').
+            **kwargs: Keyword arguments to pass to the listener method.
+        """
+        for listener in self.listeners:
+            try:
+                method = getattr(listener, event, None)
+                if method and callable(method):
+                    method(**kwargs)
+            except Exception as e:
+                listener_name = listener.__class__.__name__
+                logging.warning(
+                    f"RQC | Listener {listener_name}.{event}() raised an exception: {e}"
+                )
