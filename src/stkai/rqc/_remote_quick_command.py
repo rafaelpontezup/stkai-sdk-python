@@ -30,7 +30,7 @@ class RqcRequest:
     """Represents a Remote QuickCommand request."""
     payload: Any
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     _execution_id: str | None = None
 
     def __post_init__(self) -> None:
