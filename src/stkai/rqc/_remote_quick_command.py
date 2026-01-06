@@ -22,6 +22,44 @@ import requests
 from stkai.rqc._utils import save_json_file, sleep_with_jitter
 
 # ======================
+# Options
+# ======================
+
+@dataclass(frozen=True)
+class CreateExecutionOptions:
+    """
+    Options for the create-execution phase.
+
+    Controls retry behavior and timeouts when creating a new RQC execution.
+
+    Attributes:
+        max_retries: Maximum retry attempts for failed create-execution calls.
+        backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
+        timeout: HTTP request timeout in seconds.
+    """
+    max_retries: int = 3
+    backoff_factor: float = 0.5
+    timeout: int = 30
+
+
+@dataclass(frozen=True)
+class GetResultOptions:
+    """
+    Options for the get-result (polling) phase.
+
+    Controls polling behavior and timeouts when waiting for execution completion.
+
+    Attributes:
+        poll_interval: Seconds to wait between polling status checks.
+        poll_max_duration: Maximum seconds to wait before timing out.
+        timeout: HTTP request timeout in seconds.
+    """
+    poll_interval: float = 10.0
+    poll_max_duration: float = 600.0
+    timeout: int = 30
+
+
+# ======================
 # Data Models
 # ======================
 
@@ -474,11 +512,9 @@ class RemoteQuickCommand:
 
     Attributes:
         slug_name: The Quick Command slug name to execute.
-        poll_interval: Seconds between status checks (default: 10.0).
-        poll_max_duration: Maximum seconds to wait for completion (default: 600.0).
+        create_execution_options: Options for the create-execution phase.
+        get_result_options: Options for the get-result (polling) phase.
         max_workers: Maximum concurrent executions for batch mode (default: 8).
-        max_retries: Maximum retry attempts for create-execution (default: 3).
-        backoff_factor: Base delay multiplier for exponential backoff (default: 0.5).
         http_client: HTTP client for API calls (default: StkCLIRqcHttpClient).
         listeners: List of event listeners for observing execution lifecycle.
     """
@@ -486,12 +522,9 @@ class RemoteQuickCommand:
     def __init__(
         self,
         slug_name: str,
-        poll_interval: float = 10.0,
-        poll_max_duration: float = 600.0,  # 10min
+        create_execution_options: CreateExecutionOptions | None = None,
+        get_result_options: GetResultOptions | None = None,
         max_workers: int = 8,
-        max_retries: int = 3,
-        backoff_factor: float = 0.5,
-        output_dir: Path | None = None,
         http_client: RqcHttpClient | None = None,
         listeners: list[RqcEventListener] | None = None,
     ):
@@ -500,12 +533,9 @@ class RemoteQuickCommand:
 
         Args:
             slug_name: The Quick Command slug name (identifier) to execute.
-            poll_interval: Seconds to wait between polling status checks.
-            poll_max_duration: Maximum seconds to wait before timing out.
+            create_execution_options: Options for the create-execution phase.
+            get_result_options: Options for the get-result (polling) phase.
             max_workers: Maximum number of concurrent threads for execute_many().
-            max_retries: Maximum retry attempts for failed create-execution calls.
-            backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
-            output_dir: Directory for saving request/response JSON files (creates FileLoggingListener).
             http_client: Custom HTTP client implementation for API calls.
             listeners: List of event listeners for observing execution lifecycle.
 
@@ -513,39 +543,26 @@ class RemoteQuickCommand:
             AssertionError: If any required parameter is invalid.
         """
         assert slug_name, "RQC slug_name can not be empty."
-        assert poll_interval, "Poll interval (in seconds) can not be empty."
-        assert poll_interval > 0, "Poll interval (in seconds) must be greater than 0."
-        assert poll_max_duration, "Poll max_duration (in seconds) can not be empty."
-        assert poll_max_duration > 0, "Poll max_duration (in seconds) must be greater than 0."
         assert max_workers, "Thread-pool max_workers can not be empty."
         assert max_workers > 0, "Thread-pool max_workers must be greater than 0."
-        assert max_retries, "Create-execution max_retries can not be empty."
-        assert max_retries > 0, "Create-execution max_retries must be greater than 0."
-        assert backoff_factor, "Create-execution backoff_factor can not be empty."
-        assert backoff_factor > 0, "Create-execution backoff_factor must be greater than 0."
 
         self.slug_name = slug_name
-        self.poll_interval = poll_interval
-        self.poll_max_duration = poll_max_duration
+        self.create_execution_options = create_execution_options or CreateExecutionOptions()
+        self.get_result_options = get_result_options or GetResultOptions()
         self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
 
-        if not output_dir:
-            output_dir = Path(f"output/rqc/{self.slug_name}")
         if not http_client:
             from stkai.rqc._http import StkCLIRqcHttpClient
             http_client = StkCLIRqcHttpClient()
-
-        self.output_dir: Path = output_dir
         self.http_client: RqcHttpClient = http_client
 
-        # Setup listeners
+        # Setup listeners with default FileLoggingListener if none provided
         self.listeners: list[RqcEventListener] = list(listeners) if listeners else []
         if not listeners:
             from stkai.rqc._event_listeners import FileLoggingListener
-            self.listeners.append(FileLoggingListener(self.output_dir))
+            output_dir = Path(f"output/rqc/{self.slug_name}")
+            self.listeners.append(FileLoggingListener(output_dir))
 
     # ======================
     # Public API
@@ -578,8 +595,7 @@ class RemoteQuickCommand:
             f"🛜 Starting batch execution of {len(request_list)} requests."
         )
         logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ max_concurrent={self.max_workers}")
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ slug_name='{self.slug_name}'")
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ output_dir='{self.output_dir}'")
+        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
 
         # Use thread-pool for parallel calls to `execute`
         future_to_index = {
@@ -718,13 +734,14 @@ class RemoteQuickCommand:
 
         request_id = request.id
         input_data = request.to_input_data()
-        max_attempts = self.max_retries + 1
+        options = self.create_execution_options
+        max_attempts = options.max_retries + 1
 
         for attempt in range(max_attempts):
             try:
                 logging.info(f"{request_id[:26]:<26} | RQC | Sending request to create execution (attempt {attempt + 1}/{max_attempts})...")
                 response = self.http_client.post_with_authorization(
-                    slug_name=self.slug_name, data=input_data, timeout=30
+                    slug_name=self.slug_name, data=input_data, timeout=options.timeout
                 )
                 assert isinstance(response, requests.Response), \
                     f"🌀 Sanity check | Object returned by `post_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
@@ -747,8 +764,8 @@ class RemoteQuickCommand:
                 if _response is not None and 400 <= _response.status_code < 500:
                     raise
                 # Retry up to max_retries
-                if attempt < self.max_retries:
-                    sleep_time = self.backoff_factor * (2 ** attempt)
+                if attempt < options.max_retries:
+                    sleep_time = options.backoff_factor * (2 ** attempt)
                     logging.warning(f"{request_id[:26]:<26} | RQC | ⚠️ Failed to create execution: {e}")
                     logging.warning(f"{request_id[:26]:<26} | RQC | 🔁️ Retrying to create execution in {sleep_time:.1f} seconds...")
                     sleep_with_jitter(sleep_time)
@@ -774,9 +791,11 @@ class RemoteQuickCommand:
         """Polls the status endpoint until the execution reaches a terminal state."""
         assert request, "🌀 Sanity check | RQC-Request not provided to polling phase."
         assert handler, "🌀 Sanity check | Result Handler not provided to polling phase."
+        assert context is not None, "🌀 Sanity check | Event context not provided to polling phase."
         assert request.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
 
         start_time = time.time()
+        options = self.get_result_options
         execution_id = request.execution_id
 
         retry_created = 0
@@ -788,15 +807,15 @@ class RemoteQuickCommand:
         try:
             while True:
                 # Gives up after poll max-duration (it prevents infinite loop)
-                if time.time() - start_time > self.poll_max_duration:
+                if time.time() - start_time > options.poll_max_duration:
                     raise TimeoutError(
-                        f"Timeout after {self.poll_max_duration} seconds waiting for RQC execution to complete. "
+                        f"Timeout after {options.poll_max_duration} seconds waiting for RQC execution to complete. "
                         f"Last status: `{last_status}`."
                     )
 
                 try:
                     response = self.http_client.get_with_authorization(
-                        execution_id=execution_id, timeout=30
+                        execution_id=execution_id, timeout=options.timeout
                     )
                     assert isinstance(response, requests.Response), \
                         f"🌀 Sanity check | Object returned by `get_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
@@ -812,7 +831,7 @@ class RemoteQuickCommand:
                     logging.warning(
                         f"{execution_id} | RQC | ⚠️ Temporary polling failure: {e}"
                     )
-                    sleep_with_jitter(self.poll_interval)
+                    sleep_with_jitter(options.poll_interval)
                     continue
 
                 status = response_data.get('progress', {}).get('status').upper()
@@ -861,7 +880,7 @@ class RemoteQuickCommand:
                 elif status == "CREATED":
                     # There's a great chance the StackSpot AI is overloaded and needs some time to recover
                     retry_created += 1
-                    backoff_delay = (self.poll_interval * retry_created) * 1.5  # Apply linear-backoff with +50%
+                    backoff_delay = (options.poll_interval * retry_created) * 1.5  # Apply linear-backoff with +50%
                     if retry_created > max_retry_created:
                         raise TimeoutError(
                             "Quick Command execution is possibly stuck on status `CREATED` because the StackSpot AI server is overloaded."
@@ -874,9 +893,9 @@ class RemoteQuickCommand:
                     sleep_with_jitter(backoff_delay)
                 else:
                     logging.info(
-                        f"{execution_id} | RQC | Execution is still running. Retrying in {int(self.poll_interval)} seconds..."
+                        f"{execution_id} | RQC | Execution is still running. Retrying in {int(options.poll_interval)} seconds..."
                     )
-                    sleep_with_jitter(self.poll_interval)
+                    sleep_with_jitter(options.poll_interval)
 
         except TimeoutError as e:
             logging.error(f"{execution_id} | RQC | ❌ Polling timed out due to: {e}")

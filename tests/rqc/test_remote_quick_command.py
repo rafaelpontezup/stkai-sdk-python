@@ -10,6 +10,8 @@ from unittest.mock import Mock
 import requests
 
 from stkai.rqc import (
+    CreateExecutionOptions,
+    GetResultOptions,
     RemoteQuickCommand,
     RqcHttpClient,
     RqcRequest,
@@ -46,15 +48,19 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Mock of the client respecting the interface signature
         self.http_client = Mock(spec=RqcHttpClient)
 
-        # Instance with a small poll_interval to run fast
+        # Instance with small intervals to run fast
         self.rqc = RemoteQuickCommand(
             slug_name=self.slug_name,
-            poll_interval=0.01,
-            poll_max_duration=0.1,
+            create_execution_options=CreateExecutionOptions(
+                max_retries=3,
+                backoff_factor=0.1,
+            ),
+            get_result_options=GetResultOptions(
+                poll_interval=0.01,
+                poll_max_duration=0.1,
+            ),
             http_client=self.http_client,
-            output_dir=self.tmp_dir,
-            max_retries=3,
-            backoff_factor=0.1,
+            listeners=[],  # Disable default FileLoggingListener
         )
 
     # ---------------------------------------------------------
@@ -204,12 +210,16 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Use longer poll_max_duration to ensure CREATED retries exhaust before general timeout
         rqc_for_created_test = RemoteQuickCommand(
             slug_name=self.slug_name,
-            poll_interval=0.01,
-            poll_max_duration=1.0,  # Longer timeout to allow CREATED retries to exhaust
+            create_execution_options=CreateExecutionOptions(
+                max_retries=3,
+                backoff_factor=0.1,
+            ),
+            get_result_options=GetResultOptions(
+                poll_interval=0.01,
+                poll_max_duration=1.0,  # Longer timeout to allow CREATED retries to exhaust
+            ),
             http_client=self.http_client,
-            output_dir=self.tmp_dir,
-            max_retries=3,
-            backoff_factor=0.1,
+            listeners=[],  # Disable default FileLoggingListener
         )
 
         # Action
@@ -325,7 +335,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             result.error
         )
         # Verify multiple attempts (depending on internal retry logic)
-        self.assertGreaterEqual(self.http_client.post_with_authorization.call_count, self.rqc.max_retries)
+        self.assertGreaterEqual(self.http_client.post_with_authorization.call_count, self.rqc.create_execution_options.max_retries)
         # Should not perform polling
         self.http_client.get_with_authorization.assert_not_called()
 
@@ -488,7 +498,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
             if behavior == "TIMEOUT":
                 # Simulate long polling until poll_max_duration is reached
-                time.sleep(self.rqc.poll_max_duration + 0.1)
+                time.sleep(self.rqc.get_result_options.poll_max_duration + 0.1)
                 return make_response(json_data={"progress": {"status": "PENDING"}})
 
             elif behavior == "ERROR":

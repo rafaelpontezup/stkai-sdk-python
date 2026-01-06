@@ -40,7 +40,10 @@ from stkai.rqc._http import (
     StkCLIRqcHttpClient,
 )
 from stkai.rqc._remote_quick_command import (
+    # Options
+    CreateExecutionOptions,
     ExecutionIdIsMissingError,
+    GetResultOptions,
     # Errors
     MaxRetriesExceededError,
     # Main client
@@ -60,6 +63,9 @@ from stkai.rqc._remote_quick_command import (
 )
 
 __all__ = [
+    # Options
+    "CreateExecutionOptions",
+    "GetResultOptions",
     # Data models
     "RqcRequest",
     "RqcResponse",
