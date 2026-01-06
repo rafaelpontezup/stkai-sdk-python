@@ -126,23 +126,15 @@ class RqcResponse:
         assert output_dir, "Output directory is required."
         assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
 
-        response_result = self.raw_result
-        if self.is_completed():
-            # Tries to convert the JSON result to Python object...
-            try:
-                from stkai.rqc._handlers import JsonResultHandler
-                response_result = JsonResultHandler().handle_result(
-                    context=RqcResultContext(request=self.request, raw_result=response_result)
-                )
-            except json.JSONDecodeError:
-                # ... otherwise uses it as-is.
-                pass
-        else:
+        response_result = self.raw_response or {}
+        if not self.is_completed():
             response_result = self.error_with_details()
 
+        _tracking_id = self.request.execution_id or self.request.id
+        _tracking_id = re.sub(r'[^\w.$-]', '_', _tracking_id)
         save_json_file(
             data=response_result,
-            file_path=output_dir / f"{self.execution_id}-response-{self.status}.json"
+            file_path=output_dir / f"{_tracking_id}-response-{self.status}.json"
         )
 
 
@@ -420,7 +412,7 @@ class RemoteQuickCommand:
                 error=f"Error during polling: {e}",
             )
         finally:
-            # Logs response result or error-details to disk
+            # Logs response body or error-details to disk
             if response:
                 response.write_to_file(output_dir=self.output_dir)
 
