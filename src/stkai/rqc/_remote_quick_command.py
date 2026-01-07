@@ -670,7 +670,17 @@ class RemoteQuickCommand:
         Returns:
             RqcResponse: The final response object, always returned even if an error occurs.
         """
-        return self._execute_workflow(request=request, result_handler=result_handler)
+        logging.info(f"{request.id[:26]:<26} | RQC | 🛜 Starting execution of a single request.")
+        logging.info(f"{request.id[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
+
+        response = self._execute_workflow(
+            request=request, result_handler=result_handler
+        )
+
+        logging.info(
+            f"{request.id[:26]:<26} | RQC | 🛜 Execution finished with status: {response.status}"
+        )
+        return response
 
     def _execute_workflow(
         self,
@@ -695,10 +705,10 @@ class RemoteQuickCommand:
         assert request.id, "🌀 Sanity check | RQC-Request ID can not be None."
 
         # Create context for listeners (shared across all listener calls for this execution)
-        context: dict[str, Any] = {}
+        event_context: dict[str, Any] = {}
 
         # Notify listeners: before execute
-        self._notify_listeners("on_before_execute", request=request, context=context)
+        self._notify_listeners("on_before_execute", request=request, context=event_context)
 
         # Phase-1: Try to create the remote execution
         response = None
@@ -715,10 +725,11 @@ class RemoteQuickCommand:
         finally:
             # Notify listeners: after execute (in case of error)
             if response:
-                self._notify_listeners("on_after_execute", request=request, response=response, context=context)
+                self._notify_listeners("on_after_execute", request=request, response=response, context=event_context)
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
         assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
+        assert execution_id == request.execution_id, "🌀 Sanity check | RQC-Request's `execution_id` and response's `execution_id` are different."
 
         # Phase-2: Poll for status
         if not result_handler:
@@ -728,7 +739,7 @@ class RemoteQuickCommand:
         response = None
         try:
             response = self._poll_until_done(
-                request=request, handler=result_handler, context=context
+                request=request, handler=result_handler, context=event_context
             )
         except Exception as e:
             logging.error(f"{execution_id} | RQC | ❌ Error during polling: {e}")
@@ -740,7 +751,7 @@ class RemoteQuickCommand:
         finally:
             # Notify listeners: after execute (always called)
             if response:
-                self._notify_listeners("on_after_execute", request=request, response=response, context=context)
+                self._notify_listeners("on_after_execute", request=request, response=response, context=event_context)
 
         assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
         return response
