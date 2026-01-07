@@ -544,13 +544,20 @@ class RemoteQuickCommand:
         """
         Initialize the RemoteQuickCommand client.
 
+        By default, a FileLoggingListener is registered to persist request/response
+        to JSON files in `output/rqc/{slug_name}/`. Pass `listeners=[]` to disable
+        this behavior, or provide your own list of listeners.
+
         Args:
             slug_name: The Quick Command slug name (identifier) to execute.
             create_execution_options: Options for the create-execution phase.
             get_result_options: Options for the get-result (polling) phase.
             max_workers: Maximum number of concurrent threads for execute_many().
             http_client: Custom HTTP client implementation for API calls.
-            listeners: List of event listeners for observing execution lifecycle.
+                If None, uses StkCLIRqcHttpClient (requires StackSpot CLI).
+            listeners: Event listeners for observing execution lifecycle.
+                If None (default), registers a FileLoggingListener.
+                If [] (empty list), disables default logging.
 
         Raises:
             AssertionError: If any required parameter is invalid.
@@ -570,12 +577,14 @@ class RemoteQuickCommand:
             http_client = StkCLIRqcHttpClient()
         self.http_client: RqcHttpClient = http_client
 
-        # Setup listeners with default FileLoggingListener if none provided
-        self.listeners: list[RqcEventListener] = list(listeners) if listeners else []
-        if not listeners:
+        # Setup default FileLoggingListener when no listeners are specified (None).
+        # To disable logging, pass an empty list: `listeners=[]`
+        if listeners is None:
             from stkai.rqc._event_listeners import FileLoggingListener
-            output_dir = Path(f"output/rqc/{self.slug_name}")
-            self.listeners.append(FileLoggingListener(output_dir))
+            listeners = [
+                FileLoggingListener(output_dir=Path(f"output/rqc/{self.slug_name}"))
+            ]
+        self.listeners: list[RqcEventListener] = listeners
 
     # ======================
     # Public API
