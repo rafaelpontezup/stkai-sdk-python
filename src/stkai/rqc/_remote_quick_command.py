@@ -577,7 +577,7 @@ class RemoteQuickCommand:
         Executes multiple RQC requests concurrently, waits for their completion (blocking),
         and returns their responses.
 
-        Each request is executed using `execute()` in parallel threads.
+        Each request is executed in parallel threads using the internal thread-pool.
         Returns a list of RqcResponse objects in the same order as `requests_list`.
 
         Args:
@@ -597,10 +597,10 @@ class RemoteQuickCommand:
         logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ max_concurrent={self.max_workers}")
         logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
 
-        # Use thread-pool for parallel calls to `execute`
+        # Use thread-pool for parallel calls to `_execute_workflow`
         future_to_index = {
             self.executor.submit(
-                self.execute,                     # function ref
+                self._execute_workflow,           # function ref
                 request=req,                      # arg-1
                 result_handler=result_handler     # arg-2
             ): idx
@@ -670,6 +670,27 @@ class RemoteQuickCommand:
         Returns:
             RqcResponse: The final response object, always returned even if an error occurs.
         """
+        return self._execute_workflow(request=request, result_handler=result_handler)
+
+    def _execute_workflow(
+        self,
+        request: RqcRequest,
+        result_handler: RqcResultHandler | None = None,
+    ) -> RqcResponse:
+        """
+        Internal workflow that executes a Remote QuickCommand.
+
+        This method contains the actual execution logic: creating the execution,
+        polling for status, and processing the result. It is called by both
+        `execute()` (for single requests) and `execute_many()` (for batch requests).
+
+        Args:
+            request: The RqcRequest instance representing the command to execute.
+            result_handler: Optional custom handler used to process the raw response.
+
+        Returns:
+            RqcResponse: The final response object, always returned even if an error occurs.
+        """
         assert request, "🌀 Sanity check | RQC-Request can not be None."
         assert request.id, "🌀 Sanity check | RQC-Request ID can not be None."
 
@@ -679,7 +700,7 @@ class RemoteQuickCommand:
         # Notify listeners: before execute
         self._notify_listeners("on_before_execute", request=request, context=context)
 
-        # Try to create the remote execution
+        # Phase-1: Try to create the remote execution
         response = None
         try:
             execution_id = self._create_execution(request=request)
@@ -699,7 +720,7 @@ class RemoteQuickCommand:
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
         assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
 
-        # Poll for status
+        # Phase-2: Poll for status
         if not result_handler:
             from stkai.rqc._handlers import DEFAULT_RESULT_HANDLER
             result_handler = DEFAULT_RESULT_HANDLER
