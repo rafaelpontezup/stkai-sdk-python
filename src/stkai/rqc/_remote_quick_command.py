@@ -13,6 +13,7 @@ import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -89,6 +90,7 @@ class RqcRequest:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     metadata: dict[str, Any] = field(default_factory=dict)
     _execution_id: str | None = None
+    _submitted_at: float | None = None
 
     def __post_init__(self) -> None:
         assert self.id, "Request ID can not be empty."
@@ -99,17 +101,25 @@ class RqcRequest:
         """Returns the execution ID assigned by the server after creation, or None if not yet executed."""
         return self._execution_id
 
+    @property
+    def submitted_at(self) -> datetime | None:
+        """Returns the submission timestamp as datetime (UTC), or None if not yet submitted."""
+        if self._submitted_at is None:
+            return None
+        return datetime.fromtimestamp(self._submitted_at, tz=UTC)
+
     def mark_as_submitted(self, execution_id: str) -> None:
         """
-        Marks the request as submitted by storing the server-assigned execution ID.
+        Marks the request as submitted by storing the server-assigned execution ID and timestamp.
 
         This method is called internally after a successful create-execution API call.
 
         Args:
             execution_id: The execution ID returned by the StackSpot AI API.
         """
-        assert execution_id, "Execution ID can not be empty."
+        assert execution_id, "Execution ID received from StackSpot AI server can not be empty."
         self._execution_id = execution_id
+        self._submitted_at = time.time()
 
     def to_input_data(self) -> dict[str, Any]:
         """Converts the request payload to the format expected by the RQC API."""
