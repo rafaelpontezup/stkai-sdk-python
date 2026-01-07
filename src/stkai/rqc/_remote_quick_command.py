@@ -790,7 +790,7 @@ class RemoteQuickCommand:
                 # Registers create execution response on its request
                 request.mark_as_finished(execution_id=execution_id)
                 logging.info(
-                    f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created with Execution ID ({execution_id})."
+                    f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created ({execution_id})"
                 )
                 return execution_id
 
@@ -925,7 +925,7 @@ class RemoteQuickCommand:
                         )
 
                     logging.warning(
-                        f"{execution_id} | RQC | ⚠️ Still in CREATED status "
+                        f"{execution_id} | RQC | ⚠️ Execution is still in CREATED status "
                         f"({elapsed_in_created:.2f}s/{options.overload_timeout}s). Possible server overload..."
                     )
                     sleep_with_jitter(options.poll_interval)
