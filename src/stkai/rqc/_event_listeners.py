@@ -36,19 +36,19 @@ class FileLoggingListener(RqcEventListener):
         >>> rqc = RemoteQuickCommand(slug_name="my-rqc", listeners=[listener])
     """
 
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path | str):
         """
         Initialize the listener with an output directory.
 
         Args:
-            output_dir: Directory where JSON files will be saved.
+            output_dir: Directory where JSON files will be saved (Path or str).
                        Created automatically if it doesn't exist.
         """
-        self.output_dir = output_dir
+        assert output_dir, "Output directory is required."
+
+        self.output_dir: Path = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        assert self.output_dir, "Output directory is required."
-        assert self.output_dir.is_dir(), f"Output directory is not a directory ({self.output_dir})."
 
     @override
     def on_after_execute(

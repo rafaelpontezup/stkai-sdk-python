@@ -38,10 +38,26 @@ class TestFileLoggingListenerInit(unittest.TestCase):
 
             self.assertEqual(listener.output_dir, output_dir)
 
+    def test_init_accepts_string_path(self):
+        """Should accept str and convert to Path internally."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir_str = f"{tmp}/string_path"
+
+            listener = FileLoggingListener(output_dir_str)
+
+            self.assertIsInstance(listener.output_dir, Path)
+            self.assertEqual(listener.output_dir, Path(output_dir_str))
+            self.assertTrue(listener.output_dir.exists())
+
     def test_init_fails_when_output_dir_is_none(self):
         """Should fail when output_dir is None."""
-        with self.assertRaises(AttributeError):
+        with self.assertRaises(AssertionError):
             FileLoggingListener(None)  # type: ignore
+
+    def test_init_fails_when_output_dir_is_empty_string(self):
+        """Should fail when output_dir is empty string."""
+        with self.assertRaises(AssertionError):
+            FileLoggingListener("")
 
     def test_init_fails_when_path_is_a_file(self):
         """Should fail when output_dir path exists but is a file, not a directory."""

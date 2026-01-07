@@ -582,7 +582,7 @@ class RemoteQuickCommand:
         if listeners is None:
             from stkai.rqc._event_listeners import FileLoggingListener
             listeners = [
-                FileLoggingListener(output_dir=Path(f"output/rqc/{self.slug_name}"))
+                FileLoggingListener(output_dir=f"output/rqc/{self.slug_name}")
             ]
         self.listeners: list[RqcEventListener] = listeners
 
