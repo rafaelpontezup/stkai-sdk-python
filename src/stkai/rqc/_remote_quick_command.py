@@ -680,6 +680,9 @@ class RemoteQuickCommand:
         logging.info(
             f"{request.id[:26]:<26} | RQC | 🛜 Execution finished with status: {response.status}"
         )
+
+        assert response.request is request, \
+            "🌀 Sanity check | Unexpected mismatch: response do not reference its corresponding request."
         return response
 
     def _execute_workflow(
@@ -750,8 +753,7 @@ class RemoteQuickCommand:
             )
         finally:
             # Notify listeners: after execute (always called)
-            if response:
-                self._notify_listeners("on_after_execute", request=request, response=response, context=event_context)
+            self._notify_listeners("on_after_execute", request=request, response=response, context=event_context)
 
         assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
         return response
