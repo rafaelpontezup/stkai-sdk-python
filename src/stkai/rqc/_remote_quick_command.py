@@ -52,10 +52,12 @@ class GetResultOptions:
     Attributes:
         poll_interval: Seconds to wait between polling status checks.
         poll_max_duration: Maximum seconds to wait before timing out.
+        overload_timeout: Maximum seconds to tolerate CREATED status before assuming server overload.
         timeout: HTTP request timeout in seconds.
     """
     poll_interval: float = 10.0
     poll_max_duration: float = 600.0
+    overload_timeout: float = 60.0
     timeout: int = 30
 
 
@@ -832,9 +834,8 @@ class RemoteQuickCommand:
         options = self.get_result_options
         execution_id = request.execution_id
 
-        retry_created = 0
-        max_retry_created = 3
         last_status = "UNKNOWN"
+        created_since: float | None = None
 
         logging.info(f"{execution_id} | RQC | Starting polling loop...")
 
@@ -912,19 +913,22 @@ class RemoteQuickCommand:
                         raw_response=response_data,
                     )
                 elif status == "CREATED":
-                    # There's a great chance the StackSpot AI is overloaded and needs some time to recover
-                    retry_created += 1
-                    backoff_delay = (options.poll_interval * retry_created) * 1.5  # Apply linear-backoff with +50%
-                    if retry_created > max_retry_created:
+                    # Track how long we've been in CREATED status (possible server overload)
+                    if created_since is None:
+                        created_since = time.time()
+
+                    elapsed_in_created = time.time() - created_since
+                    if elapsed_in_created > options.overload_timeout:
                         raise TimeoutError(
-                            "Quick Command execution is possibly stuck on status `CREATED` because the StackSpot AI server is overloaded."
+                            f"Execution stuck in CREATED status for {elapsed_in_created:.2f}s. "
+                            f"The server may be overloaded (queue backpressure)."
                         )
 
                     logging.warning(
-                        f"{execution_id} | RQC | ⚠️ Retry count for status `CREATED`: {retry_created}/{max_retry_created}. "
-                        f"Retrying in {backoff_delay} seconds..."
+                        f"{execution_id} | RQC | ⚠️ Still in CREATED status "
+                        f"({elapsed_in_created:.2f}s/{options.overload_timeout}s). Possible server overload..."
                     )
-                    sleep_with_jitter(backoff_delay)
+                    sleep_with_jitter(options.poll_interval)
                 else:
                     logging.info(
                         f"{execution_id} | RQC | Execution is still running. Retrying in {int(options.poll_interval)} seconds..."

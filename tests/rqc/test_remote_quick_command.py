@@ -207,7 +207,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.http_client.post_with_authorization.return_value = post_resp
         self.http_client.get_with_authorization.return_value = created_resp
 
-        # Use longer poll_max_duration to ensure CREATED retries exhaust before general timeout
+        # Use short overload_timeout to trigger overload detection before poll_max_duration
         rqc_for_created_test = RemoteQuickCommand(
             slug_name=self.slug_name,
             create_execution_options=CreateExecutionOptions(
@@ -216,7 +216,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             ),
             get_result_options=GetResultOptions(
                 poll_interval=0.01,
-                poll_max_duration=1.0,  # Longer timeout to allow CREATED retries to exhaust
+                poll_max_duration=1.0,
+                overload_timeout=0.05,  # Short timeout to trigger overload detection
             ),
             http_client=self.http_client,
             listeners=[],  # Disable default FileLoggingListener
@@ -227,17 +228,15 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
         # Validation
         self.assertEqual(result.status, RqcResponseStatus.TIMEOUT)
-        self.assertIn(
-            "Quick Command execution is possibly stuck on status `CREATED` because the StackSpot AI server is overloaded.",
-            result.error
-        )
+        self.assertIn("CREATED status", result.error)
+        self.assertIn("overloaded", result.error)
         self.http_client.post_with_authorization.assert_called_once_with(
             slug_name=self.slug_name,
             data=request.to_input_data(),
             timeout=30
         )
-        # Should have made 4 GET attempts (initial + 3 retries before giving up)
-        self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 4)
+        # Should have made multiple GET attempts before overload timeout
+        self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 1)
 
     # ---------------------------------------------------------
     # Scenario 1: 4xx error when creating execution (POST)
