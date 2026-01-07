@@ -925,6 +925,9 @@ class RemoteQuickCommand:
             event: The event method name (e.g., 'on_before_execute').
             **kwargs: Keyword arguments to pass to the listener method.
         """
+        request: RqcRequest | None = kwargs.get("request")
+        tracking_id = (request.execution_id or request.id) if request else "unknown"
+
         for listener in self.listeners:
             try:
                 method = getattr(listener, event, None)
@@ -933,5 +936,5 @@ class RemoteQuickCommand:
             except Exception as e:
                 listener_name = listener.__class__.__name__
                 logging.warning(
-                    f"RQC | Listener {listener_name}.{event}() raised an exception: {e}"
+                    f"{tracking_id[:26]:<26} | RQC | Event listener `{listener_name}.{event}()` raised an exception: {e}"
                 )
