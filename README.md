@@ -49,6 +49,9 @@ Here you can see what it's possible to do with it:
    - 2.1. [Chaining multiple result handlers](#21-chaining-multiple-result-handlers)
 3. [Sending multiple RQC requests at once](#3-sending-multiple-rqc-requests-at-once)
 4. [Filtering only completed responses](#4-filtering-only-completed-responses)
+5. [Configuration](#configuration)
+6. [Event Listeners](#event-listeners)
+   - 6.1. [Custom Event Listener](#custom-event-listener)
 
 ### 1. Sending a single RQC request
 
@@ -196,20 +199,84 @@ timeouts = [r for r in all_responses if r.is_timeout()]
 
 ## Configuration
 
-`RemoteQuickCommand` accepts several configuration options:
+`RemoteQuickCommand` accepts several configuration options organized into two option classes:
+
+```python
+from stkai import RemoteQuickCommand
+from stkai.rqc import CreateExecutionOptions, GetResultOptions
+
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    create_execution_options=CreateExecutionOptions(
+        max_retries=3,          # Retries for failed create-execution calls (default: 3)
+        backoff_factor=0.5,     # Exponential backoff factor (default: 0.5)
+        request_timeout=30,     # HTTP request timeout in seconds (default: 30)
+    ),
+    get_result_options=GetResultOptions(
+        poll_interval=10.0,     # Seconds between status checks (default: 10)
+        poll_max_duration=600.0,# Max wait time in seconds (default: 600 = 10min)
+        overload_timeout=60.0,  # Max seconds in CREATED status before timeout (default: 60)
+        request_timeout=30,     # HTTP request timeout in seconds (default: 30)
+    ),
+    max_workers=8,              # Concurrent requests for execute_many (default: 8)
+)
+```
+
+## Event Listeners
+
+You can observe the RQC execution lifecycle by registering event listeners. Listeners are useful for logging, metrics collection, or custom processing:
 
 ```python
 from pathlib import Path
 from stkai import RemoteQuickCommand
+from stkai.rqc import RqcEventListener, FileLoggingListener
+
+# Use the built-in FileLoggingListener to persist request/response to JSON files
+listener = FileLoggingListener(output_dir=Path("./output/rqc"))
 
 rqc = RemoteQuickCommand(
     slug_name="my-quick-command",
-    poll_interval=10.0,        # Seconds between status checks (default: 10)
-    poll_max_duration=600.0,   # Max wait time in seconds (default: 600 = 10min)
-    max_workers=8,             # Concurrent requests for execute_many (default: 8)
-    max_retries=3,             # Retries for failed requests (default: 3)
-    backoff_factor=0.5,        # Exponential backoff factor (default: 0.5)
-    output_dir=Path("output"), # Directory for request/response logs
+    listeners=[listener]
+)
+```
+
+By default, if no listeners are provided, a `FileLoggingListener` is automatically registered to save request/response logs to `output/rqc/{slug_name}/`.
+
+### Custom Event Listener
+
+You can create custom listeners by extending the `RqcEventListener` class:
+
+```python
+import time
+from typing import Any
+from stkai.rqc import RqcEventListener, RqcRequest, RqcResponse
+
+class MetricsListener(RqcEventListener):
+    def on_before_execute(self, request: RqcRequest, context: dict[str, Any]) -> None:
+        context['start_time'] = time.time()
+
+    def on_status_change(
+        self,
+        request: RqcRequest,
+        old_status: str,
+        new_status: str,
+        context: dict[str, Any],
+    ) -> None:
+        print(f"Status changed: {old_status} -> {new_status}")
+
+    def on_after_execute(
+        self,
+        request: RqcRequest,
+        response: RqcResponse,
+        context: dict[str, Any],
+    ) -> None:
+        duration = time.time() - context['start_time']
+        print(f"Execution took {duration:.2f}s with status: {response.status}")
+
+# Use your custom listener
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    listeners=[MetricsListener()]
 )
 ```
 
