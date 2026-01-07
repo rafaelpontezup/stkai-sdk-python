@@ -132,7 +132,7 @@ class JsonResultHandler(RqcResultHandler):
         """
         result = context.raw_result
         if not result:
-            return None
+            return result
 
         if isinstance(result, dict):
             return deepcopy(result)
