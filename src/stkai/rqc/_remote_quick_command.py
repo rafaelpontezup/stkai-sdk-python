@@ -35,11 +35,11 @@ class CreateExecutionOptions:
     Attributes:
         max_retries: Maximum retry attempts for failed create-execution calls.
         backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
-        timeout: HTTP request timeout in seconds.
+        request_timeout: HTTP request timeout in seconds.
     """
     max_retries: int = 3
     backoff_factor: float = 0.5
-    timeout: int = 30
+    request_timeout: int = 30
 
 
 @dataclass(frozen=True)
@@ -53,12 +53,12 @@ class GetResultOptions:
         poll_interval: Seconds to wait between polling status checks.
         poll_max_duration: Maximum seconds to wait before timing out.
         overload_timeout: Maximum seconds to tolerate CREATED status before assuming server overload.
-        timeout: HTTP request timeout in seconds.
+        request_timeout: HTTP request timeout in seconds.
     """
     poll_interval: float = 10.0
     poll_max_duration: float = 600.0
     overload_timeout: float = 60.0
-    timeout: int = 30
+    request_timeout: int = 30
 
 
 # ======================
@@ -777,7 +777,7 @@ class RemoteQuickCommand:
             try:
                 logging.info(f"{request_id[:26]:<26} | RQC | Sending request to create execution (attempt {attempt + 1}/{max_attempts})...")
                 response = self.http_client.post_with_authorization(
-                    slug_name=self.slug_name, data=input_data, timeout=options.timeout
+                    slug_name=self.slug_name, data=input_data, timeout=options.request_timeout
                 )
                 assert isinstance(response, requests.Response), \
                     f"🌀 Sanity check | Object returned by `post_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
@@ -850,7 +850,7 @@ class RemoteQuickCommand:
 
                 try:
                     response = self.http_client.get_with_authorization(
-                        execution_id=execution_id, timeout=options.timeout
+                        execution_id=execution_id, timeout=options.request_timeout
                     )
                     assert isinstance(response, requests.Response), \
                         f"🌀 Sanity check | Object returned by `get_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
