@@ -22,7 +22,7 @@ from stkai.rqc._handlers import (
 def make_context(raw_result: Any, handled: bool = False) -> RqcResultContext:
     """Helper to create a valid RqcResultContext for testing."""
     request = RqcRequest(payload={"test": True}, id="test-req-id")
-    request.mark_as_finished(execution_id="test-exec-id")
+    request.mark_as_submitted(execution_id="test-exec-id")
     return RqcResultContext(request=request, raw_result=raw_result, handled=handled)
 
 

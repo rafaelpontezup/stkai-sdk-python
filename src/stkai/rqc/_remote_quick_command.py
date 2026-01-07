@@ -99,7 +99,7 @@ class RqcRequest:
         """Returns the execution ID assigned by the server after creation, or None if not yet executed."""
         return self._execution_id
 
-    def mark_as_finished(self, execution_id: str) -> None:
+    def mark_as_submitted(self, execution_id: str) -> None:
         """
         Marks the request as submitted by storing the server-assigned execution ID.
 
@@ -108,6 +108,7 @@ class RqcRequest:
         Args:
             execution_id: The execution ID returned by the StackSpot AI API.
         """
+        assert execution_id, "Execution ID can not be empty."
         self._execution_id = execution_id
 
     def to_input_data(self) -> dict[str, Any]:
@@ -733,7 +734,7 @@ class RemoteQuickCommand:
                 self._notify_listeners("on_after_execute", request=request, response=response, context=event_context)
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
-        assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_finished()` method called?"
+        assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_submitted()` method called?"
         assert execution_id == request.execution_id, "🌀 Sanity check | RQC-Request's `execution_id` and response's `execution_id` are different."
 
         # Phase-2: Poll for status
@@ -788,7 +789,7 @@ class RemoteQuickCommand:
                     raise ExecutionIdIsMissingError("No `execution_id` returned in the create execution response by server.")
 
                 # Registers create execution response on its request
-                request.mark_as_finished(execution_id=execution_id)
+                request.mark_as_submitted(execution_id=execution_id)
                 logging.info(
                     f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created ({execution_id})"
                 )

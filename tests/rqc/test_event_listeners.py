@@ -69,7 +69,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_request_file_with_correct_content(self):
         """Should write request payload to JSON file."""
         request = RqcRequest(payload={"prompt": "Hello"}, id="req-123")
-        request.mark_as_finished(execution_id="exec-456")
+        request.mark_as_submitted(execution_id="exec-456")
         response = RqcResponse(
             request=request,
             status=RqcResponseStatus.COMPLETED,
@@ -88,7 +88,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_completed_status(self):
         """Should write raw_response to JSON file when status is COMPLETED."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_finished(execution_id="exec-789")
+        request.mark_as_submitted(execution_id="exec-789")
         raw_response = {"result": "success", "metadata": {"duration": 1.5}}
         response = RqcResponse(
             request=request,
@@ -108,7 +108,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_failure_status(self):
         """Should write error details to JSON file when status is FAILURE."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_finished(execution_id="exec-fail")
+        request.mark_as_submitted(execution_id="exec-fail")
         response = RqcResponse(
             request=request,
             status=RqcResponseStatus.FAILURE,
@@ -128,7 +128,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_error_status(self):
         """Should write error details to JSON file when status is ERROR."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_finished(execution_id="exec-err")
+        request.mark_as_submitted(execution_id="exec-err")
         response = RqcResponse(
             request=request,
             status=RqcResponseStatus.ERROR,
@@ -147,7 +147,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_timeout_status(self):
         """Should write error details to JSON file when status is TIMEOUT."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_finished(execution_id="exec-timeout")
+        request.mark_as_submitted(execution_id="exec-timeout")
         response = RqcResponse(
             request=request,
             status=RqcResponseStatus.TIMEOUT,
@@ -166,7 +166,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_uses_request_id_when_execution_id_not_available(self):
         """Should use request.id as tracking_id when execution_id is not set."""
         request = RqcRequest(payload={"x": 1}, id="my-request-id")
-        # Note: not calling mark_as_finished, so execution_id is None
+        # Note: not calling mark_as_submitted, so execution_id is None
         response = RqcResponse(
             request=request,
             status=RqcResponseStatus.ERROR,
@@ -183,7 +183,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_sanitizes_special_characters_in_tracking_id(self):
         """Should sanitize special characters in tracking_id for safe filenames."""
         request = RqcRequest(payload={"x": 1}, id="req/with:special*chars?")
-        request.mark_as_finished(execution_id="exec/id:with*special?chars")
+        request.mark_as_submitted(execution_id="exec/id:with*special?chars")
         response = RqcResponse(
             request=request,
             status=RqcResponseStatus.COMPLETED,
@@ -207,7 +207,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_context_parameter_is_ignored(self):
         """Should work regardless of context content (context is for other listeners)."""
         request = RqcRequest(payload={"x": 1}, id="req-ctx")
-        request.mark_as_finished(execution_id="exec-ctx")
+        request.mark_as_submitted(execution_id="exec-ctx")
         response = RqcResponse(
             request=request,
             status=RqcResponseStatus.COMPLETED,
