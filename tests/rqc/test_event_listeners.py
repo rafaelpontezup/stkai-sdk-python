@@ -7,9 +7,9 @@ from pathlib import Path
 
 from stkai.rqc import (
     FileLoggingListener,
+    RqcExecutionStatus,
     RqcRequest,
     RqcResponse,
-    RqcResponseStatus,
 )
 
 
@@ -82,24 +82,22 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         import shutil
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
-    def test_writes_request_file_with_correct_content(self):
-        """Should write request payload to JSON file."""
+    def test_writes_only_response_file(self):
+        """Should only write response file (request is written by on_status_change)."""
         request = RqcRequest(payload={"prompt": "Hello"}, id="req-123")
         request.mark_as_submitted(execution_id="exec-456")
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.COMPLETED,
+            status=RqcExecutionStatus.COMPLETED,
             result="response result",
             raw_response={"result": "response result"},
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
 
-        request_file = self.tmp_dir / "exec-456-request.json"
-        self.assertTrue(request_file.exists())
-        with open(request_file) as f:
-            content = json.load(f)
-        self.assertEqual(content, {"input_data": {"prompt": "Hello"}})
+        files = list(self.tmp_dir.glob("*.json"))
+        self.assertEqual(len(files), 1)
+        self.assertIn("response", files[0].name)
 
     def test_writes_response_file_for_completed_status(self):
         """Should write raw_response to JSON file when status is COMPLETED."""
@@ -108,7 +106,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         raw_response = {"result": "success", "metadata": {"duration": 1.5}}
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.COMPLETED,
+            status=RqcExecutionStatus.COMPLETED,
             result="success",
             raw_response=raw_response,
         )
@@ -127,7 +125,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         request.mark_as_submitted(execution_id="exec-fail")
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.FAILURE,
+            status=RqcExecutionStatus.FAILURE,
             error="Server error occurred",
             raw_response={"error": "internal"},
         )
@@ -147,7 +145,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         request.mark_as_submitted(execution_id="exec-err")
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.ERROR,
+            status=RqcExecutionStatus.ERROR,
             error="Network timeout",
         )
 
@@ -166,7 +164,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         request.mark_as_submitted(execution_id="exec-timeout")
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.TIMEOUT,
+            status=RqcExecutionStatus.TIMEOUT,
             error="Exceeded 600s",
         )
 
@@ -185,15 +183,13 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         # Note: not calling mark_as_submitted, so execution_id is None
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.ERROR,
+            status=RqcExecutionStatus.ERROR,
             error="Failed before execution",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
 
-        request_file = self.tmp_dir / "my-request-id-request.json"
         response_file = self.tmp_dir / "my-request-id-response-ERROR.json"
-        self.assertTrue(request_file.exists())
         self.assertTrue(response_file.exists())
 
     def test_sanitizes_special_characters_in_tracking_id(self):
@@ -202,7 +198,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         request.mark_as_submitted(execution_id="exec/id:with*special?chars")
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.COMPLETED,
+            status=RqcExecutionStatus.COMPLETED,
             result="ok",
             raw_response={"result": "ok"},
         )
@@ -211,14 +207,12 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
 
         # Special chars should be replaced with underscore
         files = list(self.tmp_dir.glob("*.json"))
-        self.assertEqual(len(files), 2)
-        filenames = [f.name for f in files]
-        # Verify no special characters in filenames
-        for filename in filenames:
-            self.assertNotIn("/", filename)
-            self.assertNotIn(":", filename)
-            self.assertNotIn("*", filename)
-            self.assertNotIn("?", filename)
+        self.assertEqual(len(files), 1)
+        filename = files[0].name
+        self.assertNotIn("/", filename)
+        self.assertNotIn(":", filename)
+        self.assertNotIn("*", filename)
+        self.assertNotIn("?", filename)
 
     def test_context_parameter_is_ignored(self):
         """Should work regardless of context content (context is for other listeners)."""
@@ -226,7 +220,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         request.mark_as_submitted(execution_id="exec-ctx")
         response = RqcResponse(
             request=request,
-            status=RqcResponseStatus.COMPLETED,
+            status=RqcExecutionStatus.COMPLETED,
             result="ok",
             raw_response={"result": "ok"},
         )
@@ -235,9 +229,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
         context = {"start_time": 123.45, "custom_data": {"nested": True}}
         self.listener.on_after_execute(request=request, response=response, context=context)
 
-        request_file = self.tmp_dir / "exec-ctx-request.json"
         response_file = self.tmp_dir / "exec-ctx-response-COMPLETED.json"
-        self.assertTrue(request_file.exists())
         self.assertTrue(response_file.exists())
 
 

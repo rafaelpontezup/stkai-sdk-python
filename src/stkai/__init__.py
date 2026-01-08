@@ -15,16 +15,16 @@ Main Classes:
     - RemoteQuickCommand: Client for executing Remote Quick Commands.
     - RqcRequest: Represents a request to be sent to the RQC API.
     - RqcResponse: Represents the response received from the RQC API.
-    - RqcResponseStatus: Enum with possible response statuses (COMPLETED, FAILURE, ERROR, TIMEOUT).
+    - RqcExecutionStatus: Enum with execution lifecycle statuses (PENDING, COMPLETED, FAILURE, ERROR, TIMEOUT).
 """
 
 __version__ = "0.1.0"
 
 from stkai.rqc import (
     RemoteQuickCommand,
+    RqcExecutionStatus,
     RqcRequest,
     RqcResponse,
-    RqcResponseStatus,
 )
 
 __all__ = [
@@ -32,5 +32,5 @@ __all__ = [
     "RemoteQuickCommand",
     "RqcRequest",
     "RqcResponse",
-    "RqcResponseStatus",
+    "RqcExecutionStatus",
 ]

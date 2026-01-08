@@ -50,12 +50,12 @@ from stkai.rqc._remote_quick_command import (
     RemoteQuickCommand,
     # Event listener interface
     RqcEventListener,
+    RqcExecutionStatus,
     # HTTP client interface
     RqcHttpClient,
     # Data models
     RqcRequest,
     RqcResponse,
-    RqcResponseStatus,
     RqcResultContext,
     # Result handler interface
     RqcResultHandler,
@@ -69,7 +69,7 @@ __all__ = [
     # Data models
     "RqcRequest",
     "RqcResponse",
-    "RqcResponseStatus",
+    "RqcExecutionStatus",
     "RqcResultContext",
     # Result handler interface
     "RqcResultHandler",

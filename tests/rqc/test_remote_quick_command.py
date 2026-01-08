@@ -13,9 +13,9 @@ from stkai.rqc import (
     CreateExecutionOptions,
     GetResultOptions,
     RemoteQuickCommand,
+    RqcExecutionStatus,
     RqcHttpClient,
     RqcRequest,
-    RqcResponseStatus,
 )
 
 # ======================
@@ -87,7 +87,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         response = self.rqc.execute(request=request)
 
         # Validation
-        self.assertEqual(response.status, RqcResponseStatus.COMPLETED)
+        self.assertEqual(response.status, RqcExecutionStatus.COMPLETED)
         self.assertEqual(response.result, {"answer": "LLM does not anything", "happiness": 1.0,})
         self.http_client.post_with_authorization.assert_called_once_with(
             slug_name=self.slug_name,
@@ -108,7 +108,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         response = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(response.status, RqcResponseStatus.ERROR)
+        self.assertEqual(response.status, RqcExecutionStatus.ERROR)
         self.assertIn("Failed to create execution: Boom", response.error)
         self.http_client.post_with_authorization.assert_called_once()
 
@@ -133,7 +133,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         response = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(response.status, RqcResponseStatus.FAILURE)
+        self.assertEqual(response.status, RqcExecutionStatus.FAILURE)
         self.assertTrue(response.error)
         self.http_client.post_with_authorization.assert_called_once_with(
             slug_name=self.slug_name,
@@ -160,7 +160,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         response = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(response.status, RqcResponseStatus.TIMEOUT)
+        self.assertEqual(response.status, RqcExecutionStatus.TIMEOUT)
         self.assertIn("Timeout after 0.1 seconds waiting for RQC execution to complete. Last status: `RUNNING`", response.error)
         self.http_client.post_with_authorization.assert_called_once()
         self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 1)
@@ -181,7 +181,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         response = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(response.status, RqcResponseStatus.ERROR)
+        self.assertEqual(response.status, RqcExecutionStatus.ERROR)
         self.assertIn("Error during polling: broken pipe", response.error)
         self.http_client.post_with_authorization.assert_called_once_with(
             slug_name=self.slug_name,
@@ -227,7 +227,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         result = rqc_for_created_test.execute(request)
 
         # Validation
-        self.assertEqual(result.status, RqcResponseStatus.TIMEOUT)
+        self.assertEqual(result.status, RqcExecutionStatus.TIMEOUT)
         self.assertIn("CREATED status", result.error)
         self.assertIn("overloaded", result.error)
         self.http_client.post_with_authorization.assert_called_once_with(
@@ -251,7 +251,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         result = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(result.status, RqcResponseStatus.ERROR)
+        self.assertEqual(result.status, RqcExecutionStatus.ERROR)
         self.assertIn("Failed to create execution: 401 Client Error", result.error)
         self.http_client.post_with_authorization.assert_called_once_with(
             slug_name=self.slug_name,
@@ -278,7 +278,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         result = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(result.status, RqcResponseStatus.ERROR)
+        self.assertEqual(result.status, RqcExecutionStatus.ERROR)
         self.assertIn("Error during polling: 403 Client Error", result.error)
         self.http_client.post_with_authorization.assert_called_once()
         self.http_client.get_with_authorization.assert_called_once_with(
@@ -301,7 +301,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         result = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(result.status, RqcResponseStatus.ERROR)
+        self.assertEqual(result.status, RqcExecutionStatus.ERROR)
         self.assertIn(
             "Failed to create execution: No `execution_id` returned in the create execution response by server.",
             result.error)
@@ -328,7 +328,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         result = self.rqc.execute(request)
 
         # Validation
-        self.assertEqual(result.status, RqcResponseStatus.ERROR)
+        self.assertEqual(result.status, RqcExecutionStatus.ERROR)
         self.assertIn(
             "Max retries exceeded while creating execution. Last error: Simulated connection failure",
             result.error
@@ -369,7 +369,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         result = self.rqc.execute(request)
 
         # 4. Validate
-        self.assertEqual(RqcResponseStatus.COMPLETED, result.status)
+        self.assertEqual(RqcExecutionStatus.COMPLETED, result.status)
         self.assertIn("success", str(result.result))
         self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 4)
 
@@ -410,7 +410,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         )
 
         # Validation
-        self.assertEqual(RqcResponseStatus.ERROR, result.status)
+        self.assertEqual(RqcExecutionStatus.ERROR, result.status)
         self.assertEqual(
             "Error during polling: Error while processing the response in the result handler (JsonResultHandler): "
             "Expecting ',' delimiter: line 1 column 26 (char 25)",
@@ -453,7 +453,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
         # Validation 1: every response status is COMPLETED
         for resp in results:
-            self.assertEqual(resp.status, RqcResponseStatus.COMPLETED, f"Expected COMPLETED but got {resp.status}")
+            self.assertEqual(resp.status, RqcExecutionStatus.COMPLETED, f"Expected COMPLETED but got {resp.status}")
 
         # Validation 2: number of requests == number of responses
         self.assertEqual(len(results), len(requests_list))
@@ -533,10 +533,10 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation 3: final statuses
         statuses = [r.status for r in results]
 
-        self.assertEqual(sum(s == RqcResponseStatus.COMPLETED for s in statuses), 7)
-        self.assertEqual(sum(s == RqcResponseStatus.FAILURE for s in statuses), 1)
-        self.assertEqual(sum(s == RqcResponseStatus.TIMEOUT for s in statuses), 1)
-        self.assertEqual(sum(s == RqcResponseStatus.ERROR for s in statuses), 1)
+        self.assertEqual(sum(s == RqcExecutionStatus.COMPLETED for s in statuses), 7)
+        self.assertEqual(sum(s == RqcExecutionStatus.FAILURE for s in statuses), 1)
+        self.assertEqual(sum(s == RqcExecutionStatus.TIMEOUT for s in statuses), 1)
+        self.assertEqual(sum(s == RqcExecutionStatus.ERROR for s in statuses), 1)
 
 
 if __name__ == "__main__":
