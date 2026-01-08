@@ -747,17 +747,21 @@ class RemoteQuickCommand:
             execution_id = self._create_execution(request=request)
         except Exception as e:
             logging.exception(f"{request.id[:26]:<26} | RQC | ❌ Failed to create execution: {e}")
-            # Notify status change: PENDING → ERROR
+            # Determine status: TIMEOUT if caused by HTTP timeout, ERROR otherwise
+            status = RqcExecutionStatus.ERROR
+            if isinstance(e, MaxRetriesExceededError) and isinstance(e.last_exception, requests.exceptions.Timeout):
+                status = RqcExecutionStatus.TIMEOUT
+            # Notify status change: PENDING → ERROR or TIMEOUT
             self._notify_listeners(
                 "on_status_change",
                 request=request,
                 old_status=RqcExecutionStatus.PENDING,
-                new_status=RqcExecutionStatus.ERROR,
+                new_status=status,
                 context=event_context,
             )
             response = RqcResponse(
                 request=request,
-                status=RqcExecutionStatus.ERROR,
+                status=status,
                 error=f"Failed to create execution: {e}",
             )
             return response
