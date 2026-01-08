@@ -127,12 +127,15 @@ class RqcRequest:
             "input_data": self.payload,
         }
 
-    def write_to_file(self, output_dir: Path) -> None:
+    def write_to_file(self, output_dir: Path) -> Path:
         """
         Persists the request payload to a JSON file for debugging purposes.
 
         Args:
             output_dir: Directory where the JSON file will be saved.
+
+        Returns:
+            Path to the created JSON file.
 
         The file is named `{tracking_id}-request.json` where tracking_id is either
         the execution_id (if available) or the request id.
@@ -142,10 +145,13 @@ class RqcRequest:
 
         _tracking_id = self.execution_id or self.id
         _tracking_id = re.sub(r'[^\w.$-]', '_', _tracking_id)
+
+        target_file = output_dir / f"{_tracking_id}-request.json"
         save_json_file(
             data=self.to_input_data(),
-            file_path=output_dir / f"{_tracking_id}-request.json"
+            file_path=target_file
         )
+        return target_file
 
 
 class RqcExecutionStatus(str, Enum):
@@ -261,14 +267,18 @@ class RqcResponse:
             "response_body": self.raw_response or {},
         }
 
-    def write_to_file(self, output_dir: Path) -> None:
+    def write_to_file(self, output_dir: Path) -> Path:
         """
         Persists the response to a JSON file for debugging purposes.
 
         Args:
             output_dir: Directory where the JSON file will be saved.
 
-        The file is named `{execution_id}-response-{status}.json`.
+        Returns:
+            Path to the created JSON file.
+
+        The file is named `{tracking_id}-response-{status}.json` where tracking_id
+        is either the execution_id (if available) or the request id.
         """
         assert output_dir, "Output directory is required."
         assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
@@ -279,10 +289,13 @@ class RqcResponse:
 
         _tracking_id = self.request.execution_id or self.request.id
         _tracking_id = re.sub(r'[^\w.$-]', '_', _tracking_id)
+
+        target_file = output_dir / f"{_tracking_id}-response-{self.status}.json"
         save_json_file(
             data=response_result,
-            file_path=output_dir / f"{_tracking_id}-response-{self.status}.json"
+            file_path=target_file
         )
+        return target_file
 
 
 # ======================
