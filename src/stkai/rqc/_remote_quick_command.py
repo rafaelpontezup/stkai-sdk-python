@@ -394,11 +394,19 @@ class RqcEventListener:
         context: dict[str, Any],
     ) -> None:
         """
-        Called when the execution status changes during polling.
+        Called when the execution status changes throughout the lifecycle.
+
+        This method is invoked at key state transitions:
+        - PENDING → CREATED: Execution was successfully created on the server.
+        - PENDING → ERROR/TIMEOUT: Failed to create execution (network error, timeout, etc.).
+        - CREATED → RUNNING: Server started processing the execution.
+        - RUNNING → COMPLETED: Execution finished successfully.
+        - RUNNING → FAILURE: Execution failed on the server-side.
+        - Any → TIMEOUT: Polling timed out waiting for completion.
 
         Args:
             request: The request being executed.
-            old_status: The previous status (e.g., PENDING, CREATED, RUNNING).
+            old_status: The previous status.
             new_status: The new status.
             context: Mutable dict for sharing state between listener calls.
         """
