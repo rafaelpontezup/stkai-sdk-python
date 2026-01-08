@@ -18,6 +18,7 @@ from typing import Any, override
 
 from stkai.rqc._remote_quick_command import (
     RqcEventListener,
+    RqcExecutionStatus,
     RqcRequest,
     RqcResponse,
 )
@@ -51,12 +52,23 @@ class FileLoggingListener(RqcEventListener):
 
 
     @override
+    def on_status_change(
+        self,
+        request: RqcRequest,
+        old_status: RqcExecutionStatus,
+        new_status: RqcExecutionStatus,
+        context: dict[str, Any],
+    ) -> None:
+        """Writes request file when status transitions from PENDING (for debugging)."""
+        if old_status == RqcExecutionStatus.PENDING:
+            request.write_to_file(output_dir=self.output_dir)
+
+    @override
     def on_after_execute(
         self,
         request: RqcRequest,
         response: RqcResponse,
         context: dict[str, Any],
     ) -> None:
-        """Writes request and response to JSON files after execution completes."""
-        request.write_to_file(output_dir=self.output_dir)
+        """Writes response to JSON file after execution completes."""
         response.write_to_file(output_dir=self.output_dir)

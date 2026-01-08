@@ -154,12 +154,16 @@ class RqcExecutionStatus(str, Enum):
 
     Attributes:
         PENDING: Client-side status before request is submitted to server.
+        CREATED: Server acknowledged the request and created an execution.
+        RUNNING: Execution is currently being processed by the server.
         COMPLETED: Execution finished successfully with a result.
         FAILURE: Execution failed on the server-side (StackSpot AI returned an error).
         ERROR: Client-side error occurred (network issues, invalid response, handler errors).
         TIMEOUT: Execution did not complete within the configured poll_max_duration.
     """
     PENDING = "PENDING"
+    CREATED = "CREATED"
+    RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILURE = "FAILURE"
     ERROR = "ERROR"
@@ -373,8 +377,8 @@ class RqcEventListener:
     def on_status_change(
         self,
         request: "RqcRequest",
-        old_status: str,
-        new_status: str,
+        old_status: "RqcExecutionStatus",
+        new_status: "RqcExecutionStatus",
         context: dict[str, Any],
     ) -> None:
         """
@@ -382,7 +386,7 @@ class RqcEventListener:
 
         Args:
             request: The request being executed.
-            old_status: The previous status (e.g., "CREATED", "RUNNING").
+            old_status: The previous status (e.g., PENDING, CREATED, RUNNING).
             new_status: The new status.
             context: Mutable dict for sharing state between listener calls.
         """
@@ -747,8 +751,8 @@ class RemoteQuickCommand:
             self._notify_listeners(
                 "on_status_change",
                 request=request,
-                old_status=RqcExecutionStatus.PENDING.value,
-                new_status=RqcExecutionStatus.ERROR.value,
+                old_status=RqcExecutionStatus.PENDING,
+                new_status=RqcExecutionStatus.ERROR,
                 context=event_context,
             )
             response = RqcResponse(
@@ -770,8 +774,8 @@ class RemoteQuickCommand:
         self._notify_listeners(
             "on_status_change",
             request=request,
-            old_status=RqcExecutionStatus.PENDING.value,
-            new_status="CREATED",
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
             context=event_context,
         )
 
@@ -873,7 +877,7 @@ class RemoteQuickCommand:
         options = self.get_result_options
         execution_id = request.execution_id
 
-        last_status = "CREATED"  # Starts at CREATED since we notify PENDING → CREATED before polling
+        last_status: RqcExecutionStatus = RqcExecutionStatus.CREATED  # Starts at CREATED since we notify PENDING → CREATED before polling
         created_since: float | None = None
 
         logging.info(f"{execution_id} | RQC | Starting polling loop...")
@@ -908,14 +912,14 @@ class RemoteQuickCommand:
                     sleep_with_jitter(options.poll_interval)
                     continue
 
-                status = response_data.get('progress', {}).get('status').upper()
+                status = RqcExecutionStatus(response_data.get('progress', {}).get('status').upper())
                 if status != last_status:
                     logging.info(f"{execution_id} | RQC | Current status: {status}")
                     # Notify listeners: status change
                     self._notify_listeners("on_status_change", request=request, old_status=last_status, new_status=status, context=context)
                     last_status = status
 
-                if status == "COMPLETED":
+                if status == RqcExecutionStatus.COMPLETED:
                     try:
                         logging.info(f"{execution_id} | RQC | Processing the execution result...")
                         raw_result = response_data.get("result")
@@ -940,7 +944,7 @@ class RemoteQuickCommand:
                             message=f"Error while processing the response in the result handler ({handler_name}): {e}",
                         ) from e
 
-                elif status == "FAILURE":
+                elif status == RqcExecutionStatus.FAILURE:
                     logging.error(
                         f"{execution_id} | RQC | ❌ Execution failed on the server-side with the following response: "
                         f"\n{json.dumps(response_data, indent=2)}"
@@ -951,7 +955,7 @@ class RemoteQuickCommand:
                         error="Execution failed on the server-side with status 'FAILURE'. There's no details at all! Try to look at the logs.",
                         raw_response=response_data,
                     )
-                elif status == "CREATED":
+                elif status == RqcExecutionStatus.CREATED:
                     # Track how long we've been in CREATED status (possible server overload)
                     if created_since is None:
                         created_since = time.time()
@@ -981,7 +985,7 @@ class RemoteQuickCommand:
                 "on_status_change",
                 request=request,
                 old_status=last_status,
-                new_status=RqcExecutionStatus.TIMEOUT.value,
+                new_status=RqcExecutionStatus.TIMEOUT,
                 context=context,
             )
             return RqcResponse(

@@ -71,6 +71,121 @@ class TestFileLoggingListenerInit(unittest.TestCase):
                 file_path.unlink()
 
 
+class TestFileLoggingListenerOnStatusChange(unittest.TestCase):
+    """Tests for FileLoggingListener.on_status_change() method."""
+
+    def setUp(self):
+        self.tmp_dir = Path(tempfile.mkdtemp())
+        self.listener = FileLoggingListener(self.tmp_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_writes_request_file_when_status_transitions_from_pending_to_created(self):
+        """Should write request payload to JSON file when status changes from PENDING to CREATED."""
+        request = RqcRequest(payload={"prompt": "Hello"}, id="req-123")
+        request.mark_as_submitted(execution_id="exec-456")
+
+        self.listener.on_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context={},
+        )
+
+        request_file = self.tmp_dir / "exec-456-request.json"
+        self.assertTrue(request_file.exists())
+        with open(request_file) as f:
+            content = json.load(f)
+        self.assertEqual(content, {"input_data": {"prompt": "Hello"}})
+
+    def test_writes_request_file_when_status_transitions_from_pending_to_error(self):
+        """Should write request payload to JSON file when status changes from PENDING to ERROR."""
+        request = RqcRequest(payload={"prompt": "Failed request"}, id="req-failed")
+        # Note: not calling mark_as_submitted, so execution_id is None (create-execution failed)
+
+        self.listener.on_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.ERROR,
+            context={},
+        )
+
+        # Should use request.id as tracking_id since execution_id is not available
+        request_file = self.tmp_dir / "req-failed-request.json"
+        self.assertTrue(request_file.exists())
+        with open(request_file) as f:
+            content = json.load(f)
+        self.assertEqual(content, {"input_data": {"prompt": "Failed request"}})
+
+    def test_does_not_write_request_file_for_non_pending_transitions(self):
+        """Should not write any files when old_status is not PENDING."""
+        request = RqcRequest(payload={"x": 1}, id="test")
+        request.mark_as_submitted(execution_id="exec-789")
+
+        self.listener.on_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.CREATED,
+            new_status=RqcExecutionStatus.RUNNING,
+            context={},
+        )
+
+        files = list(self.tmp_dir.glob("*.json"))
+        self.assertEqual(len(files), 0)
+
+    def test_uses_request_id_when_execution_id_not_available(self):
+        """Should use request.id as tracking_id when execution_id is not set."""
+        request = RqcRequest(payload={"x": 1}, id="my-request-id")
+        # Note: not calling mark_as_submitted, so execution_id is None
+
+        self.listener.on_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context={},
+        )
+
+        request_file = self.tmp_dir / "my-request-id-request.json"
+        self.assertTrue(request_file.exists())
+
+    def test_sanitizes_special_characters_in_tracking_id(self):
+        """Should sanitize special characters in tracking_id for safe filenames."""
+        request = RqcRequest(payload={"x": 1}, id="req/with:special*chars?")
+        request.mark_as_submitted(execution_id="exec/id:with*special?chars")
+
+        self.listener.on_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context={},
+        )
+
+        files = list(self.tmp_dir.glob("*.json"))
+        self.assertEqual(len(files), 1)
+        filename = files[0].name
+        self.assertNotIn("/", filename)
+        self.assertNotIn(":", filename)
+        self.assertNotIn("*", filename)
+        self.assertNotIn("?", filename)
+
+    def test_context_parameter_is_ignored(self):
+        """Should work regardless of context content (context is for other listeners)."""
+        request = RqcRequest(payload={"x": 1}, id="req-ctx")
+        request.mark_as_submitted(execution_id="exec-ctx")
+
+        context = {"start_time": 123.45, "custom_data": {"nested": True}}
+        self.listener.on_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context=context,
+        )
+
+        request_file = self.tmp_dir / "exec-ctx-request.json"
+        self.assertTrue(request_file.exists())
+
+
 class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     """Tests for FileLoggingListener.on_after_execute() method."""
 
@@ -244,23 +359,6 @@ class TestFileLoggingListenerInheritance(unittest.TestCase):
 
             # Should not raise and should not create any files
             listener.on_before_execute(request=request, context={})
-
-            files = list(Path(tmp).glob("*.json"))
-            self.assertEqual(len(files), 0)
-
-    def test_on_status_change_does_nothing(self):
-        """Should have no-op implementation for on_status_change (inherited)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            listener = FileLoggingListener(Path(tmp))
-            request = RqcRequest(payload={"x": 1}, id="test")
-
-            # Should not raise and should not create any files
-            listener.on_status_change(
-                request=request,
-                old_status="CREATED",
-                new_status="RUNNING",
-                context={},
-            )
 
             files = list(Path(tmp).glob("*.json"))
             self.assertEqual(len(files), 0)
