@@ -222,6 +222,26 @@ class RqcResponse:
 
         return _raw_result
 
+    def is_pending(self) -> bool:
+        """Returns True if the request has not been submitted yet."""
+        return self.status == RqcExecutionStatus.PENDING
+
+    def is_created(self) -> bool:
+        """Returns True if the execution was created but not yet running."""
+        return self.status == RqcExecutionStatus.CREATED
+
+    def is_running(self) -> bool:
+        """Returns True if the execution is currently being processed."""
+        return self.status == RqcExecutionStatus.RUNNING
+
+    def is_completed(self) -> bool:
+        """Returns True if the execution completed successfully."""
+        return self.status == RqcExecutionStatus.COMPLETED
+
+    def is_failure(self) -> bool:
+        """Returns True if the execution failed on the server-side."""
+        return self.status == RqcExecutionStatus.FAILURE
+
     def is_error(self) -> bool:
         """Returns True if a client-side error occurred during execution."""
         return self.status == RqcExecutionStatus.ERROR
@@ -229,14 +249,6 @@ class RqcResponse:
     def is_timeout(self) -> bool:
         """Returns True if the execution timed out waiting for completion."""
         return self.status == RqcExecutionStatus.TIMEOUT
-
-    def is_failure(self) -> bool:
-        """Returns True if the execution failed on the server-side."""
-        return self.status == RqcExecutionStatus.FAILURE
-
-    def is_completed(self) -> bool:
-        """Returns True if the execution completed successfully."""
-        return self.status == RqcExecutionStatus.COMPLETED
 
     def error_with_details(self) -> dict[str, Any]:
         """Returns a dictionary with error details for non-completed responses."""
