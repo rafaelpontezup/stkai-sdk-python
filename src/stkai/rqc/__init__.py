@@ -26,6 +26,7 @@ For batch execution:
 from stkai.rqc._event_listeners import (
     # Event listener implementations
     FileLoggingListener,
+    RqcPhasedEventListener,
 )
 from stkai.rqc._handlers import (
     DEFAULT_RESULT_HANDLER,
@@ -83,6 +84,7 @@ __all__ = [
     "RqcEventListener",
     # Event listener implementations
     "FileLoggingListener",
+    "RqcPhasedEventListener",
     # HTTP client interface
     "RqcHttpClient",
     # HTTP client implementations

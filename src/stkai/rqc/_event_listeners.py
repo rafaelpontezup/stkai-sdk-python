@@ -5,6 +5,7 @@ This module contains concrete implementations of RqcEventListener
 for observing RQC execution lifecycle events.
 
 Available Listeners:
+    - RqcPhasedEventListener: Abstract listener with granular phase-specific hooks.
     - FileLoggingListener: Persists request/response to JSON files for debugging.
 
 Example:
@@ -22,6 +23,161 @@ from stkai.rqc._remote_quick_command import (
     RqcRequest,
     RqcResponse,
 )
+
+
+class RqcPhasedEventListener(RqcEventListener):
+    """
+    Abstract listener that exposes granular hooks for each execution phase.
+
+    This class implements the base RqcEventListener methods and delegates
+    to phase-specific methods, making it easier to implement listeners
+    focused on specific phases of the execution lifecycle.
+
+    Phase 1 - Create Execution:
+        - on_before_create_execution: Before POST to create execution
+        - on_after_create_execution: After creation (success or failure)
+
+    Phase 2 - Get Result (Polling):
+        - on_before_get_result: Before polling loop starts
+        - on_after_get_result: After polling completes (any terminal status)
+
+    Example:
+        >>> class MetricsListener(RqcPhasedEventListener):
+        ...     def on_before_create_execution(self, request, context):
+        ...         context['create_start'] = time.time()
+        ...
+        ...     def on_after_create_execution(self, request, status, response, context):
+        ...         duration = time.time() - context['create_start']
+        ...         if status == RqcExecutionStatus.CREATED:
+        ...             statsd.timing('rqc.create.success', duration)
+        ...         else:
+        ...             statsd.timing('rqc.create.failure', duration)
+    """
+
+    # ==================
+    # Phase 1: Create Execution
+    # ==================
+
+    def on_before_create_execution(
+        self,
+        request: RqcRequest,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called before attempting to create the execution on the server.
+
+        Args:
+            request: The request about to be submitted.
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    def on_after_create_execution(
+        self,
+        request: RqcRequest,
+        status: RqcExecutionStatus,
+        response: RqcResponse | None,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called after the create-execution phase completes (success or failure).
+
+        Args:
+            request: The request that was submitted.
+            status: The resulting status (CREATED on success, ERROR/TIMEOUT on failure).
+            response: The RqcResponse if creation failed (contains error details),
+                      None if creation succeeded (polling will start).
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    # ==================
+    # Phase 2: Get Result (Polling)
+    # ==================
+
+    def on_before_get_result(
+        self,
+        request: RqcRequest,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called before starting the polling loop.
+
+        Only called if create-execution succeeded (request.execution_id is set).
+
+        Args:
+            request: The request with execution_id already assigned.
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    def on_after_get_result(
+        self,
+        request: RqcRequest,
+        response: RqcResponse,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called after the polling phase completes (any terminal status).
+
+        Args:
+            request: The executed request.
+            response: The final response (COMPLETED, FAILURE, ERROR, or TIMEOUT).
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    # ==================
+    # Base method implementations (delegation logic)
+    # ==================
+
+    @override
+    def on_before_execute(
+        self,
+        request: RqcRequest,
+        context: dict[str, Any],
+    ) -> None:
+        """Delegates to on_before_create_execution."""
+        self.on_before_create_execution(request, context)
+
+    @override
+    def on_status_change(
+        self,
+        request: RqcRequest,
+        old_status: RqcExecutionStatus,
+        new_status: RqcExecutionStatus,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Delegates to phase-specific methods based on status transitions.
+
+        - PENDING → CREATED: Calls on_after_create_execution (success) + on_before_get_result
+        - PENDING → ERROR/TIMEOUT: Handled in on_after_execute (failure case)
+        """
+        # Create-execution succeeded, polling is about to start
+        if old_status == RqcExecutionStatus.PENDING and new_status == RqcExecutionStatus.CREATED:
+            self.on_after_create_execution(request, new_status, None, context)
+            self.on_before_get_result(request, context)
+
+    @override
+    def on_after_execute(
+        self,
+        request: RqcRequest,
+        response: RqcResponse,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Delegates to phase-specific methods based on execution outcome.
+
+        - No execution_id: Create-execution failed → on_after_create_execution
+        - Has execution_id: Polling finished → on_after_get_result
+        """
+        if request.execution_id is None:
+            # Failed during create-execution phase
+            self.on_after_create_execution(request, response.status, response, context)
+        else:
+            # Polling phase completed
+            self.on_after_get_result(request, response, context)
 
 
 class FileLoggingListener(RqcEventListener):
