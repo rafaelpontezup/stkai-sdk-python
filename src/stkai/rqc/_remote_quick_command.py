@@ -916,11 +916,16 @@ class RemoteQuickCommand:
                     sleep_with_jitter(options.poll_interval)
                     continue
 
-                status = RqcExecutionStatus(response_data.get('progress', {}).get('status').upper())
+                status = RqcExecutionStatus(
+                    response_data.get('progress', {}).get('status').upper()
+                )
                 if status != last_status:
                     logging.info(f"{execution_id} | RQC | Current status: {status}")
                     # Notify listeners: status change
-                    self._notify_listeners("on_status_change", request=request, old_status=last_status, new_status=status, context=context)
+                    self._notify_listeners(
+                        "on_status_change", request=request,
+                        old_status=last_status, new_status=status, context=context
+                    )
                     last_status = status
 
                 if status == RqcExecutionStatus.COMPLETED:
