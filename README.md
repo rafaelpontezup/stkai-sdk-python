@@ -52,6 +52,9 @@ Here you can see what it's possible to do with it:
 5. [Configuration](#configuration)
 6. [Event Listeners](#event-listeners)
    - 6.1. [Custom Event Listener](#custom-event-listener)
+7. [Rate Limiting](#rate-limiting)
+   - 7.1. [Fixed Rate Limiting](#71-fixed-rate-limiting)
+   - 7.2. [Adaptive Rate Limiting](#72-adaptive-rate-limiting)
 
 ### 1. Sending a single RQC request
 
@@ -279,6 +282,96 @@ rqc = RemoteQuickCommand(
     listeners=[MetricsListener()]
 )
 ```
+
+### 7. Rate Limiting
+
+When processing many requests with `execute_many()`, you may need to limit the request rate to avoid overwhelming the StackSpot AI API or hitting rate limits. The SDK provides two HTTP client wrappers for this purpose:
+
+| Client | Strategy | Best For |
+|--------|----------|----------|
+| `RateLimitedHttpClient` | Fixed Token Bucket | Known, stable rate limits |
+| `AdaptiveRateLimitedHttpClient` | Adaptive + 429 handling | Shared quotas, unpredictable limits |
+
+#### 7.1. Fixed Rate Limiting
+
+Use `RateLimitedHttpClient` when you know the exact rate limit and it's stable. It uses the **Token Bucket algorithm** to enforce a maximum number of requests per time window:
+
+```python
+from stkai import RemoteQuickCommand, RqcRequest
+from stkai.rqc import RateLimitedHttpClient, StkCLIRqcHttpClient
+
+# Limit to 30 requests per minute
+http_client = RateLimitedHttpClient(
+    delegate=StkCLIRqcHttpClient(),
+    max_requests=30,
+    time_window=60.0,  # seconds
+)
+
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    http_client=http_client,
+)
+
+# Now execute_many() will automatically throttle requests
+responses = rqc.execute_many(
+    request_list=[RqcRequest(payload=data) for data in large_dataset]
+)
+```
+
+**How it works:**
+- Only POST requests (create-execution) are rate-limited
+- GET requests (polling) pass through without limiting
+- When the limit is reached, requests block until tokens are available
+- Thread-safe: works correctly with `execute_many()` concurrency
+
+#### 7.2. Adaptive Rate Limiting
+
+Use `AdaptiveRateLimitedHttpClient` when multiple clients share the same rate limit quota, or when the effective rate is unpredictable. It extends fixed rate limiting with:
+
+- **Automatic retry on HTTP 429** (Too Many Requests)
+- **Respects `Retry-After` header** from server
+- **AIMD algorithm** (Additive Increase, Multiplicative Decrease) to adapt rate based on server responses
+- **Floor protection** to prevent deadlock
+
+```python
+from stkai import RemoteQuickCommand, RqcRequest
+from stkai.rqc import AdaptiveRateLimitedHttpClient, StkCLIRqcHttpClient
+
+# Start with 100 req/min, adapt based on 429 responses
+http_client = AdaptiveRateLimitedHttpClient(
+    delegate=StkCLIRqcHttpClient(),
+    max_requests=100,
+    time_window=60.0,
+    min_rate_floor=0.1,       # Never go below 10% (10 req/min)
+    max_retries_on_429=3,     # Retry up to 3 times on 429
+    penalty_factor=0.2,       # Reduce rate by 20% after 429
+    recovery_factor=0.01,     # Increase rate by 1% after success
+)
+
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    http_client=http_client,
+)
+
+responses = rqc.execute_many(
+    request_list=[RqcRequest(payload=data) for data in large_dataset]
+)
+```
+
+**How the AIMD algorithm works:**
+- **On success:** `effective_rate += max_requests * recovery_factor` (additive increase)
+- **On 429:** `effective_rate *= (1 - penalty_factor)` (multiplicative decrease)
+- **Floor protection:** `effective_rate >= max_requests * min_rate_floor`
+- **Ceiling:** `effective_rate <= max_requests`
+
+**When to use which:**
+
+| Scenario | Recommended Client |
+|----------|-------------------|
+| Single client, known API limit | `RateLimitedHttpClient` |
+| Multiple clients sharing quota | `AdaptiveRateLimitedHttpClient` |
+| API returns 429 frequently | `AdaptiveRateLimitedHttpClient` |
+| Predictable, stable workload | `RateLimitedHttpClient` |
 
 ## Response Status
 
