@@ -9,9 +9,10 @@ from stkai.agents import (
     Agent,
     AgentHttpClient,
     AgentOptions,
-    AgentRequest,
-    AgentResponse,
-    AgentTokenUsage,
+    ChatRequest,
+    ChatResponse,
+    ChatStatus,
+    ChatTokenUsage,
 )
 
 
@@ -45,68 +46,77 @@ class MockAgentHttpClient(AgentHttpClient):
         return response
 
 
-class TestAgentTokenUsage(unittest.TestCase):
-    """Tests for AgentTokenUsage data class."""
+class TestChatTokenUsage(unittest.TestCase):
+    """Tests for ChatTokenUsage data class."""
 
     def test_total_returns_sum_of_all_tokens(self):
         """Should return sum of user, enrichment, and output tokens."""
-        usage = AgentTokenUsage(user=100, enrichment=50, output=200)
+        usage = ChatTokenUsage(user=100, enrichment=50, output=200)
 
         self.assertEqual(usage.total, 350)
 
     def test_total_with_zero_values(self):
         """Should handle zero values correctly."""
-        usage = AgentTokenUsage(user=0, enrichment=0, output=0)
+        usage = ChatTokenUsage(user=0, enrichment=0, output=0)
 
         self.assertEqual(usage.total, 0)
 
     def test_is_frozen(self):
         """Should be immutable."""
-        usage = AgentTokenUsage(user=100, enrichment=50, output=200)
+        usage = ChatTokenUsage(user=100, enrichment=50, output=200)
 
         with self.assertRaises(AttributeError):
             usage.user = 200  # type: ignore
 
 
-class TestAgentRequest(unittest.TestCase):
-    """Tests for AgentRequest data class."""
+class TestChatRequest(unittest.TestCase):
+    """Tests for ChatRequest data class."""
 
     def test_creation_with_prompt_only(self):
-        """Should create request with auto-generated ID."""
-        request = AgentRequest(user_prompt="Hello!")
+        """Should create request with auto-generated ID and default values."""
+        request = ChatRequest(user_prompt="Hello!")
 
         self.assertEqual(request.user_prompt, "Hello!")
         self.assertIsNotNone(request.id)
         self.assertIsNone(request.conversation_id)
+        self.assertEqual(request.use_conversation, False)
+        self.assertEqual(request.use_knowledge_sources, True)
+        self.assertEqual(request.return_knowledge_sources, False)
         self.assertEqual(request.metadata, {})
 
     def test_creation_with_all_fields(self):
         """Should create request with all fields."""
-        request = AgentRequest(
+        request = ChatRequest(
             user_prompt="Hello!",
             id="custom-id",
             conversation_id="conv-123",
+            use_conversation=True,
+            use_knowledge_sources=False,
+            return_knowledge_sources=True,
             metadata={"source": "test"},
         )
 
         self.assertEqual(request.user_prompt, "Hello!")
         self.assertEqual(request.id, "custom-id")
         self.assertEqual(request.conversation_id, "conv-123")
+        self.assertEqual(request.use_conversation, True)
+        self.assertEqual(request.use_knowledge_sources, False)
+        self.assertEqual(request.return_knowledge_sources, True)
         self.assertEqual(request.metadata, {"source": "test"})
 
     def test_creation_fails_when_prompt_is_empty(self):
         """Should fail when user_prompt is empty."""
         with self.assertRaises(AssertionError):
-            AgentRequest(user_prompt="")
+            ChatRequest(user_prompt="")
 
     def test_creation_fails_when_id_is_empty(self):
         """Should fail when id is explicitly empty."""
         with self.assertRaises(AssertionError):
-            AgentRequest(user_prompt="Hello!", id="")
+            ChatRequest(user_prompt="Hello!", id="")
 
     def test_to_api_payload_with_defaults(self):
         """Should convert to API payload with default values."""
-        request = AgentRequest(user_prompt="Hello!")
+        request = ChatRequest(user_prompt="Hello!")
 
         payload = request.to_api_payload()
 
@@ -119,69 +129,92 @@ class TestAgentRequest(unittest.TestCase):
 
     def test_to_api_payload_with_conversation(self):
         """Should include conversation_id when provided."""
-        request = AgentRequest(
+        request = ChatRequest(
             user_prompt="Hello!",
             conversation_id="conv-123",
+            use_conversation=True,
         )
 
-        payload = request.to_api_payload(use_conversation=True)
+        payload = request.to_api_payload()
 
         self.assertEqual(payload["use_conversation"], True)
         self.assertEqual(payload["conversation_id"], "conv-123")
 
     def test_to_api_payload_with_knowledge_sources_disabled(self):
         """Should set stackspot_knowledge to false when disabled."""
-        request = AgentRequest(user_prompt="Hello!")
+        request = ChatRequest(
+            user_prompt="Hello!",
+            use_knowledge_sources=False,
+        )
 
-        payload = request.to_api_payload(use_knowledge_sources=False)
+        payload = request.to_api_payload()
 
         self.assertEqual(payload["stackspot_knowledge"], "false")
 
     def test_to_api_payload_with_return_knowledge_sources(self):
         """Should set return_ks_in_response when enabled."""
-        request = AgentRequest(user_prompt="Hello!")
+        request = ChatRequest(
+            user_prompt="Hello!",
+            return_knowledge_sources=True,
+        )
 
-        payload = request.to_api_payload(return_knowledge_sources=True)
+        payload = request.to_api_payload()
 
         self.assertEqual(payload["return_ks_in_response"], True)
 
 
-class TestAgentResponse(unittest.TestCase):
-    """Tests for AgentResponse data class."""
+class TestChatResponse(unittest.TestCase):
+    """Tests for ChatResponse data class."""
 
-    def test_is_success_returns_true_when_message_exists_and_no_error(self):
-        """Should return True when message exists and no error."""
-        request = AgentRequest(user_prompt="Hello!")
-        response = AgentResponse(
+    def test_is_success_returns_true_when_status_is_success(self):
+        """Should return True when status is SUCCESS."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
             request=request,
+            status=ChatStatus.SUCCESS,
             message="Hi there!",
         )
 
         self.assertTrue(response.is_success())
         self.assertFalse(response.is_error())
+        self.assertFalse(response.is_timeout())
 
-    def test_is_error_returns_true_when_error_exists(self):
-        """Should return True when error exists."""
-        request = AgentRequest(user_prompt="Hello!")
-        response = AgentResponse(
+    def test_is_error_returns_true_when_status_is_error(self):
+        """Should return True when status is ERROR."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
             request=request,
+            status=ChatStatus.ERROR,
             error="Something went wrong",
         )
 
         self.assertTrue(response.is_error())
         self.assertFalse(response.is_success())
+        self.assertFalse(response.is_timeout())
 
-    def test_is_success_returns_false_when_message_is_none(self):
-        """Should return False when message is None."""
-        request = AgentRequest(user_prompt="Hello!")
-        response = AgentResponse(request=request)
+    def test_is_timeout_returns_true_when_status_is_timeout(self):
+        """Should return True when status is TIMEOUT."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.TIMEOUT,
+            error="Request timed out",
+        )
 
+        self.assertTrue(response.is_timeout())
         self.assertFalse(response.is_success())
+        self.assertFalse(response.is_error())
 
     def test_creation_fails_when_request_is_none(self):
         """Should fail when request is None."""
         with self.assertRaises(AssertionError):
-            AgentResponse(request=None)  # type: ignore
+            ChatResponse(request=None, status=ChatStatus.SUCCESS)  # type: ignore
+
+    def test_creation_fails_when_status_is_none(self):
+        """Should fail when status is None."""
+        request = ChatRequest(user_prompt="Hello!")
+        with self.assertRaises(AssertionError):
+            ChatResponse(request=request, status=None)  # type: ignore
 
 
 class TestAgentOptions(unittest.TestCase):
@@ -192,20 +225,12 @@ class TestAgentOptions(unittest.TestCase):
         options = AgentOptions()
 
         self.assertEqual(options.request_timeout, 60)
-        self.assertEqual(options.use_knowledge_sources, True)
-        self.assertEqual(options.return_knowledge_sources, False)
 
     def test_custom_values(self):
         """Should accept custom values."""
-        options = AgentOptions(
-            request_timeout=120,
-            use_knowledge_sources=False,
-            return_knowledge_sources=True,
-        )
+        options = AgentOptions(request_timeout=120)
 
         self.assertEqual(options.request_timeout, 120)
-        self.assertEqual(options.use_knowledge_sources, False)
-        self.assertEqual(options.return_knowledge_sources, True)
 
     def test_is_frozen(self):
         """Should be immutable."""
@@ -257,7 +282,7 @@ class TestAgent(unittest.TestCase):
         )
         agent = Agent(agent_id="my-agent", http_client=mock_client)
 
-        response = agent.chat(AgentRequest(user_prompt="Hello!"))
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
 
         self.assertTrue(response.is_success())
         self.assertEqual(response.message, "Hello! I'm an AI assistant.")
@@ -273,11 +298,12 @@ class TestAgent(unittest.TestCase):
         )
         agent = Agent(agent_id="my-agent", http_client=mock_client)
 
-        request = AgentRequest(
+        request = ChatRequest(
             user_prompt="Continue",
             conversation_id="conv-123",
+            use_conversation=True,
         )
-        agent.chat(request, use_conversation=True)
+        agent.chat(request)
 
         # Verify the payload sent to the HTTP client
         _, payload, _ = mock_client.calls[0]
@@ -285,28 +311,34 @@ class TestAgent(unittest.TestCase):
         self.assertEqual(payload["conversation_id"], "conv-123")
 
     def test_chat_with_knowledge_sources_disabled(self):
-        """Should disable knowledge sources when configured."""
+        """Should disable knowledge sources when configured in request."""
         mock_client = MockAgentHttpClient(response_data={"message": "Response"})
-        options = AgentOptions(use_knowledge_sources=False)
-        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+        agent = Agent(agent_id="my-agent", http_client=mock_client)
 
-        agent.chat(AgentRequest(user_prompt="Hello!"))
+        request = ChatRequest(
+            user_prompt="Hello!",
+            use_knowledge_sources=False,
+        )
+        agent.chat(request)
 
         _, payload, _ = mock_client.calls[0]
         self.assertEqual(payload["stackspot_knowledge"], "false")
 
     def test_chat_with_return_knowledge_sources(self):
-        """Should return knowledge source IDs when configured."""
+        """Should return knowledge source IDs when configured in request."""
         mock_client = MockAgentHttpClient(
             response_data={
                 "message": "Response",
                 "knowledge_source_id": ["ks-1", "ks-2"],
             }
         )
-        options = AgentOptions(return_knowledge_sources=True)
-        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+        agent = Agent(agent_id="my-agent", http_client=mock_client)
 
-        response = agent.chat(AgentRequest(user_prompt="Hello!"))
+        request = ChatRequest(
+            user_prompt="Hello!",
+            return_knowledge_sources=True,
+        )
+        response = agent.chat(request)
 
         _, payload, _ = mock_client.calls[0]
         self.assertEqual(payload["return_ks_in_response"], True)
@@ -320,10 +352,23 @@ class TestAgent(unittest.TestCase):
         )
         agent = Agent(agent_id="my-agent", http_client=mock_client)
 
-        response = agent.chat(AgentRequest(user_prompt="Hello!"))
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
 
         self.assertTrue(response.is_error())
+        self.assertEqual(response.status, ChatStatus.ERROR)
         self.assertIn("HTTP error", response.error)
+
+    def test_chat_success_has_correct_status(self):
+        """Should return SUCCESS status on successful response."""
+        mock_client = MockAgentHttpClient(
+            response_data={"message": "Response"}
+        )
+        agent = Agent(agent_id="my-agent", http_client=mock_client)
+
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        self.assertEqual(response.status, ChatStatus.SUCCESS)
+        self.assertTrue(response.is_success())
 
     def test_chat_uses_custom_timeout(self):
         """Should use timeout from options."""
@@ -331,7 +376,7 @@ class TestAgent(unittest.TestCase):
         options = AgentOptions(request_timeout=120)
         agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
 
-        agent.chat(AgentRequest(user_prompt="Hello!"))
+        agent.chat(ChatRequest(user_prompt="Hello!"))
 
         _, _, timeout = mock_client.calls[0]
         self.assertEqual(timeout, 120)
@@ -341,7 +386,7 @@ class TestAgent(unittest.TestCase):
         mock_client = MockAgentHttpClient(response_data={"message": "Response"})
         agent = Agent(agent_id="specific-agent", http_client=mock_client)
 
-        agent.chat(AgentRequest(user_prompt="Hello!"))
+        agent.chat(ChatRequest(user_prompt="Hello!"))
 
         agent_id, _, _ = mock_client.calls[0]
         self.assertEqual(agent_id, "specific-agent")
@@ -353,7 +398,7 @@ class TestAgent(unittest.TestCase):
         )
         agent = Agent(agent_id="my-agent", http_client=mock_client)
 
-        response = agent.chat(AgentRequest(user_prompt="Hello!"))
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
 
         self.assertTrue(response.is_success())
         self.assertIsNone(response.tokens)

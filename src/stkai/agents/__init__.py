@@ -5,25 +5,27 @@ This module provides client abstractions for interacting with
 StackSpot AI Agents API.
 
 Example:
-    >>> from stkai.agents import Agent, AgentRequest
+    >>> from stkai.agents import Agent, ChatRequest
     >>> agent = Agent(agent_id="my-agent-slug")
     >>> response = agent.chat(
-    ...     request=AgentRequest(user_prompt="What is SOLID?")
+    ...     request=ChatRequest(user_prompt="What is SOLID?")
     ... )
     >>> if response.is_success():
     ...     print(response.message)
 
 For conversation context:
     >>> resp1 = agent.chat(
-    ...     request=AgentRequest(user_prompt="What is Python?"),
-    ...     use_conversation=True
+    ...     request=ChatRequest(
+    ...         user_prompt="What is Python?",
+    ...         use_conversation=True
+    ...     )
     ... )
     >>> resp2 = agent.chat(
-    ...     request=AgentRequest(
+    ...     request=ChatRequest(
     ...         user_prompt="What are its features?",
-    ...         conversation_id=resp1.conversation_id
-    ...     ),
-    ...     use_conversation=True
+    ...         conversation_id=resp1.conversation_id,
+    ...         use_conversation=True
+    ...     )
     ... )
 """
 
@@ -36,9 +38,10 @@ from stkai.agents._http import (
     StkCLIAgentHttpClient,
 )
 from stkai.agents._models import (
-    AgentRequest,
-    AgentResponse,
-    AgentTokenUsage,
+    ChatRequest,
+    ChatResponse,
+    ChatStatus,
+    ChatTokenUsage,
 )
 
 __all__ = [
@@ -47,9 +50,10 @@ __all__ = [
     # Options
     "AgentOptions",
     # Data models
-    "AgentRequest",
-    "AgentResponse",
-    "AgentTokenUsage",
+    "ChatRequest",
+    "ChatResponse",
+    "ChatStatus",
+    "ChatTokenUsage",
     # HTTP client interface
     "AgentHttpClient",
     # HTTP client implementations

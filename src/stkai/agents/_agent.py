@@ -12,7 +12,7 @@ from typing import Any
 import requests
 
 from stkai.agents._http import AgentHttpClient, StkCLIAgentHttpClient
-from stkai.agents._models import AgentRequest, AgentResponse, AgentTokenUsage
+from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus, ChatTokenUsage
 
 
 @dataclass(frozen=True)
@@ -22,20 +22,12 @@ class AgentOptions:
 
     Attributes:
         request_timeout: HTTP request timeout in seconds (default: 60).
-        use_knowledge_sources: Whether to use StackSpot knowledge sources (default: True).
-        return_knowledge_sources: Whether to return knowledge source IDs in response (default: False).
 
     Example:
-        >>> options = AgentOptions(
-        ...     request_timeout=120,
-        ...     use_knowledge_sources=True,
-        ...     return_knowledge_sources=True,
-        ... )
+        >>> options = AgentOptions(request_timeout=120)
         >>> agent = Agent(agent_id="my-agent", options=options)
     """
     request_timeout: int = 60
-    use_knowledge_sources: bool = True
-    return_knowledge_sources: bool = False
 
 
 class Agent:
@@ -51,10 +43,10 @@ class Agent:
     - Token usage tracking
 
     Example:
-        >>> from stkai.agents import Agent, AgentRequest
+        >>> from stkai.agents import Agent, ChatRequest
         >>> agent = Agent(agent_id="my-agent-slug")
         >>> response = agent.chat(
-        ...     request=AgentRequest(user_prompt="What is SOLID?")
+        ...     request=ChatRequest(user_prompt="What is SOLID?")
         ... )
         >>> if response.is_success():
         ...     print(response.message)
@@ -92,11 +84,7 @@ class Agent:
             http_client = StkCLIAgentHttpClient()
         self.http_client: AgentHttpClient = http_client
 
-    def chat(
-        self,
-        request: AgentRequest,
-        use_conversation: bool = False,
-    ) -> AgentResponse:
+    def chat(self, request: ChatRequest) -> ChatResponse:
         """
         Send a message to the Agent and wait for the response (blocking).
 
@@ -104,31 +92,30 @@ class Agent:
         a response is received or an error occurs.
 
         Args:
-            request: The request containing the user prompt.
-            use_conversation: If True, maintains conversation context between calls.
-                If request.conversation_id is provided, it will be used to
-                continue an existing conversation.
+            request: The request containing the user prompt and options.
 
         Returns:
-            AgentResponse with the Agent's reply or error information.
+            ChatResponse with the Agent's reply or error information.
 
         Example:
             >>> # Single message
             >>> response = agent.chat(
-            ...     request=AgentRequest(user_prompt="Hello!")
+            ...     request=ChatRequest(user_prompt="Hello!")
             ... )
             >>>
             >>> # With conversation context
             >>> resp1 = agent.chat(
-            ...     request=AgentRequest(user_prompt="What is Python?"),
-            ...     use_conversation=True
+            ...     request=ChatRequest(
+            ...         user_prompt="What is Python?",
+            ...         use_conversation=True
+            ...     )
             ... )
             >>> resp2 = agent.chat(
-            ...     request=AgentRequest(
+            ...     request=ChatRequest(
             ...         user_prompt="What are its main features?",
-            ...         conversation_id=resp1.conversation_id
-            ...     ),
-            ...     use_conversation=True
+            ...         conversation_id=resp1.conversation_id,
+            ...         use_conversation=True
+            ...     )
             ... )
         """
         logging.info(
@@ -136,12 +123,7 @@ class Agent:
             f"Sending message to agent '{self.agent_id}'..."
         )
 
-        payload = request.to_api_payload(
-            use_conversation=use_conversation,
-            use_knowledge_sources=self.options.use_knowledge_sources,
-            return_knowledge_sources=self.options.return_knowledge_sources,
-        )
-
+        payload = request.to_api_payload()
         try:
             http_response = self.http_client.send_message(
                 agent_id=self.agent_id,
@@ -150,12 +132,24 @@ class Agent:
             )
             http_response.raise_for_status()
 
-            response = self._parse_response(request, http_response.json())
+            response = self._parse_success_response(request, http_response.json())
             logging.info(
                 f"{request.id[:26]:<26} | Agent | "
                 f"✅ Response received (tokens: {response.tokens.total if response.tokens else 'N/A'})"
             )
             return response
+
+        except requests.Timeout as e:
+            error_msg = f"Request timed out: {e}"
+            logging.error(
+                f"{request.id[:26]:<26} | Agent | "
+                f"⏱️ {error_msg}"
+            )
+            return ChatResponse(
+                request=request,
+                status=ChatStatus.TIMEOUT,
+                error=error_msg,
+            )
 
         except requests.HTTPError as e:
             error_msg = f"HTTP error {e.response.status_code}: {e.response.text}"
@@ -163,8 +157,9 @@ class Agent:
                 f"{request.id[:26]:<26} | Agent | "
                 f"❌ {error_msg}"
             )
-            return AgentResponse(
+            return ChatResponse(
                 request=request,
+                status=ChatStatus.ERROR,
                 error=error_msg,
             )
 
@@ -174,32 +169,34 @@ class Agent:
                 f"{request.id[:26]:<26} | Agent | "
                 f"❌ {error_msg}"
             )
-            return AgentResponse(
+            return ChatResponse(
                 request=request,
+                status=ChatStatus.ERROR,
                 error=error_msg,
             )
 
-    def _parse_response(self, request: AgentRequest, data: dict[str, Any]) -> AgentResponse:
+    def _parse_success_response(self, request: ChatRequest, data: dict[str, Any]) -> ChatResponse:
         """
-        Parse the API response into an AgentResponse object.
+        Parse the API response into a ChatResponse object.
 
         Args:
             request: The original request.
             data: The JSON response from the API.
 
         Returns:
-            AgentResponse with parsed data.
+            ChatResponse with parsed data and SUCCESS status.
         """
         tokens = None
         if "tokens" in data and data["tokens"]:
-            tokens = AgentTokenUsage(
+            tokens = ChatTokenUsage(
                 user=data["tokens"].get("user", 0),
                 enrichment=data["tokens"].get("enrichment", 0),
                 output=data["tokens"].get("output", 0),
             )
 
-        return AgentResponse(
+        return ChatResponse(
             request=request,
+            status=ChatStatus.SUCCESS,
             message=data.get("message"),
             stop_reason=data.get("stop_reason"),
             tokens=tokens,

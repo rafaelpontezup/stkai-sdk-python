@@ -12,9 +12,9 @@ Quick Start (RQC):
     >>> print(response.result)
 
 Quick Start (Agent):
-    >>> from stkai import Agent, AgentRequest
+    >>> from stkai import Agent, ChatRequest
     >>> agent = Agent(agent_id="my-agent-slug")
-    >>> response = agent.chat(AgentRequest(user_prompt="What is SOLID?"))
+    >>> response = agent.chat(ChatRequest(user_prompt="What is SOLID?"))
     >>> print(response.message)
 
 Main Classes:
@@ -23,16 +23,18 @@ Main Classes:
     - RqcResponse: Represents the response received from the RQC API.
     - RqcExecutionStatus: Enum with execution lifecycle statuses.
     - Agent: Client for interacting with StackSpot AI Agents.
-    - AgentRequest: Represents a request to be sent to an Agent.
-    - AgentResponse: Represents the response received from an Agent.
+    - ChatRequest: Represents a chat request to be sent to an Agent.
+    - ChatResponse: Represents the chat response received from an Agent.
+    - ChatStatus: Enum with chat response statuses.
 """
 
 __version__ = "0.1.0"
 
 from stkai.agents import (
     Agent,
-    AgentRequest,
-    AgentResponse,
+    ChatRequest,
+    ChatResponse,
+    ChatStatus,
 )
 from stkai.rqc import (
     RemoteQuickCommand,
@@ -50,6 +52,7 @@ __all__ = [
     "RqcExecutionStatus",
     # Agents
     "Agent",
-    "AgentRequest",
-    "AgentResponse",
+    "ChatRequest",
+    "ChatResponse",
+    "ChatStatus",
 ]
