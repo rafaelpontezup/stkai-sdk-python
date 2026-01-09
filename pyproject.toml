@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 authors = [
     {name = "Rafael Ponte", email = "rponte@gmail.com"}
 ]
-keywords = ["stackspot", "ai", "sdk", "quick-commands", "llm"]
+keywords = ["stackspot", "ai", "sdk", "quick-commands", "llm", "agents", "api client"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
