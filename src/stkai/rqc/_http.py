@@ -425,7 +425,7 @@ class AdaptiveRateLimitedHttpClient(RqcHttpClient):
 
         for attempt in range(self.max_retries_on_429 + 1):
             self._acquire_token()
-            response = self.delegate.post_with_authorization(slug_name, data, timeout) # TODO: catch RequestExceotion
+            response = self.delegate.post_with_authorization(slug_name, data, timeout)
 
             if response.status_code != 429:
                 self._on_success()
