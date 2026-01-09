@@ -38,10 +38,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rafaelpontezup/stkai-sdk"
-Documentation = "https://github.com/rafaelpontezup/stkai-sdk#readme"
-Repository = "https://github.com/rafaelpontezup/stkai-sdk"
-Issues = "https://github.com/rafaelpontezup/stkai-sdk/issues"
+Homepage = "https://github.com/rafaelpontezup/stkai-sdk-python"
+Documentation = "https://github.com/rafaelpontezup/stkai-sdk-python#readme"
+Repository = "https://github.com/rafaelpontezup/stkai-sdk-python"
+Issues = "https://github.com/rafaelpontezup/stkai-sdk-python/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
