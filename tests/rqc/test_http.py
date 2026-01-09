@@ -482,7 +482,7 @@ class TestAdaptiveRateLimitedHttpClientAdaptation(unittest.TestCase):
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
             max_requests=100,
-            time_window=60.0,
+            time_window=0.1,  # Fast refill to avoid slow token acquisition
             min_rate_floor=0.1,
             penalty_factor=0.5,  # Large penalty
             max_retries_on_429=0,  # No retries, just adapt
@@ -490,8 +490,9 @@ class TestAdaptiveRateLimitedHttpClientAdaptation(unittest.TestCase):
 
         min_floor = 100 * 0.1  # 10
 
-        # Make many requests that all get 429
-        for _ in range(20):
+        # With penalty_factor=0.5: 100 → 50 → 25 → 12.5 → 10 (floor)
+        # 4 requests to hit floor + 4 more to verify it stays at floor
+        for _ in range(8):
             client.post_with_authorization("slug")
 
         # Should never go below floor
