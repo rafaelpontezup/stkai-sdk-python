@@ -38,6 +38,7 @@ from stkai.rqc._handlers import (
 )
 from stkai.rqc._http import (
     # HTTP client implementations
+    AdaptiveRateLimitedHttpClient,
     RateLimitedHttpClient,
     StkCLIRqcHttpClient,
 )
@@ -89,6 +90,7 @@ __all__ = [
     # HTTP client interface
     "RqcHttpClient",
     # HTTP client implementations
+    "AdaptiveRateLimitedHttpClient",
     "RateLimitedHttpClient",
     "StkCLIRqcHttpClient",
     # Errors
