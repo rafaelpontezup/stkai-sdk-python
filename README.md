@@ -51,7 +51,8 @@ Here you can see what it's possible to do with it:
 4. [Filtering only completed responses](#4-filtering-only-completed-responses)
 5. [Configuration](#configuration)
 6. [Event Listeners](#event-listeners)
-   - 6.1. [Custom Event Listener](#custom-event-listener)
+   - 6.1. [Custom Event Listener](#61-custom-event-listener)
+   - 6.2. [Phased Event Listener](#62-phased-event-listener)
 7. [Rate Limiting](#rate-limiting)
    - 7.1. [Fixed Rate Limiting](#71-fixed-rate-limiting)
    - 7.2. [Adaptive Rate Limiting](#72-adaptive-rate-limiting)
@@ -245,7 +246,7 @@ rqc = RemoteQuickCommand(
 
 By default, if no listeners are provided, a `FileLoggingListener` is automatically registered to save request/response logs to `output/rqc/{slug_name}/`.
 
-### Custom Event Listener
+#### 6.1. Custom Event Listener
 
 You can create custom listeners by extending the `RqcEventListener` class:
 
@@ -282,6 +283,79 @@ rqc = RemoteQuickCommand(
     listeners=[MetricsListener()]
 )
 ```
+
+#### 6.2. Phased Event Listener
+
+The base `RqcEventListener` provides general lifecycle hooks, but sometimes you need more granular control over the **two distinct phases** of RQC execution:
+
+1. **Create-execution phase**: POST request to create the execution
+2. **Get-result phase**: Polling until the result is ready
+
+The `RqcPhasedEventListener` provides phase-specific hooks that make it easier to handle each phase separately:
+
+| Base Class Hook | Phased Listener Hooks |
+|-----------------|----------------------|
+| `on_before_execute()` | `on_before_create_execution()` |
+| `on_status_change()` | `on_after_create_execution()` + `on_before_get_result()` |
+| `on_after_execute()` | `on_after_get_result()` (or `on_after_create_execution()` if failed early) |
+
+```python
+import time
+from typing import Any
+from requests import Response
+from stkai import RemoteQuickCommand
+from stkai.rqc import RqcPhasedEventListener, RqcRequest, RqcResponse
+
+class DetailedMetricsListener(RqcPhasedEventListener):
+    """Listener that tracks metrics for each phase separately."""
+
+    def on_before_create_execution(
+        self, request: RqcRequest, context: dict[str, Any]
+    ) -> None:
+        context['create_start'] = time.time()
+        print(f"[{request.id}] Starting create-execution...")
+
+    def on_after_create_execution(
+        self,
+        request: RqcRequest,
+        success: bool,
+        response: Response | None,
+        context: dict[str, Any],
+    ) -> None:
+        duration = time.time() - context['create_start']
+        status = "OK" if success else "FAILED"
+        print(f"[{request.id}] Create-execution {status} in {duration:.2f}s")
+
+    def on_before_get_result(
+        self, request: RqcRequest, context: dict[str, Any]
+    ) -> None:
+        context['poll_start'] = time.time()
+        print(f"[{request.id}] Starting polling...")
+
+    def on_after_get_result(
+        self,
+        request: RqcRequest,
+        response: RqcResponse,
+        context: dict[str, Any],
+    ) -> None:
+        duration = time.time() - context['poll_start']
+        print(f"[{request.id}] Polling completed in {duration:.2f}s: {response.status}")
+
+# Use the phased listener
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    listeners=[DetailedMetricsListener()]
+)
+```
+
+**When to use which:**
+
+| Scenario | Recommended Listener |
+|----------|---------------------|
+| Simple logging or metrics | `RqcEventListener` |
+| Different handling per phase | `RqcPhasedEventListener` |
+| Track create-execution failures separately | `RqcPhasedEventListener` |
+| Measure polling duration independently | `RqcPhasedEventListener` |
 
 ### 7. Rate Limiting
 
