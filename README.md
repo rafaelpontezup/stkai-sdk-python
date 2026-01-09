@@ -1,6 +1,6 @@
 # stkai
 
-Python SDK for StackSpot AI - Remote Quick Commands and more.
+StackSpot AI SDK for Python which allows Python developers to write software that makes use of StackSpot AI services, such as Remote Quick Commands (RQCs), Agents and more.
 
 ## Installation
 
@@ -21,6 +21,8 @@ pip install stkai[dev]
 
 ## Quick Start
 
+To execute a Remote Quick-Command (RQC) and handle its response you just need a code like this:
+
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
 
@@ -35,7 +37,7 @@ response = rqc.execute(
 if response.is_completed():
     print(f"Result: {response.result}")
 else:
-    print(f"Error: {response.error}")
+    print(f"Error: {response.error_with_details()}")
 ```
 
 ## Usage Guide
