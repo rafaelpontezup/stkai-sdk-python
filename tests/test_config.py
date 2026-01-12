@@ -33,7 +33,7 @@ class TestDefaults(unittest.TestCase):
         self.assertEqual(STKAI_CONFIG.rqc.poll_max_duration, 600.0)
         self.assertEqual(STKAI_CONFIG.rqc.overload_timeout, 60.0)
         self.assertEqual(STKAI_CONFIG.rqc.max_workers, 8)
-        self.assertIsNone(STKAI_CONFIG.rqc.base_url)
+        self.assertEqual(STKAI_CONFIG.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
 
     def test_agent_defaults(self):
         """Should return sensible defaults for Agent config."""

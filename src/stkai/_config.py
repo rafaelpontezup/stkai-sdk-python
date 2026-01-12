@@ -170,7 +170,7 @@ class RqcConfig(OverridableConfig):
     poll_max_duration: float = 600.0
     overload_timeout: float = 60.0
     max_workers: int = 8
-    base_url: str | None = None
+    base_url: str = "https://genai-code-buddy-api.stackspot.com"
 
 
 @dataclass(frozen=True)
@@ -276,30 +276,14 @@ def _get_agent_from_env() -> dict[str, Any]:
     return result
 
 
-def _build_config_from_env() -> StkAiConfig:
-    """
-    Build StkAiConfig with defaults merged with environment variables.
-
-    This is used to initialize STKAI_CONFIG at module load time.
-    """
-    auth_config = AuthConfig().with_overrides(_get_auth_from_env())
-    rqc_config = RqcConfig().with_overrides(_get_rqc_from_env())
-    agent_config = AgentConfig().with_overrides(_get_agent_from_env())
-
-    return StkAiConfig(
-        auth=auth_config,
-        rqc=rqc_config,
-        agent=agent_config,
-    )
-
-
 # =============================================================================
 # Global Configuration Instance
 # =============================================================================
 
 
 # Internal mutable reference to the current config
-_current_config: StkAiConfig = _build_config_from_env()
+# Initialized with defaults; configure_stkai() is called at module end to apply env vars
+_current_config: StkAiConfig = StkAiConfig()
 
 
 class _StkAiConfigProxy:
@@ -383,20 +367,15 @@ def configure_stkai(
         ...     rqc={"request_timeout": 60},
         ... )
     """
-    global _current_config
-
     # Start with defaults
     auth_config = AuthConfig()
     rqc_config = RqcConfig()
     agent_config = AgentConfig()
 
     # Apply user overrides from configure_stkai()
-    if auth:
-        auth_config = auth_config.with_overrides(auth)
-    if rqc:
-        rqc_config = rqc_config.with_overrides(rqc)
-    if agent:
-        agent_config = agent_config.with_overrides(agent)
+    auth_config = auth_config.with_overrides(auth or {})
+    rqc_config = rqc_config.with_overrides(rqc or {})
+    agent_config = agent_config.with_overrides(agent or {})
 
     # Apply env vars on top (if enabled) - env vars have highest priority
     if allow_env_override:
@@ -404,6 +383,7 @@ def configure_stkai(
         rqc_config = rqc_config.with_overrides(_get_rqc_from_env())
         agent_config = agent_config.with_overrides(_get_agent_from_env())
 
+    global _current_config
     _current_config = StkAiConfig(
         auth=auth_config,
         rqc=rqc_config,
@@ -426,6 +406,12 @@ def reset_stkai_config() -> StkAiConfig:
         >>> from stkai._config import reset_stkai_config
         >>> reset_stkai_config()
     """
-    global _current_config
-    _current_config = _build_config_from_env()
-    return _current_config
+    return configure_stkai()
+
+
+# =============================================================================
+# Module Initialization
+# =============================================================================
+
+# Apply defaults + env vars at module load time
+configure_stkai()
