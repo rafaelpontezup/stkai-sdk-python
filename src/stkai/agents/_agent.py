@@ -77,11 +77,19 @@ class Agent:
         """
         assert agent_id, "Agent ID cannot be empty."
 
+        # Get global config for defaults
+        from stkai._config import get_agent_config
+        cfg = get_agent_config()
+
         self.agent_id = agent_id
-        self.options = options or AgentOptions()
+
+        # Use provided options, or create from global config
+        if options is None:
+            options = AgentOptions(request_timeout=cfg["request_timeout"])
+        self.options = options
 
         if not http_client:
-            http_client = StkCLIAgentHttpClient(base_url="https://genai-inference-app.stackspot.com")
+            http_client = StkCLIAgentHttpClient(base_url=cfg["base_url"])
         self.http_client: AgentHttpClient = http_client
 
     def chat(self, request: ChatRequest) -> ChatResponse:

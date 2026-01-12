@@ -576,7 +576,7 @@ class RemoteQuickCommand:
         slug_name: str,
         create_execution_options: CreateExecutionOptions | None = None,
         get_result_options: GetResultOptions | None = None,
-        max_workers: int = 8,
+        max_workers: int | None = None,
         http_client: RqcHttpClient | None = None,
         listeners: list[RqcEventListener] | None = None,
     ):
@@ -592,6 +592,7 @@ class RemoteQuickCommand:
             create_execution_options: Options for the create-execution phase.
             get_result_options: Options for the get-result (polling) phase.
             max_workers: Maximum number of concurrent threads for execute_many().
+                If None, uses global config (default: 8).
             http_client: Custom HTTP client implementation for API calls.
                 If None, uses StkCLIRqcHttpClient (requires StackSpot CLI).
             listeners: Event listeners for observing execution lifecycle.
@@ -602,12 +603,38 @@ class RemoteQuickCommand:
             AssertionError: If any required parameter is invalid.
         """
         assert slug_name, "RQC slug_name can not be empty."
+
+        self.slug_name = slug_name
+
+        # Get global config for defaults
+        from stkai._config import get_rqc_config
+        cfg = get_rqc_config()
+
+        # Use provided options, or create from global config
+        if create_execution_options is None:
+            create_execution_options = CreateExecutionOptions(
+                max_retries=cfg["max_retries"],
+                backoff_factor=cfg["backoff_factor"],
+                request_timeout=cfg["request_timeout"],
+            )
+        self.create_execution_options = create_execution_options
+
+        if get_result_options is None:
+            get_result_options = GetResultOptions(
+                poll_interval=cfg["poll_interval"],
+                poll_max_duration=cfg["poll_max_duration"],
+                overload_timeout=cfg["overload_timeout"],
+                request_timeout=cfg["request_timeout"],
+            )
+        self.get_result_options = get_result_options
+
+        # Use provided max_workers, or fallback to global config
+        if max_workers is None:
+            max_workers = cfg["max_workers"]
+
         assert max_workers, "Thread-pool max_workers can not be empty."
         assert max_workers > 0, "Thread-pool max_workers must be greater than 0."
 
-        self.slug_name = slug_name
-        self.create_execution_options = create_execution_options or CreateExecutionOptions()
-        self.get_result_options = get_result_options or GetResultOptions()
         self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
 

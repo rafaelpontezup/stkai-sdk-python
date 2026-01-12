@@ -17,6 +17,13 @@ Quick Start (Agent):
     >>> response = agent.chat(ChatRequest(user_prompt="What is SOLID?"))
     >>> print(response.message)
 
+Global Configuration:
+    >>> import stkai
+    >>> stkai.configure(
+    ...     rqc={"request_timeout": 60, "max_retries": 5},
+    ...     agent={"request_timeout": 120},
+    ... )
+
 Main Classes:
     - RemoteQuickCommand: Client for executing Remote Quick Commands.
     - RqcRequest: Represents a request to be sent to the RQC API.
@@ -30,6 +37,12 @@ Main Classes:
 
 __version__ = "0.1.0"
 
+from stkai._config import (
+    AgentConfig,
+    RqcConfig,
+    StkAiConfig,
+    configure,
+)
 from stkai.agents import (
     Agent,
     ChatRequest,
@@ -45,6 +58,11 @@ from stkai.rqc import (
 
 __all__ = [
     "__version__",
+    # Configuration
+    "configure",
+    "StkAiConfig",
+    "RqcConfig",
+    "AgentConfig",
     # RQC
     "RemoteQuickCommand",
     "RqcRequest",
