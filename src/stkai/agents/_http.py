@@ -67,6 +67,9 @@ class StkCLIAgentHttpClient(AgentHttpClient):
     See Also:
         AgentHttpClient: Abstract base class defining the interface.
     """
+    def __init__(self, base_url: str) -> None:
+        assert base_url, "Agent API base-URL can not be empty."
+        self.base_url = base_url
 
     @override
     def send_message(
@@ -94,10 +97,9 @@ class StkCLIAgentHttpClient(AgentHttpClient):
         assert timeout is not None, "Timeout cannot be None."
         assert timeout > 0, "Timeout must be greater than 0."
 
-        from oscli import __codebuddy_base_url__
         from oscli.core.http import post_with_authorization
 
-        url = f"{__codebuddy_base_url__}/v1/agent/{agent_id}/chat"
+        url = f"{self.base_url}/v1/agent/{agent_id}/chat"
 
         response: requests.Response = post_with_authorization(
             url=url,

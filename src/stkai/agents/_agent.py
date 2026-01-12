@@ -81,7 +81,7 @@ class Agent:
         self.options = options or AgentOptions()
 
         if not http_client:
-            http_client = StkCLIAgentHttpClient()
+            http_client = StkCLIAgentHttpClient(base_url="https://genai-inference-app.stackspot.com")
         self.http_client: AgentHttpClient = http_client
 
     def chat(self, request: ChatRequest) -> ChatResponse:
