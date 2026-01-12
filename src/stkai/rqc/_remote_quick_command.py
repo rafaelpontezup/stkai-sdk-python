@@ -603,34 +603,33 @@ class RemoteQuickCommand:
             AssertionError: If any required parameter is invalid.
         """
         assert slug_name, "RQC slug_name can not be empty."
-
         self.slug_name = slug_name
 
         # Get global config for defaults
-        from stkai._config import get_rqc_config
-        cfg = get_rqc_config()
+        from stkai._config import config
+        cfg = config.rqc
 
         # Use provided options, or create from global config
         if create_execution_options is None:
             create_execution_options = CreateExecutionOptions(
-                max_retries=cfg["max_retries"],
-                backoff_factor=cfg["backoff_factor"],
-                request_timeout=cfg["request_timeout"],
+                max_retries=cfg.max_retries,
+                backoff_factor=cfg.backoff_factor,
+                request_timeout=cfg.request_timeout,
             )
         self.create_execution_options = create_execution_options
 
         if get_result_options is None:
             get_result_options = GetResultOptions(
-                poll_interval=cfg["poll_interval"],
-                poll_max_duration=cfg["poll_max_duration"],
-                overload_timeout=cfg["overload_timeout"],
-                request_timeout=cfg["request_timeout"],
+                poll_interval=cfg.poll_interval,
+                poll_max_duration=cfg.poll_max_duration,
+                overload_timeout=cfg.overload_timeout,
+                request_timeout=cfg.request_timeout,
             )
         self.get_result_options = get_result_options
 
         # Use provided max_workers, or fallback to global config
         if max_workers is None:
-            max_workers = cfg["max_workers"]
+            max_workers = cfg.max_workers
 
         assert max_workers, "Thread-pool max_workers can not be empty."
         assert max_workers > 0, "Thread-pool max_workers must be greater than 0."

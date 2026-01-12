@@ -76,20 +76,19 @@ class Agent:
             AssertionError: If agent_id is empty.
         """
         assert agent_id, "Agent ID cannot be empty."
+        self.agent_id = agent_id
 
         # Get global config for defaults
-        from stkai._config import get_agent_config
-        cfg = get_agent_config()
-
-        self.agent_id = agent_id
+        from stkai._config import config
+        cfg = config.agent
 
         # Use provided options, or create from global config
         if options is None:
-            options = AgentOptions(request_timeout=cfg["request_timeout"])
+            options = AgentOptions(request_timeout=cfg.request_timeout)
         self.options = options
 
         if not http_client:
-            http_client = StkCLIAgentHttpClient(base_url=cfg["base_url"])
+            http_client = StkCLIAgentHttpClient(base_url=cfg.base_url)
         self.http_client: AgentHttpClient = http_client
 
     def chat(self, request: ChatRequest) -> ChatResponse:
