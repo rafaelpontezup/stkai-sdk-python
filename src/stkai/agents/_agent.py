@@ -79,8 +79,8 @@ class Agent:
         self.agent_id = agent_id
 
         # Get global config for defaults
-        from stkai._config import config
-        cfg = config.agent
+        from stkai._config import STKAI_CONFIG
+        cfg = STKAI_CONFIG.agent
 
         # Use provided options, or create from global config
         if options is None:

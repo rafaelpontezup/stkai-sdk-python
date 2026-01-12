@@ -2,30 +2,130 @@
 Global configuration for the stkai SDK.
 
 This module provides a simple configuration system following Convention over Configuration (CoC).
-Users can optionally call configure() at application startup to customize defaults.
+Users can optionally call configure_stkai() at application startup to customize defaults.
 If not called, sensible defaults are used.
 
 Hierarchy of precedence (highest to lowest):
 1. *Options passed to client constructors
-2. Values set via configure()
-3. Environment variables (STKAI_*)
+2. Environment variables (STKAI_*) - when allow_env_override=True
+3. Values set via configure_stkai()
 4. Hardcoded defaults (in dataclass fields)
+
+Example:
+    >>> from stkai import STKAI_CONFIG, configure_stkai
+    >>>
+    >>> # Pre-loaded with defaults + env vars
+    >>> timeout = STKAI_CONFIG.agent.request_timeout
+    >>>
+    >>> # Custom configuration
+    >>> configure_stkai(
+    ...     auth={"client_id": "x", "client_secret": "y"},
+    ...     rqc={"request_timeout": 60},
+    ... )
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field, fields, replace
-from typing import Any
+from typing import Any, Self
+
+# =============================================================================
+# Base Class
+# =============================================================================
 
 
 @dataclass(frozen=True)
-class RqcConfig:
+class OverridableConfig:
     """
-    Configuration specific to RemoteQuickCommand.
+    Base class for immutable configuration dataclasses.
 
-    These settings are used as defaults when creating RemoteQuickCommand instances
-    without explicitly providing CreateExecutionOptions or GetResultOptions.
+    Provides `.with_overrides()` method for creating new instances
+    with partial field updates. Uses strict validation to catch
+    typos and invalid field names early.
+
+    Example:
+        >>> config = RqcConfig()
+        >>> custom = config.with_overrides({"request_timeout": 60})
+        >>> custom.request_timeout
+        60
+    """
+
+    def with_overrides(self, overrides: dict[str, Any]) -> Self:
+        """
+        Return a new instance with specified fields overridden.
+
+        Args:
+            overrides: Dict of field names to new values.
+                       Only existing fields are allowed.
+
+        Returns:
+            New instance with updated values.
+
+        Raises:
+            ValueError: If overrides contains unknown field names.
+
+        Example:
+            >>> config.with_overrides({"request_timeout": 60})
+        """
+        if not overrides:
+            return self
+
+        valid_fields = {f.name for f in fields(self)}
+        invalid_fields = set(overrides.keys()) - valid_fields
+
+        if invalid_fields:
+            raise ValueError(
+                f"Unknown config fields: {invalid_fields}. "
+                f"Valid fields are: {valid_fields}"
+            )
+
+        filtered = {k: v for k, v in overrides.items() if v is not None}
+        return replace(self, **filtered) if filtered else self
+
+
+# =============================================================================
+# Configuration Dataclasses
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class AuthConfig(OverridableConfig):
+    """
+    Authentication configuration for StackSpot AI.
+
+    Credentials are used for future native authentication support.
+    Currently, authentication is delegated to StackSpot CLI (stk).
+
+    Attributes:
+        client_id: StackSpot client ID for authentication.
+            Env var: STKAI_AUTH_CLIENT_ID
+
+        client_secret: StackSpot client secret for authentication.
+            Env var: STKAI_AUTH_CLIENT_SECRET
+
+    Example:
+        >>> from stkai import STKAI_CONFIG
+        >>> if STKAI_CONFIG.auth.has_credentials():
+        ...     print("Credentials configured")
+    """
+
+    client_id: str | None = None
+    client_secret: str | None = None
+
+    def has_credentials(self) -> bool:
+        """Check if both client_id and client_secret are set."""
+        return bool(self.client_id and self.client_secret)
+
+
+@dataclass(frozen=True)
+class RqcConfig(OverridableConfig):
+    """
+    Configuration for RemoteQuickCommand clients.
+
+    These settings are used as defaults when creating RemoteQuickCommand
+    instances without explicitly providing CreateExecutionOptions or
+    GetResultOptions.
 
     Attributes:
         request_timeout: HTTP request timeout in seconds for API calls.
@@ -52,14 +152,14 @@ class RqcConfig:
         max_workers: Maximum number of concurrent threads for execute_many().
             Env var: STKAI_RQC_MAX_WORKERS
 
-        base_url: Base URL for the RQC API.
+        base_url: Base URL for the RQC API. If None, uses StackSpot CLI.
             Env var: STKAI_RQC_BASE_URL
 
     Example:
-        >>> from stkai import config
-        >>> config.rqc.request_timeout
+        >>> from stkai import STKAI_CONFIG
+        >>> STKAI_CONFIG.rqc.request_timeout
         30
-        >>> config.rqc.max_retries
+        >>> STKAI_CONFIG.rqc.max_retries
         3
     """
 
@@ -74,9 +174,9 @@ class RqcConfig:
 
 
 @dataclass(frozen=True)
-class AgentConfig:
+class AgentConfig(OverridableConfig):
     """
-    Configuration specific to Agent.
+    Configuration for Agent clients.
 
     These settings are used as defaults when creating Agent instances
     without explicitly providing AgentOptions.
@@ -89,10 +189,10 @@ class AgentConfig:
             Env var: STKAI_AGENT_BASE_URL
 
     Example:
-        >>> from stkai import config
-        >>> config.agent.request_timeout
+        >>> from stkai import STKAI_CONFIG
+        >>> STKAI_CONFIG.agent.request_timeout
         60
-        >>> config.agent.base_url
+        >>> STKAI_CONFIG.agent.base_url
         'https://genai-inference-app.stackspot.com'
     """
 
@@ -100,58 +200,52 @@ class AgentConfig:
     base_url: str = "https://genai-inference-app.stackspot.com"
 
 
-@dataclass
+@dataclass(frozen=True)
 class StkAiConfig:
     """
     Global configuration for the stkai SDK.
 
-    Provides access to resolved configuration values, combining:
-    defaults < env vars < configure().
+    Aggregates all configuration sections: auth, rqc, and agent.
+    Access via the global `STKAI_CONFIG` constant.
 
     Attributes:
-        client_id: StackSpot client ID for authentication.
-            Env var: STKAI_CLIENT_ID
-
-        client_secret: StackSpot client secret for authentication.
-            Env var: STKAI_CLIENT_SECRET
-
-        rqc: Configuration specific to RemoteQuickCommand clients.
-
-        agent: Configuration specific to Agent clients.
+        auth: Authentication configuration.
+        rqc: RemoteQuickCommand configuration.
+        agent: Agent configuration.
 
     Example:
-        >>> from stkai import config
-        >>> config.rqc.request_timeout
+        >>> from stkai import STKAI_CONFIG
+        >>> STKAI_CONFIG.rqc.request_timeout
         30
-        >>> config.agent.base_url
-        'https://genai-inference-app.stackspot.com'
+        >>> STKAI_CONFIG.auth.has_credentials()
+        False
     """
 
-    client_id: str | None = None
-    client_secret: str | None = None
+    auth: AuthConfig = field(default_factory=AuthConfig)
     rqc: RqcConfig = field(default_factory=RqcConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
 
-    def has_credentials(self) -> bool:
-        """Check if both client_id and client_secret are set."""
-        return bool(self.client_id and self.client_secret)
+
+# =============================================================================
+# Environment Variable Helpers
+# =============================================================================
 
 
-def _merge_dataclass(base: Any, overrides: dict[str, Any]) -> Any:
-    """
-    Merge a dataclass instance with a dict of overrides.
-
-    Only applies overrides for keys that exist in the dataclass.
-    """
-    if not overrides:
-        return base
-    valid_fields = {f.name for f in fields(base)}
-    filtered = {k: v for k, v in overrides.items() if k in valid_fields and v is not None}
-    return replace(base, **filtered) if filtered else base
+def _get_auth_from_env() -> dict[str, Any]:
+    """Read AuthConfig values from environment variables."""
+    result: dict[str, Any] = {}
+    env_mapping: list[tuple[str, str, type]] = [
+        ("client_id", "STKAI_AUTH_CLIENT_ID", str),
+        ("client_secret", "STKAI_AUTH_CLIENT_SECRET", str),
+    ]
+    for key, env_var, type_fn in env_mapping:
+        if value := os.environ.get(env_var):
+            result[key] = type_fn(value)
+    return result
 
 
 def _get_rqc_from_env() -> dict[str, Any]:
-    """Read RQC config values from environment variables."""
+    """Read RqcConfig values from environment variables."""
     result: dict[str, Any] = {}
     env_mapping: list[tuple[str, str, type]] = [
         ("base_url", "STKAI_RQC_BASE_URL", str),
@@ -170,7 +264,7 @@ def _get_rqc_from_env() -> dict[str, Any]:
 
 
 def _get_agent_from_env() -> dict[str, Any]:
-    """Read Agent config values from environment variables."""
+    """Read AgentConfig values from environment variables."""
     result: dict[str, Any] = {}
     env_mapping: list[tuple[str, str, type]] = [
         ("base_url", "STKAI_AGENT_BASE_URL", str),
@@ -182,137 +276,156 @@ def _get_agent_from_env() -> dict[str, Any]:
     return result
 
 
-def _get_credentials_from_env() -> dict[str, Any]:
-    """Read credentials from environment variables."""
-    result: dict[str, Any] = {}
-    if client_id := os.environ.get("STKAI_CLIENT_ID"):
-        result["client_id"] = client_id
-    if client_secret := os.environ.get("STKAI_CLIENT_SECRET"):
-        result["client_secret"] = client_secret
-    return result
-
-
-# Global state for user overrides via configure()
-_user_config: dict[str, Any] = {}
-
-
-def configure(
-    *,
-    client_id: str | None = None,
-    client_secret: str | None = None,
-    rqc: dict[str, Any] | None = None,
-    agent: dict[str, Any] | None = None,
-) -> None:
+def _build_config_from_env() -> StkAiConfig:
     """
-    Configure global SDK settings.
+    Build StkAiConfig with defaults merged with environment variables.
 
-    Call this at application startup to customize defaults.
-    If not called, sensible defaults are used (Convention over Configuration).
-
-    Args:
-        client_id: StackSpot client ID for authentication (future use).
-        client_secret: StackSpot client secret for authentication (future use).
-        rqc: Configuration dict for RemoteQuickCommand clients.
-        agent: Configuration dict for Agent clients.
-
-    Example:
-        >>> import stkai
-        >>> stkai.configure(
-        ...     rqc={"request_timeout": 60, "max_retries": 5},
-        ...     agent={"request_timeout": 120},
-        ... )
+    This is used to initialize STKAI_CONFIG at module load time.
     """
-    global _user_config
-    if client_id is not None:
-        _user_config["client_id"] = client_id
-    if client_secret is not None:
-        _user_config["client_secret"] = client_secret
-    if rqc is not None:
-        _user_config["rqc"] = {**_user_config.get("rqc", {}), **rqc}
-    if agent is not None:
-        _user_config["agent"] = {**_user_config.get("agent", {}), **agent}
-
-
-def _build_config() -> StkAiConfig:
-    """
-    Build the resolved configuration.
-
-    Merges: defaults (dataclass) < env vars < configure().
-    """
-    # Start with defaults (from dataclass)
-    rqc_config = RqcConfig()
-    agent_config = AgentConfig()
-
-    # Apply env vars
-    rqc_config = _merge_dataclass(rqc_config, _get_rqc_from_env())
-    agent_config = _merge_dataclass(agent_config, _get_agent_from_env())
-
-    # Apply user config from configure()
-    rqc_config = _merge_dataclass(rqc_config, _user_config.get("rqc", {}))
-    agent_config = _merge_dataclass(agent_config, _user_config.get("agent", {}))
-
-    # Build credentials
-    creds = _get_credentials_from_env()
-    client_id = _user_config.get("client_id") or creds.get("client_id")
-    client_secret = _user_config.get("client_secret") or creds.get("client_secret")
+    auth_config = AuthConfig().with_overrides(_get_auth_from_env())
+    rqc_config = RqcConfig().with_overrides(_get_rqc_from_env())
+    agent_config = AgentConfig().with_overrides(_get_agent_from_env())
 
     return StkAiConfig(
-        client_id=client_id,
-        client_secret=client_secret,
+        auth=auth_config,
         rqc=rqc_config,
         agent=agent_config,
     )
 
 
-class _ConfigProxy:
-    """
-    Proxy that provides attribute access to resolved configuration.
+# =============================================================================
+# Global Configuration Instance
+# =============================================================================
 
-    Values are resolved dynamically on each access, respecting the hierarchy:
-    defaults < env vars < configure().
+
+# Internal mutable reference to the current config
+_current_config: StkAiConfig = _build_config_from_env()
+
+
+class _StkAiConfigProxy:
+    """
+    Proxy that provides attribute access to the current global configuration.
+
+    This proxy ensures that `STKAI_CONFIG.rqc.request_timeout` always returns
+    the current value, even after `configure_stkai()` is called. Without this,
+    importing `STKAI_CONFIG` would copy the reference and not see updates.
 
     Example:
-        >>> from stkai import config
-        >>> config.rqc.request_timeout
+        >>> from stkai import STKAI_CONFIG
+        >>> STKAI_CONFIG.rqc.request_timeout  # Always current value
         30
-        >>> config.agent.base_url
-        'https://genai-inference-app.stackspot.com'
     """
+
+    @property
+    def auth(self) -> AuthConfig:
+        """Get current authentication configuration."""
+        return _current_config.auth
 
     @property
     def rqc(self) -> RqcConfig:
-        """Get resolved RQC configuration."""
-        return _build_config().rqc
+        """Get current RQC configuration."""
+        return _current_config.rqc
 
     @property
     def agent(self) -> AgentConfig:
-        """Get resolved Agent configuration."""
-        return _build_config().agent
+        """Get current Agent configuration."""
+        return _current_config.agent
 
-    @property
-    def client_id(self) -> str | None:
-        """Get resolved client_id."""
-        return _build_config().client_id
-
-    @property
-    def client_secret(self) -> str | None:
-        """Get resolved client_secret."""
-        return _build_config().client_secret
-
-    def has_credentials(self) -> bool:
-        """Check if both client_id and client_secret are set."""
-        return _build_config().has_credentials()
+    def __repr__(self) -> str:
+        return repr(_current_config)
 
 
-# Global config instance - ready to use on import
-config = _ConfigProxy()
+# Global config proxy - always reflects current configuration
+STKAI_CONFIG: _StkAiConfigProxy = _StkAiConfigProxy()
 
 
-def reset() -> None:
+# =============================================================================
+# Public API
+# =============================================================================
+
+
+def configure_stkai(
+    *,
+    auth: dict[str, Any] | None = None,
+    rqc: dict[str, Any] | None = None,
+    agent: dict[str, Any] | None = None,
+    allow_env_override: bool = True,
+) -> StkAiConfig:
     """
-    Reset configuration to defaults.
+    Configure global SDK settings.
+
+    Call at application startup to customize defaults. Updates the
+    global `STKAI_CONFIG` and returns the configured instance.
+
+    Args:
+        auth: Authentication config overrides (client_id, client_secret).
+        rqc: RemoteQuickCommand config overrides.
+        agent: Agent config overrides.
+        allow_env_override: If True (default), env vars take precedence
+            over provided values. If False, ignores env vars entirely.
+
+    Returns:
+        The configured StkAiConfig instance.
+
+    Raises:
+        ValueError: If any dict contains unknown field names.
+
+    Precedence (allow_env_override=True):
+        ENV vars > configure_stkai() > defaults
+
+    Precedence (allow_env_override=False):
+        configure_stkai() > defaults
+
+    Example:
+        >>> from stkai import configure_stkai
+        >>> config = configure_stkai(
+        ...     auth={"client_id": "x", "client_secret": "y"},
+        ...     rqc={"request_timeout": 60},
+        ... )
+    """
+    global _current_config
+
+    # Start with defaults
+    auth_config = AuthConfig()
+    rqc_config = RqcConfig()
+    agent_config = AgentConfig()
+
+    # Apply user overrides from configure_stkai()
+    if auth:
+        auth_config = auth_config.with_overrides(auth)
+    if rqc:
+        rqc_config = rqc_config.with_overrides(rqc)
+    if agent:
+        agent_config = agent_config.with_overrides(agent)
+
+    # Apply env vars on top (if enabled) - env vars have highest priority
+    if allow_env_override:
+        auth_config = auth_config.with_overrides(_get_auth_from_env())
+        rqc_config = rqc_config.with_overrides(_get_rqc_from_env())
+        agent_config = agent_config.with_overrides(_get_agent_from_env())
+
+    _current_config = StkAiConfig(
+        auth=auth_config,
+        rqc=rqc_config,
+        agent=agent_config,
+    )
+
+    return _current_config
+
+
+def reset_stkai_config() -> StkAiConfig:
+    """
+    Reset configuration to defaults + env vars.
 
     Useful for testing to ensure clean state between tests.
+
+    Returns:
+        The reset StkAiConfig instance.
+
+    Example:
+        >>> from stkai._config import reset_stkai_config
+        >>> reset_stkai_config()
     """
-    global _user_config
-    _user_config = {}
+    global _current_config
+    _current_config = _build_config_from_env()
+    return _current_config

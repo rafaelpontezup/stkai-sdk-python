@@ -18,8 +18,14 @@ Quick Start (Agent):
     >>> print(response.message)
 
 Global Configuration:
-    >>> import stkai
-    >>> stkai.configure(
+    >>> from stkai import STKAI_CONFIG, configure_stkai
+    >>>
+    >>> # Pre-loaded with defaults + env vars
+    >>> timeout = STKAI_CONFIG.agent.request_timeout
+    >>>
+    >>> # Custom configuration
+    >>> configure_stkai(
+    ...     auth={"client_id": "x", "client_secret": "y"},
     ...     rqc={"request_timeout": 60, "max_retries": 5},
     ...     agent={"request_timeout": 120},
     ... )
@@ -33,15 +39,25 @@ Main Classes:
     - ChatRequest: Represents a chat request to be sent to an Agent.
     - ChatResponse: Represents the chat response received from an Agent.
     - ChatStatus: Enum with chat response statuses.
+
+Configuration:
+    - STKAI_CONFIG: Global configuration instance (pre-loaded).
+    - configure_stkai: Function to customize global settings.
+    - StkAiConfig: Root configuration dataclass.
+    - AuthConfig: Authentication configuration.
+    - RqcConfig: RemoteQuickCommand configuration.
+    - AgentConfig: Agent configuration.
 """
 
 __version__ = "0.1.0"
 
 from stkai._config import (
+    STKAI_CONFIG,
     AgentConfig,
+    AuthConfig,
     RqcConfig,
     StkAiConfig,
-    configure,
+    configure_stkai,
 )
 from stkai.agents import (
     Agent,
@@ -59,8 +75,10 @@ from stkai.rqc import (
 __all__ = [
     "__version__",
     # Configuration
-    "configure",
+    "STKAI_CONFIG",
+    "configure_stkai",
     "StkAiConfig",
+    "AuthConfig",
     "RqcConfig",
     "AgentConfig",
     # RQC

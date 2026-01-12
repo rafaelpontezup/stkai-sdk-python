@@ -606,8 +606,8 @@ class RemoteQuickCommand:
         self.slug_name = slug_name
 
         # Get global config for defaults
-        from stkai._config import config
-        cfg = config.rqc
+        from stkai._config import STKAI_CONFIG
+        cfg = STKAI_CONFIG.rqc
 
         # Use provided options, or create from global config
         if create_execution_options is None:
