@@ -237,6 +237,18 @@ errors = [r for r in all_responses if r.is_error()]
 timeouts = [r for r in all_responses if r.is_timeout()]
 ```
 
+#### RQC Response Status
+
+| Status | Description |
+|--------|-------------|
+| `PENDING` | Client-side status before request is submitted to server |
+| `CREATED` | Server acknowledged the request and created an execution |
+| `RUNNING` | Execution is currently being processed by the server |
+| `COMPLETED` | Execution finished successfully with a result |
+| `FAILURE` | Execution failed on the server-side (StackSpot AI returned an error) |
+| `ERROR` | Client-side error occurred (network issues, invalid response, handler errors) |
+| `TIMEOUT` | Execution did not complete within the configured `poll_max_duration` |
+
 ### 5. Configuration
 
 `RemoteQuickCommand` accepts several configuration options organized into two option classes:
@@ -483,27 +495,6 @@ responses = rqc.execute_many(
 | API returns 429 frequently | `AdaptiveRateLimitedHttpClient` |
 | Predictable, stable workload | `RateLimitedHttpClient` |
 
-## Response Status
-
-### RQC Response Status
-
-| Status | Description |
-|--------|-------------|
-| `COMPLETED` | Request executed successfully |
-| `FAILURE` | Server-side execution failure |
-| `ERROR` | Client-side error (network, parsing, etc.) |
-| `TIMEOUT` | Polling exceeded max duration |
-
-### Agent Response Status
-
-| Status | Description |
-|--------|-------------|
-| `SUCCESS` | Response received successfully from the Agent |
-| `ERROR` | Client-side error (HTTP error, network issue, parsing error) |
-| `TIMEOUT` | Request timed out waiting for response |
-
----
-
 ### 8. Sending a chat message
 
 Here is an example of using the `Agent.chat()` method to send a chat message to a StackSpot AI Agent:
@@ -528,6 +519,14 @@ else:
 ```
 
 The `Agent.chat()` method **always** returns an instance of `ChatResponse` regardless of whether it succeeded or failed.
+
+#### Agent Response Status
+
+| Status | Description |
+|--------|-------------|
+| `SUCCESS` | Response received successfully from the Agent |
+| `ERROR` | Client-side error (HTTP error, network issue, parsing error) |
+| `TIMEOUT` | Request timed out waiting for response |
 
 ### 9. Using conversation context
 
