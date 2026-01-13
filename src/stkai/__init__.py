@@ -47,10 +47,22 @@ Configuration:
     - AuthConfig: Authentication configuration.
     - RqcConfig: RemoteQuickCommand configuration.
     - AgentConfig: Agent configuration.
+
+Authentication (Standalone):
+    - AuthProvider: Abstract base class for authentication providers.
+    - ClientCredentialsAuthProvider: OAuth2 client credentials implementation.
+    - AuthenticationError: Exception raised when authentication fails.
+    - create_standalone_auth: Helper to create auth provider from config.
 """
 
 __version__ = "0.1.0"
 
+from stkai._auth import (
+    AuthenticationError,
+    AuthProvider,
+    ClientCredentialsAuthProvider,
+    create_standalone_auth,
+)
 from stkai._config import (
     STKAI_CONFIG,
     AgentConfig,
@@ -81,6 +93,11 @@ __all__ = [
     "AuthConfig",
     "RqcConfig",
     "AgentConfig",
+    # Authentication (Standalone)
+    "AuthProvider",
+    "ClientCredentialsAuthProvider",
+    "AuthenticationError",
+    "create_standalone_auth",
     # RQC
     "RemoteQuickCommand",
     "RqcRequest",

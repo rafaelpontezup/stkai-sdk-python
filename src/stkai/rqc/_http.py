@@ -4,11 +4,9 @@ HTTP client implementations for Remote Quick Command.
 This module contains concrete implementations of RqcHttpClient
 for making authorized HTTP requests to the StackSpot AI API.
 
-The default implementation (StkCLIRqcHttpClient) uses the StackSpot CLI
-for authentication, which requires the CLI to be installed and configured.
-
 Available implementations:
     - StkCLIRqcHttpClient: Uses StackSpot CLI for authentication.
+    - StandaloneRqcHttpClient: Uses AuthProvider for standalone authentication.
     - RateLimitedHttpClient: Wrapper that adds rate limiting to any client.
     - AdaptiveRateLimitedHttpClient: Wrapper with adaptive rate limiting and 429 handling.
 """
@@ -17,9 +15,12 @@ import logging
 import random
 import threading
 import time
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 import requests
+
+if TYPE_CHECKING:
+    from stkai._auth import AuthProvider
 
 from stkai.rqc._remote_quick_command import RqcHttpClient
 
@@ -106,6 +107,131 @@ class StkCLIRqcHttpClient(RqcHttpClient):
 
         response: requests.Response = post_with_authorization(url=url, body=data, timeout=timeout)
         return response
+
+
+class StandaloneRqcHttpClient(RqcHttpClient):
+    """
+    HTTP client implementation using AuthProvider for standalone authentication.
+
+    This client uses an AuthProvider to obtain authorization tokens,
+    enabling standalone operation without the StackSpot CLI.
+
+    Use this client when:
+    - You want to run without the StackSpot CLI dependency
+    - You need to use client credentials directly
+    - You're deploying to an environment without CLI access
+
+    Example:
+        >>> from stkai._auth import ClientCredentialsAuthProvider
+        >>> from stkai.rqc._http import StandaloneRqcHttpClient
+        >>>
+        >>> auth = ClientCredentialsAuthProvider(
+        ...     client_id="my-client-id",
+        ...     client_secret="my-client-secret",
+        ... )
+        >>> client = StandaloneRqcHttpClient(auth_provider=auth)
+        >>> rqc = RemoteQuickCommand("my-slug", http_client=client)
+
+    Args:
+        auth_provider: Provider for authorization tokens.
+        base_url: Base URL for the RQC API.
+
+    See Also:
+        ClientCredentialsAuthProvider: OAuth2 client credentials implementation.
+        RqcHttpClient: Abstract base class defining the interface.
+    """
+
+    DEFAULT_BASE_URL = "https://genai-code-buddy-api.stackspot.com"
+
+    def __init__(
+        self,
+        auth_provider: "AuthProvider",
+        base_url: str = DEFAULT_BASE_URL,
+    ):
+        """
+        Initialize the standalone HTTP client.
+
+        Args:
+            auth_provider: Provider for authorization tokens.
+            base_url: Base URL for the RQC API.
+
+        Raises:
+            AssertionError: If auth_provider is None.
+        """
+        from stkai._auth import AuthProvider
+
+        assert auth_provider is not None, "auth_provider cannot be None"
+        assert isinstance(auth_provider, AuthProvider), "auth_provider must be an AuthProvider instance"
+
+        self._auth = auth_provider
+        self._base_url = base_url.rstrip("/")
+
+    @override
+    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+        """
+        Retrieves the execution status from the StackSpot AI API.
+
+        Args:
+            execution_id: The execution ID to query.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response containing execution status and result.
+
+        Raises:
+            AssertionError: If execution_id is empty or timeout is invalid.
+            requests.RequestException: If the HTTP request fails.
+            AuthenticationError: If unable to obtain authorization token.
+        """
+        assert execution_id, "Execution ID can not be empty."
+        assert timeout is not None, "Timeout can not be None."
+        assert timeout > 0, "Timeout must be greater than 0."
+
+        nocache_param = random.randint(0, 1000000)
+        url = f"{self._base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
+
+        return requests.get(
+            url,
+            headers={
+                **self._auth.get_auth_headers(),
+                "Cache-Control": "no-cache, no-store",
+                "Pragma": "no-cache",
+            },
+            timeout=timeout,
+        )
+
+    @override
+    def post_with_authorization(
+        self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20
+    ) -> requests.Response:
+        """
+        Creates a new Quick Command execution on the StackSpot AI API.
+
+        Args:
+            slug_name: The Quick Command slug name to execute.
+            data: The request payload containing input data.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response containing the execution ID.
+
+        Raises:
+            AssertionError: If slug_name is empty or timeout is invalid.
+            requests.RequestException: If the HTTP request fails.
+            AuthenticationError: If unable to obtain authorization token.
+        """
+        assert slug_name, "RQC slug-name can not be empty."
+        assert timeout is not None, "Timeout can not be None."
+        assert timeout > 0, "Timeout must be greater than 0."
+
+        url = f"{self._base_url}/v1/quick-commands/create-execution/{slug_name}"
+
+        return requests.post(
+            url,
+            json=data,
+            headers=self._auth.get_auth_headers(),
+            timeout=timeout,
+        )
 
 
 class RateLimitedHttpClient(RqcHttpClient):

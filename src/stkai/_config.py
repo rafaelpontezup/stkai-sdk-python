@@ -94,8 +94,8 @@ class AuthConfig(OverridableConfig):
     """
     Authentication configuration for StackSpot AI.
 
-    Credentials are used for future native authentication support.
-    Currently, authentication is delegated to StackSpot CLI (stk).
+    Credentials are used for standalone authentication without StackSpot CLI.
+    When using oscli-based HTTP clients, authentication is delegated to the CLI.
 
     Attributes:
         client_id: StackSpot client ID for authentication.
@@ -103,6 +103,9 @@ class AuthConfig(OverridableConfig):
 
         client_secret: StackSpot client secret for authentication.
             Env var: STKAI_AUTH_CLIENT_SECRET
+
+        token_url: OAuth2 token endpoint URL for client credentials flow.
+            Env var: STKAI_AUTH_TOKEN_URL
 
     Example:
         >>> from stkai import STKAI_CONFIG
@@ -112,6 +115,7 @@ class AuthConfig(OverridableConfig):
 
     client_id: str | None = None
     client_secret: str | None = None
+    token_url: str = "https://idm.stackspot.com/stackspot-dev/oidc/oauth/token"
 
     def has_credentials(self) -> bool:
         """Check if both client_id and client_secret are set."""
@@ -237,6 +241,7 @@ def _get_auth_from_env() -> dict[str, Any]:
     env_mapping: list[tuple[str, str, type]] = [
         ("client_id", "STKAI_AUTH_CLIENT_ID", str),
         ("client_secret", "STKAI_AUTH_CLIENT_SECRET", str),
+        ("token_url", "STKAI_AUTH_TOKEN_URL", str),
     ]
     for key, env_var, type_fn in env_mapping:
         if value := os.environ.get(env_var):

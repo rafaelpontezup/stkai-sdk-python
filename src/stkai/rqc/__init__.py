@@ -40,6 +40,7 @@ from stkai.rqc._http import (
     # HTTP client implementations
     AdaptiveRateLimitedHttpClient,
     RateLimitedHttpClient,
+    StandaloneRqcHttpClient,
     StkCLIRqcHttpClient,
 )
 from stkai.rqc._remote_quick_command import (
@@ -92,6 +93,7 @@ __all__ = [
     # HTTP client implementations
     "AdaptiveRateLimitedHttpClient",
     "RateLimitedHttpClient",
+    "StandaloneRqcHttpClient",
     "StkCLIRqcHttpClient",
     # Errors
     "MaxRetriesExceededError",

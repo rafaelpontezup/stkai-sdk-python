@@ -35,6 +35,7 @@ from stkai.agents._agent import (
 )
 from stkai.agents._http import (
     AgentHttpClient,
+    StandaloneAgentHttpClient,
     StkCLIAgentHttpClient,
 )
 from stkai.agents._models import (
@@ -57,5 +58,6 @@ __all__ = [
     # HTTP client interface
     "AgentHttpClient",
     # HTTP client implementations
+    "StandaloneAgentHttpClient",
     "StkCLIAgentHttpClient",
 ]
