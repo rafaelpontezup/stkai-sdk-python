@@ -14,11 +14,11 @@ from typing import Any
 
 import requests
 
+from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
 from stkai.rqc._http import RqcHttpClient
 from stkai.rqc._models import RqcExecutionStatus, RqcRequest, RqcResponse
-from stkai.rqc._utils import sleep_with_jitter
 
 # ======================
 # Options

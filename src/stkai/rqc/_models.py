@@ -16,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from stkai.rqc._utils import save_json_file
+from stkai._utils import save_json_file
 
 
 class RqcExecutionStatus(str, Enum):
