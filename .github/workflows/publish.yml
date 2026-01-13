@@ -38,7 +38,7 @@ jobs:
   publish:
     needs: test  # Only publish if tests pass
     runs-on: ubuntu-latest
-    environment: pypi  # Optional: use GitHub environment for extra protection
+    environment: pypi-production  # Optional: use GitHub environment for extra protection
     permissions:
       id-token: write  # Required for trusted publishing
 
@@ -60,7 +60,5 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses trusted publishing (OIDC) - no token needed if configured on PyPI
-        # If not using trusted publishing, uncomment below:
-        # with:
-        #   password: ${{ secrets.PYPI_API_TOKEN }}
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
