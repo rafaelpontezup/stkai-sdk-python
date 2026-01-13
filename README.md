@@ -21,6 +21,8 @@ pip install stkai[dev]
 
 ## Quick Start
 
+### Remote Quick Commands (RQC)
+
 To execute a Remote Quick-Command (RQC) and handle its response you just need a code like this:
 
 ```python
@@ -40,7 +42,30 @@ else:
     print(f"Error: {response.error_with_details()}")
 ```
 
+### Agents
+
+To interact with a StackSpot AI Agent and chat with it:
+
+```python
+from stkai import Agent, ChatRequest
+
+# Create a client for your Agent
+agent = Agent(agent_id="my-agent-slug")
+
+# Send a chat message
+response = agent.chat(
+    request=ChatRequest(user_prompt="What is SOLID?")
+)
+
+if response.is_success():
+    print(f"Response: {response.message}")
+else:
+    print(f"Error: {response.error}")
+```
+
 ## Usage Guide
+
+### Remote Quick Commands (RQC)
 
 The `RemoteQuickCommand` (RQC) is a client abstraction that allows sending requests and handling their response results from LLM (StackSpot AI). Its idea is to simplify the developer's life as much as possible.
 
@@ -51,13 +76,22 @@ Here you can see what it's possible to do with it:
    - 2.1. [Chaining multiple result handlers](#21-chaining-multiple-result-handlers)
 3. [Sending multiple RQC requests at once](#3-sending-multiple-rqc-requests-at-once)
 4. [Filtering only completed responses](#4-filtering-only-completed-responses)
-5. [Configuration](#configuration)
-6. [Event Listeners](#event-listeners)
+5. [Configuration](#5-configuration)
+6. [Event Listeners](#6-event-listeners)
    - 6.1. [Custom Event Listener](#61-custom-event-listener)
    - 6.2. [Phased Event Listener](#62-phased-event-listener)
-7. [Rate Limiting](#rate-limiting)
+7. [Rate Limiting](#7-rate-limiting)
    - 7.1. [Fixed Rate Limiting](#71-fixed-rate-limiting)
    - 7.2. [Adaptive Rate Limiting](#72-adaptive-rate-limiting)
+
+### Agents
+
+The `Agent` client allows you to interact with StackSpot AI Agents through a simple chat interface.
+
+8. [Sending a chat message](#8-sending-a-chat-message)
+9. [Using conversation context](#9-using-conversation-context)
+10. [Knowledge sources](#10-knowledge-sources)
+11. [Agent configuration](#11-agent-configuration)
 
 ### 1. Sending a single RQC request
 
@@ -203,7 +237,7 @@ errors = [r for r in all_responses if r.is_error()]
 timeouts = [r for r in all_responses if r.is_timeout()]
 ```
 
-## Configuration
+### 5. Configuration
 
 `RemoteQuickCommand` accepts several configuration options organized into two option classes:
 
@@ -228,7 +262,7 @@ rqc = RemoteQuickCommand(
 )
 ```
 
-## Event Listeners
+### 6. Event Listeners
 
 You can observe the RQC execution lifecycle by registering event listeners. Listeners are useful for logging, metrics collection, or custom processing:
 
@@ -374,11 +408,11 @@ Use `RateLimitedHttpClient` when you know the exact rate limit and it's stable. 
 
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
-from stkai.rqc import RateLimitedHttpClient, StkCLIRqcHttpClient
+from stkai import RateLimitedHttpClient, StkCLIHttpClient
 
 # Limit to 30 requests per minute
 http_client = RateLimitedHttpClient(
-    delegate=StkCLIRqcHttpClient(),
+    delegate=StkCLIHttpClient(),
     max_requests=30,
     time_window=60.0,  # seconds
 )
@@ -411,11 +445,11 @@ Use `AdaptiveRateLimitedHttpClient` when multiple clients share the same rate li
 
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
-from stkai.rqc import AdaptiveRateLimitedHttpClient, StkCLIRqcHttpClient
+from stkai import AdaptiveRateLimitedHttpClient, StkCLIHttpClient
 
 # Start with 100 req/min, adapt based on 429 responses
 http_client = AdaptiveRateLimitedHttpClient(
-    delegate=StkCLIRqcHttpClient(),
+    delegate=StkCLIHttpClient(),
     max_requests=100,
     time_window=60.0,
     min_rate_floor=0.1,       # Never go below 10% (10 req/min)
@@ -451,12 +485,149 @@ responses = rqc.execute_many(
 
 ## Response Status
 
+### RQC Response Status
+
 | Status | Description |
 |--------|-------------|
 | `COMPLETED` | Request executed successfully |
 | `FAILURE` | Server-side execution failure |
 | `ERROR` | Client-side error (network, parsing, etc.) |
 | `TIMEOUT` | Polling exceeded max duration |
+
+### Agent Response Status
+
+| Status | Description |
+|--------|-------------|
+| `SUCCESS` | Response received successfully from the Agent |
+| `ERROR` | Client-side error (HTTP error, network issue, parsing error) |
+| `TIMEOUT` | Request timed out waiting for response |
+
+---
+
+### 8. Sending a chat message
+
+Here is an example of using the `Agent.chat()` method to send a chat message to a StackSpot AI Agent:
+
+```python
+from stkai import Agent, ChatRequest, ChatResponse
+
+# Create an Agent client
+agent = Agent(agent_id="my-agent-slug")
+
+# Send a chat message
+response: ChatResponse = agent.chat(
+    request=ChatRequest(user_prompt="Explain what SOLID principles are")
+)
+
+if response.is_success():
+    print(f"Agent says: {response.message}")
+    if response.tokens:
+        print(f"Tokens used: {response.tokens.total}")
+else:
+    print(f"Error: {response.error}")
+```
+
+The `Agent.chat()` method **always** returns an instance of `ChatResponse` regardless of whether it succeeded or failed.
+
+### 9. Using conversation context
+
+Agents support multi-turn conversations. You can maintain context across messages by using the `conversation_id`:
+
+```python
+from stkai import Agent, ChatRequest
+
+agent = Agent(agent_id="my-agent-slug")
+
+# First message - start a new conversation
+response1 = agent.chat(
+    request=ChatRequest(
+        user_prompt="What is Python?",
+        use_conversation=True  # Enable conversation context
+    )
+)
+
+print(f"Agent: {response1.message}")
+print(f"Conversation ID: {response1.conversation_id}")
+
+# Second message - continue the conversation
+response2 = agent.chat(
+    request=ChatRequest(
+        user_prompt="What are its main features?",  # Agent remembers we're talking about Python
+        conversation_id=response1.conversation_id,  # Use the same conversation
+        use_conversation=True
+    )
+)
+
+print(f"Agent: {response2.message}")
+```
+
+### 10. Knowledge sources
+
+StackSpot AI Agents can use knowledge sources to enrich their responses. You can control this behavior:
+
+```python
+from stkai import Agent, ChatRequest
+
+agent = Agent(agent_id="my-agent-slug")
+
+# With knowledge sources (default)
+response = agent.chat(
+    request=ChatRequest(
+        user_prompt="What is our company's coding standard?",
+        use_knowledge_sources=True,  # Use knowledge sources (default)
+        return_knowledge_sources=True  # Include which KS were used in response
+    )
+)
+
+if response.is_success():
+    print(f"Agent: {response.message}")
+    if response.knowledge_sources:
+        print(f"Knowledge sources used: {response.knowledge_sources}")
+
+# Without knowledge sources
+response_no_ks = agent.chat(
+    request=ChatRequest(
+        user_prompt="What is 2 + 2?",
+        use_knowledge_sources=False  # Don't use knowledge sources
+    )
+)
+```
+
+### 11. Agent configuration
+
+The `Agent` client accepts configuration options via `AgentOptions`:
+
+```python
+from stkai import Agent, ChatRequest
+from stkai.agents import AgentOptions
+
+agent = Agent(
+    agent_id="my-agent-slug",
+    options=AgentOptions(
+        request_timeout=120  # HTTP request timeout in seconds (default: 60)
+    )
+)
+
+response = agent.chat(ChatRequest(user_prompt="Hello!"))
+```
+
+You can also inject a custom HTTP client for testing or custom behavior:
+
+```python
+from stkai import Agent, StkCLIHttpClient, RateLimitedHttpClient
+
+# Use rate-limited HTTP client for Agent
+http_client = RateLimitedHttpClient(
+    delegate=StkCLIHttpClient(),
+    max_requests=60,
+    time_window=60.0
+)
+
+agent = Agent(
+    agent_id="my-agent-slug",
+    http_client=http_client
+)
+```
 
 ## Development
 
