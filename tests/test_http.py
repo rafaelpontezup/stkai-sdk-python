@@ -1,16 +1,19 @@
-"""Tests for HTTP client implementations, focusing on rate limiting."""
+"""Tests for HTTP client implementations."""
 
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
 from stkai import (
     AdaptiveRateLimitedHttpClient,
+    AuthProvider,
     HttpClient,
     RateLimitedHttpClient,
     RateLimitTimeoutError,
+    StandaloneHttpClient,
+    StkCLIHttpClient,
 )
 
 # =============================================================================
@@ -387,3 +390,404 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
         assert response.status_code == 429
         # Should have made 2 attempts (initial + 1 retry)
         assert len(delegate.post_calls) == 2
+
+
+# =============================================================================
+# StkCLIHttpClient Tests
+# =============================================================================
+
+
+class TestStkCLIHttpClientGet:
+    """Tests for StkCLIHttpClient.get() method."""
+
+    def test_get_delegates_to_oscli(self):
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+
+        # Create a mock module structure
+        mock_oscli = MagicMock()
+        mock_oscli.core.http.get_with_authorization.return_value = mock_response
+
+        with patch.dict("sys.modules", {"oscli": mock_oscli, "oscli.core": mock_oscli.core, "oscli.core.http": mock_oscli.core.http}):
+            client = StkCLIHttpClient()
+            response = client.get("http://example.com/api", headers={"X-Custom": "value"}, timeout=60)
+
+            mock_oscli.core.http.get_with_authorization.assert_called_once_with(
+                url="http://example.com/api",
+                timeout=60,
+                headers={"X-Custom": "value"},
+            )
+            assert response == mock_response
+
+    def test_get_uses_default_timeout(self):
+        mock_response = MagicMock(spec=requests.Response)
+
+        mock_oscli = MagicMock()
+        mock_oscli.core.http.get_with_authorization.return_value = mock_response
+
+        with patch.dict("sys.modules", {"oscli": mock_oscli, "oscli.core": mock_oscli.core, "oscli.core.http": mock_oscli.core.http}):
+            client = StkCLIHttpClient()
+            client.get("http://example.com/api")
+
+            mock_oscli.core.http.get_with_authorization.assert_called_once_with(
+                url="http://example.com/api",
+                timeout=30,
+                headers=None,
+            )
+
+    def test_get_fails_when_url_is_empty(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="URL cannot be empty"):
+            client.get("")
+
+    def test_get_fails_when_url_is_none(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="URL cannot be empty"):
+            client.get(None)
+
+    def test_get_fails_when_timeout_is_none(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="Timeout cannot be None"):
+            client.get("http://example.com", timeout=None)
+
+    def test_get_fails_when_timeout_is_zero(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.get("http://example.com", timeout=0)
+
+    def test_get_fails_when_timeout_is_negative(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.get("http://example.com", timeout=-1)
+
+
+class TestStkCLIHttpClientPost:
+    """Tests for StkCLIHttpClient.post() method."""
+
+    def test_post_delegates_to_oscli(self):
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 201
+
+        mock_oscli = MagicMock()
+        mock_oscli.core.http.post_with_authorization.return_value = mock_response
+
+        with patch.dict("sys.modules", {"oscli": mock_oscli, "oscli.core": mock_oscli.core, "oscli.core.http": mock_oscli.core.http}):
+            client = StkCLIHttpClient()
+            response = client.post(
+                "http://example.com/api",
+                data={"key": "value"},
+                headers={"X-Custom": "header"},
+                timeout=45,
+            )
+
+            mock_oscli.core.http.post_with_authorization.assert_called_once_with(
+                url="http://example.com/api",
+                body={"key": "value"},
+                timeout=45,
+                headers={"X-Custom": "header"},
+            )
+            assert response == mock_response
+
+    def test_post_uses_default_timeout(self):
+        mock_response = MagicMock(spec=requests.Response)
+
+        mock_oscli = MagicMock()
+        mock_oscli.core.http.post_with_authorization.return_value = mock_response
+
+        with patch.dict("sys.modules", {"oscli": mock_oscli, "oscli.core": mock_oscli.core, "oscli.core.http": mock_oscli.core.http}):
+            client = StkCLIHttpClient()
+            client.post("http://example.com/api", data={"foo": "bar"})
+
+            mock_oscli.core.http.post_with_authorization.assert_called_once_with(
+                url="http://example.com/api",
+                body={"foo": "bar"},
+                timeout=30,
+                headers=None,
+            )
+
+    def test_post_allows_none_data(self):
+        mock_response = MagicMock(spec=requests.Response)
+
+        mock_oscli = MagicMock()
+        mock_oscli.core.http.post_with_authorization.return_value = mock_response
+
+        with patch.dict("sys.modules", {"oscli": mock_oscli, "oscli.core": mock_oscli.core, "oscli.core.http": mock_oscli.core.http}):
+            client = StkCLIHttpClient()
+            client.post("http://example.com/api")
+
+            mock_oscli.core.http.post_with_authorization.assert_called_once_with(
+                url="http://example.com/api",
+                body=None,
+                timeout=30,
+                headers=None,
+            )
+
+    def test_post_fails_when_url_is_empty(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="URL cannot be empty"):
+            client.post("")
+
+    def test_post_fails_when_url_is_none(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="URL cannot be empty"):
+            client.post(None)
+
+    def test_post_fails_when_timeout_is_none(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="Timeout cannot be None"):
+            client.post("http://example.com", timeout=None)
+
+    def test_post_fails_when_timeout_is_zero(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.post("http://example.com", timeout=0)
+
+    def test_post_fails_when_timeout_is_negative(self):
+        client = StkCLIHttpClient()
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.post("http://example.com", timeout=-1)
+
+
+# =============================================================================
+# StandaloneHttpClient Tests
+# =============================================================================
+
+
+class MockAuthProvider(AuthProvider):
+    """Mock AuthProvider for testing."""
+
+    def __init__(self, token: str = "mock-token"):
+        self._token = token
+
+    def get_access_token(self) -> str:
+        return self._token
+
+
+class TestStandaloneHttpClientInit:
+    """Tests for StandaloneHttpClient initialization."""
+
+    def test_init_with_valid_auth_provider(self):
+        auth = MockAuthProvider()
+
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        assert client._auth == auth
+
+    def test_init_fails_when_auth_provider_is_none(self):
+        with pytest.raises(AssertionError, match="auth_provider cannot be None"):
+            StandaloneHttpClient(auth_provider=None)
+
+    def test_init_fails_when_auth_provider_is_wrong_type(self):
+        with pytest.raises(AssertionError, match="auth_provider must be an AuthProvider instance"):
+            StandaloneHttpClient(auth_provider="not-an-auth-provider")
+
+    def test_init_fails_when_auth_provider_is_dict(self):
+        with pytest.raises(AssertionError, match="auth_provider must be an AuthProvider instance"):
+            StandaloneHttpClient(auth_provider={"token": "abc"})
+
+
+class TestStandaloneHttpClientGet:
+    """Tests for StandaloneHttpClient.get() method."""
+
+    def test_get_includes_auth_headers(self):
+        auth = MockAuthProvider(token="test-token-123")
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.get", return_value=mock_response) as mock_get:
+            client.get("http://example.com/api")
+
+            mock_get.assert_called_once()
+            call_kwargs = mock_get.call_args.kwargs
+            assert "Authorization" in call_kwargs["headers"]
+            assert call_kwargs["headers"]["Authorization"] == "Bearer test-token-123"
+
+    def test_get_merges_custom_headers_with_auth_headers(self):
+        auth = MockAuthProvider(token="my-token")
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.get", return_value=mock_response) as mock_get:
+            client.get("http://example.com/api", headers={"X-Custom": "value"})
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["headers"]["Authorization"] == "Bearer my-token"
+            assert call_kwargs["headers"]["X-Custom"] == "value"
+
+    def test_get_custom_headers_override_auth_headers(self):
+        auth = MockAuthProvider(token="original-token")
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.get", return_value=mock_response) as mock_get:
+            # Custom Authorization header should override the auth provider's
+            client.get("http://example.com/api", headers={"Authorization": "Custom token"})
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["headers"]["Authorization"] == "Custom token"
+
+    def test_get_passes_url_and_timeout(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.get", return_value=mock_response) as mock_get:
+            client.get("http://example.com/api/resource", timeout=60)
+
+            mock_get.assert_called_once_with(
+                "http://example.com/api/resource",
+                headers={"Authorization": "Bearer mock-token"},
+                timeout=60,
+            )
+
+    def test_get_uses_default_timeout(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.get", return_value=mock_response) as mock_get:
+            client.get("http://example.com/api")
+
+            call_kwargs = mock_get.call_args.kwargs
+            assert call_kwargs["timeout"] == 30
+
+    def test_get_fails_when_url_is_empty(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="URL cannot be empty"):
+            client.get("")
+
+    def test_get_fails_when_timeout_is_none(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="Timeout cannot be None"):
+            client.get("http://example.com", timeout=None)
+
+    def test_get_fails_when_timeout_is_zero(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.get("http://example.com", timeout=0)
+
+    def test_get_fails_when_timeout_is_negative(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.get("http://example.com", timeout=-1)
+
+
+class TestStandaloneHttpClientPost:
+    """Tests for StandaloneHttpClient.post() method."""
+
+    def test_post_includes_auth_headers(self):
+        auth = MockAuthProvider(token="post-token")
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            client.post("http://example.com/api", data={"key": "value"})
+
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["headers"]["Authorization"] == "Bearer post-token"
+
+    def test_post_sends_json_body(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            client.post("http://example.com/api", data={"name": "test", "value": 123})
+
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["json"] == {"name": "test", "value": 123}
+
+    def test_post_merges_custom_headers_with_auth_headers(self):
+        auth = MockAuthProvider(token="my-token")
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            client.post("http://example.com/api", headers={"Content-Type": "application/json"})
+
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["headers"]["Authorization"] == "Bearer my-token"
+            assert call_kwargs["headers"]["Content-Type"] == "application/json"
+
+    def test_post_passes_url_and_timeout(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            client.post("http://example.com/api/create", data={}, timeout=90)
+
+            mock_post.assert_called_once_with(
+                "http://example.com/api/create",
+                json={},
+                headers={"Authorization": "Bearer mock-token"},
+                timeout=90,
+            )
+
+    def test_post_uses_default_timeout(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            client.post("http://example.com/api")
+
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["timeout"] == 30
+
+    def test_post_allows_none_data(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+        mock_response = MagicMock(spec=requests.Response)
+
+        with patch("requests.post", return_value=mock_response) as mock_post:
+            client.post("http://example.com/api")
+
+            call_kwargs = mock_post.call_args.kwargs
+            assert call_kwargs["json"] is None
+
+    def test_post_fails_when_url_is_empty(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="URL cannot be empty"):
+            client.post("")
+
+    def test_post_fails_when_timeout_is_none(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="Timeout cannot be None"):
+            client.post("http://example.com", timeout=None)
+
+    def test_post_fails_when_timeout_is_zero(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.post("http://example.com", timeout=0)
+
+    def test_post_fails_when_timeout_is_negative(self):
+        auth = MockAuthProvider()
+        client = StandaloneHttpClient(auth_provider=auth)
+
+        with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
+            client.post("http://example.com", timeout=-1)
