@@ -84,7 +84,7 @@ class RqcResultHandler(ABC):
         Returns:
             The transformed result value.
 
-        Raises:
+        Note:
             Any exception raised will be wrapped in RqcResultHandlerError.
         """
         pass

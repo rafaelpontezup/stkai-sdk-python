@@ -1,0 +1,97 @@
+site_name: StackSpot AI SDK for Python
+site_description: Python SDK for integrating with StackSpot AI services - Remote Quick Commands (RQC) and Agents
+site_url: https://rafaelpontezup.github.io/stkai-sdk-python/
+repo_name: rafaelpontezup/stkai-sdk-python
+repo_url: https://github.com/rafaelpontezup/stkai-sdk-python
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_category_heading: true
+            members_order: source
+            show_signature_annotations: true
+            separate_signature: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/rafaelpontezup/stkai-sdk-python
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Remote Quick Commands:
+    - Overview: rqc/index.md
+    - Usage Guide: rqc/usage.md
+    - Result Handlers: rqc/handlers.md
+    - Event Listeners: rqc/listeners.md
+    - Rate Limiting: rqc/rate-limiting.md
+  - Agents:
+    - Overview: agents/index.md
+    - Usage Guide: agents/usage.md
+  - Configuration: configuration.md
+  - HTTP Client: http-client.md
+  - API Reference:
+    - RQC: api/rqc.md
+    - Agents: api/agents.md
+    - HTTP Client: api/http.md
+    - Configuration: api/config.md
