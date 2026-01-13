@@ -60,6 +60,7 @@ HTTP Client:
     - StandaloneHttpClient: HTTP client using AuthProvider for standalone auth.
     - RateLimitedHttpClient: HTTP client decorator with rate limiting.
     - AdaptiveRateLimitedHttpClient: HTTP client decorator with adaptive rate limiting.
+    - RateLimitTimeoutError: Exception raised when rate limiter exceeds max_wait_time.
 """
 
 __version__ = "0.1.0"
@@ -82,6 +83,7 @@ from stkai._http import (
     AdaptiveRateLimitedHttpClient,
     HttpClient,
     RateLimitedHttpClient,
+    RateLimitTimeoutError,
     StandaloneHttpClient,
     StkCLIHttpClient,
 )
@@ -118,6 +120,7 @@ __all__ = [
     "StandaloneHttpClient",
     "RateLimitedHttpClient",
     "AdaptiveRateLimitedHttpClient",
+    "RateLimitTimeoutError",
     # RQC
     "RemoteQuickCommand",
     "RqcRequest",

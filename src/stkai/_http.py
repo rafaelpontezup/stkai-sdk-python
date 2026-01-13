@@ -37,6 +37,38 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
+# Exceptions
+# =============================================================================
+
+
+class RateLimitTimeoutError(Exception):
+    """
+    Raised when rate limiter exceeds max_wait_time waiting for a token.
+
+    This exception indicates that a thread waited too long to acquire
+    a rate limit token and gave up. This prevents threads from blocking
+    indefinitely when rate limits are very restrictive.
+
+    Attributes:
+        waited: Time in seconds the thread waited before giving up.
+        max_wait_time: The configured maximum wait time.
+
+    Example:
+        >>> try:
+        ...     client.post(url, data)
+        ... except RateLimitTimeoutError as e:
+        ...     print(f"Rate limit timeout after {e.waited:.1f}s")
+    """
+
+    def __init__(self, waited: float, max_wait_time: float):
+        self.waited = waited
+        self.max_wait_time = max_wait_time
+        super().__init__(
+            f"Rate limit timeout: waited {waited:.2f}s, max_wait_time={max_wait_time:.2f}s"
+        )
+
+
+# =============================================================================
 # Abstract Base Class
 # =============================================================================
 
@@ -355,17 +387,23 @@ class RateLimitedHttpClient(HttpClient):
 
     Example:
         >>> from stkai._http import RateLimitedHttpClient, StkCLIHttpClient
-        >>> # Limit to 10 requests per minute
+        >>> # Limit to 10 requests per minute, give up after 60s waiting
         >>> client = RateLimitedHttpClient(
         ...     delegate=StkCLIHttpClient(),
         ...     max_requests=10,
         ...     time_window=60.0,
+        ...     max_wait_time=60.0,
         ... )
 
     Args:
         delegate: The underlying HTTP client to delegate requests to.
         max_requests: Maximum number of requests allowed in the time window.
         time_window: Time window in seconds for the rate limit.
+        max_wait_time: Maximum time in seconds to wait for a token. If None,
+            waits indefinitely. Default is 60 seconds.
+
+    Raises:
+        RateLimitTimeoutError: If max_wait_time is exceeded while waiting for a token.
     """
 
     def __init__(
@@ -373,6 +411,7 @@ class RateLimitedHttpClient(HttpClient):
         delegate: HttpClient,
         max_requests: int,
         time_window: float,
+        max_wait_time: float | None = 60.0,
     ):
         """
         Initialize the rate-limited HTTP client.
@@ -381,6 +420,8 @@ class RateLimitedHttpClient(HttpClient):
             delegate: The underlying HTTP client to delegate requests to.
             max_requests: Maximum number of requests allowed in the time window.
             time_window: Time window in seconds for the rate limit.
+            max_wait_time: Maximum time in seconds to wait for a token.
+                If None, waits indefinitely. Default is 60 seconds.
 
         Raises:
             AssertionError: If any parameter is invalid.
@@ -390,10 +431,12 @@ class RateLimitedHttpClient(HttpClient):
         assert max_requests > 0, "max_requests must be greater than 0."
         assert time_window is not None, "time_window cannot be None."
         assert time_window > 0, "time_window must be greater than 0."
+        assert max_wait_time is None or max_wait_time > 0, "max_wait_time must be > 0 or None."
 
         self.delegate = delegate
         self.max_requests = max_requests
         self.time_window = time_window
+        self.max_wait_time = max_wait_time
 
         # Token bucket state
         self._tokens = float(max_requests)
@@ -407,16 +450,22 @@ class RateLimitedHttpClient(HttpClient):
         Uses Token Bucket algorithm:
         - Refills tokens based on elapsed time
         - Waits if no tokens are available
+        - Raises RateLimitTimeoutError if max_wait_time is exceeded
+
+        Raises:
+            RateLimitTimeoutError: If waiting exceeds max_wait_time.
         """
+        start_time = time.time()
+
         while True:
             with self._lock:
                 now = time.time()
                 # Refill tokens based on elapsed time
-                elapsed = now - self._last_refill
+                elapsed_since_refill = now - self._last_refill
                 refill_rate = self.max_requests / self.time_window
                 self._tokens = min(
                     float(self.max_requests),
-                    self._tokens + elapsed * refill_rate
+                    self._tokens + elapsed_since_refill * refill_rate
                 )
                 self._last_refill = now
 
@@ -426,6 +475,15 @@ class RateLimitedHttpClient(HttpClient):
 
                 # Calculate wait time for next token
                 wait_time = (1.0 - self._tokens) / refill_rate
+
+            # Check timeout before sleeping
+            if self.max_wait_time is not None:
+                total_waited = time.time() - start_time
+                if total_waited + wait_time > self.max_wait_time:
+                    raise RateLimitTimeoutError(
+                        waited=total_waited,
+                        max_wait_time=self.max_wait_time,
+                    )
 
             # Sleep outside the lock to allow other threads to proceed
             time.sleep(wait_time)
@@ -489,6 +547,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
     - Respects Retry-After header from server
     - AIMD algorithm to adapt rate based on server responses
     - Floor protection to prevent deadlock
+    - Configurable timeout to prevent indefinite blocking
 
     This is ideal for scenarios with multiple clients sharing the same rate limit
     quota, where the effective available rate is unpredictable.
@@ -500,6 +559,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         ...     max_requests=100,
         ...     time_window=60.0,
         ...     min_rate_floor=0.1,  # Never below 10 req/min
+        ...     max_wait_time=60.0,  # Give up after 60s waiting
         ... )
 
     Args:
@@ -510,6 +570,11 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         max_retries_on_429: Maximum retries when receiving 429 (default: 3).
         penalty_factor: Rate reduction factor on 429 (default: 0.2 = -20%).
         recovery_factor: Rate increase factor on success (default: 0.01 = +1%).
+        max_wait_time: Maximum time in seconds to wait for a token. If None,
+            waits indefinitely. Default is 60 seconds.
+
+    Raises:
+        RateLimitTimeoutError: If max_wait_time is exceeded while waiting for a token.
     """
 
     def __init__(
@@ -521,6 +586,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         max_retries_on_429: int = 3,
         penalty_factor: float = 0.2,
         recovery_factor: float = 0.01,
+        max_wait_time: float | None = 60.0,
     ):
         """
         Initialize the adaptive rate-limited HTTP client.
@@ -533,6 +599,8 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             max_retries_on_429: Maximum retries when receiving 429 (default: 3).
             penalty_factor: Rate reduction factor on 429 (default: 0.2 = -20%).
             recovery_factor: Rate increase factor on success (default: 0.01 = +1%).
+            max_wait_time: Maximum time in seconds to wait for a token.
+                If None, waits indefinitely. Default is 60 seconds.
 
         Raises:
             AssertionError: If any parameter is invalid.
@@ -550,6 +618,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         assert 0 < penalty_factor < 1, "penalty_factor must be between 0 and 1 (exclusive)."
         assert recovery_factor is not None, "recovery_factor cannot be None."
         assert 0 < recovery_factor < 1, "recovery_factor must be between 0 and 1 (exclusive)."
+        assert max_wait_time is None or max_wait_time > 0, "max_wait_time must be > 0 or None."
 
         self.delegate = delegate
         self.max_requests = max_requests
@@ -558,6 +627,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         self.max_retries_on_429 = max_retries_on_429
         self.penalty_factor = penalty_factor
         self.recovery_factor = recovery_factor
+        self.max_wait_time = max_wait_time
 
         # Token bucket state (adaptive)
         self._effective_max = float(max_requests)
@@ -577,15 +647,21 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         Acquire a token using adaptive effective_max.
 
         Uses Token Bucket algorithm with adaptive rate based on 429 responses.
+        Raises RateLimitTimeoutError if max_wait_time is exceeded.
+
+        Raises:
+            RateLimitTimeoutError: If waiting exceeds max_wait_time.
         """
+        start_time = time.time()
+
         while True:
             with self._lock:
                 now = time.time()
-                elapsed = now - self._last_refill
+                elapsed_since_refill = now - self._last_refill
                 refill_rate = self._effective_max / self.time_window
                 self._tokens = min(
                     self._effective_max,
-                    self._tokens + elapsed * refill_rate
+                    self._tokens + elapsed_since_refill * refill_rate
                 )
                 self._last_refill = now
 
@@ -594,6 +670,15 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
                     return
 
                 wait_time = (1.0 - self._tokens) / refill_rate
+
+            # Check timeout before sleeping
+            if self.max_wait_time is not None:
+                total_waited = time.time() - start_time
+                if total_waited + wait_time > self.max_wait_time:
+                    raise RateLimitTimeoutError(
+                        waited=total_waited,
+                        max_wait_time=self.max_wait_time,
+                    )
 
             time.sleep(wait_time)
 

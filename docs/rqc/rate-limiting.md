@@ -9,6 +9,8 @@ The SDK provides two HTTP client wrappers for rate limiting:
 | `RateLimitedHttpClient` | Fixed Token Bucket | Known, stable rate limits |
 | `AdaptiveRateLimitedHttpClient` | Adaptive + 429 handling | Shared quotas, unpredictable limits |
 
+Both clients include a **timeout mechanism** (`max_wait_time`) to prevent threads from blocking indefinitely when waiting for rate limit tokens.
+
 ## Fixed Rate Limiting
 
 Use `RateLimitedHttpClient` when you know the exact rate limit and it's stable:
@@ -17,11 +19,12 @@ Use `RateLimitedHttpClient` when you know the exact rate limit and it's stable:
 from stkai import RemoteQuickCommand, RqcRequest
 from stkai import RateLimitedHttpClient, StkCLIHttpClient
 
-# Limit to 30 requests per minute
+# Limit to 30 requests per minute, timeout after 60s waiting
 http_client = RateLimitedHttpClient(
     delegate=StkCLIHttpClient(),
     max_requests=30,
-    time_window=60.0,  # seconds
+    time_window=60.0,      # seconds
+    max_wait_time=60.0,    # timeout in seconds (default)
 )
 
 rqc = RemoteQuickCommand(
@@ -46,7 +49,8 @@ responses = rqc.execute_many(
 │                                                                   │
 │   • Tokens refill over time at: max_requests / time_window       │
 │   • Each POST request consumes 1 token                           │
-│   • When empty, requests block until tokens available            │
+│   • When empty, requests wait until tokens available             │
+│   • If waiting exceeds max_wait_time → RateLimitTimeoutError     │
 │   • GET requests (polling) pass through without consuming tokens │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
@@ -59,6 +63,7 @@ responses = rqc.execute_many(
 | `delegate` | Required | The underlying HTTP client |
 | `max_requests` | Required | Maximum requests per time window |
 | `time_window` | Required | Time window in seconds |
+| `max_wait_time` | 60.0 | Max seconds to wait for token (`None` = infinite) |
 
 ## Adaptive Rate Limiting
 
@@ -77,6 +82,7 @@ http_client = AdaptiveRateLimitedHttpClient(
     max_retries_on_429=3,     # Retry up to 3 times on 429
     penalty_factor=0.2,       # Reduce rate by 20% after 429
     recovery_factor=0.01,     # Increase rate by 1% after success
+    max_wait_time=60.0,       # Timeout after 60s waiting (default)
 )
 
 rqc = RemoteQuickCommand(
@@ -124,6 +130,7 @@ The adaptive client uses **Additive Increase, Multiplicative Decrease** (AIMD):
 | `max_retries_on_429` | 3 | Retries before giving up on 429 |
 | `penalty_factor` | 0.2 | Rate reduction on 429 (20%) |
 | `recovery_factor` | 0.01 | Rate increase on success (1%) |
+| `max_wait_time` | 60.0 | Max seconds to wait for token (`None` = infinite) |
 
 ### 429 Handling
 
@@ -133,6 +140,38 @@ When the server returns HTTP 429 (Too Many Requests):
 2. **Apply penalty** - Reduce effective rate by `penalty_factor`
 3. **Retry the request** - Up to `max_retries_on_429` times
 4. **Fail if exhausted** - Return error after max retries
+
+## Timeout Handling
+
+Both rate-limiting clients raise `RateLimitTimeoutError` when a thread waits too long for a token:
+
+```python
+from stkai import RateLimitedHttpClient, RateLimitTimeoutError, StkCLIHttpClient
+
+http_client = RateLimitedHttpClient(
+    delegate=StkCLIHttpClient(),
+    max_requests=10,
+    time_window=60.0,
+    max_wait_time=30.0,  # Give up after 30 seconds
+)
+
+try:
+    response = http_client.post(url, data=payload)
+except RateLimitTimeoutError as e:
+    print(f"Timeout after {e.waited:.1f}s (max: {e.max_wait_time}s)")
+    # Handle timeout: retry later, skip request, or fail gracefully
+```
+
+### Timeout Configuration
+
+| Value | Behavior |
+|-------|----------|
+| `60.0` (default) | Wait up to 60 seconds for a token |
+| `None` | Wait indefinitely (no timeout) |
+| `0.1` | Fail-fast mode (almost immediate timeout) |
+
+!!! tip "Choosing max_wait_time"
+    A good rule of thumb is to set `max_wait_time` equal to `time_window`. This ensures at least one full rate limit cycle can complete before timing out.
 
 ## When to Use Which
 
