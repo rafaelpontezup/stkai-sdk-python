@@ -104,7 +104,12 @@ def on_after_execute(self, request, response, context):
 
 ## Phased Event Listener
 
-For more granular control, use `RqcPhasedEventListener` which provides separate hooks for each phase:
+The base `RqcEventListener` provides general lifecycle hooks, but sometimes you need more granular control over the **two distinct phases** of RQC execution:
+
+1. **Create-execution phase**: POST request to create the execution
+2. **Get-result phase**: Polling until the result is ready
+
+For these cases, use `RqcPhasedEventListener` which provides separate hooks for each phase:
 
 ```python
 import time

@@ -1,6 +1,10 @@
 # Result Handlers
 
-Result handlers allow you to customize how RQC responses are processed. By default, the SDK uses `JsonResultHandler` to parse JSON responses.
+Result handlers allow you to customize how RQC responses are processed.
+
+By default, the `RemoteQuickCommand.execute()` method uses the `JsonResultHandler` to deserialize the RQC response result (what the LLM answered to you) for each **successful request**, which means the `RqcResponse.result` attribute will be a Python object, such as `dict` or `list`.
+
+However, you can provide a custom result handler to make any transformation, logging, or custom logic you wish.
 
 ## Built-in Handlers
 
@@ -67,7 +71,7 @@ The context object provides access to:
 
 ## Chaining Handlers
 
-Use `ChainedResultHandler` to create a pipeline:
+Sometimes you just want to log, persist, validate, or enrich a response result; and sometimes you just want to reuse an existing and battle-tested result handler (such as `JsonResultHandler`). So, instead of creating a new result handler with too many responsibilities, you can **chain multiple ones**:
 
 ```python
 from stkai.rqc import ChainedResultHandler, JsonResultHandler
@@ -86,8 +90,7 @@ response = rqc.execute(
 )
 ```
 
-!!! note "Pipeline Behavior"
-    Each handler receives the output of the previous handler as input. The final handler's output becomes `response.result`.
+The `ChainedResultHandler` works like a pipeline: it executes one handler after another, passing the previous output as input to the next handler. The final handler's output becomes `response.result`.
 
 ### Convenience Method
 

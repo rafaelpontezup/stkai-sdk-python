@@ -1,10 +1,12 @@
 # RQC Usage Guide
 
+The `RemoteQuickCommand` (RQC) is a client abstraction that allows sending requests and handling their response results from the LLM (StackSpot AI). Its idea is to simplify the developer's life as much as possible.
+
 This guide covers the main usage patterns for Remote Quick Commands.
 
 ## Single Request Execution
 
-The `execute()` method sends a single request and waits for the result:
+The `execute()` method sends a single request and waits for the result. It's a **synchronous (blocking)** call:
 
 ```python
 from pathlib import Path
@@ -26,12 +28,14 @@ response: RqcResponse = rqc.execute(
 print(f"Response result: {response.result}")
 ```
 
+The `execute()` method **always** returns an instance of `RqcResponse` regardless of whether it succeeded or failed.
+
 !!! note
     If the request's `id` is not provided, a UUID is auto-generated.
 
 ## Batch Execution
 
-Use `execute_many()` to process multiple requests concurrently:
+You can send multiple RQC requests concurrently and wait for all pending responses using the `execute_many()` method. This method is also **blocking**, so it waits for all responses to finish before resuming the execution:
 
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
@@ -58,7 +62,7 @@ for resp in all_responses:
 
 ## Filtering Responses
 
-After receiving responses, filter by status:
+Typically, after receiving all responses, you will want to process only the successful ones. To do that, you can check the `RqcResponse.status` attribute or simply invoke one of its helper methods:
 
 ```python
 all_responses = rqc.execute_many(request_list=requests)
