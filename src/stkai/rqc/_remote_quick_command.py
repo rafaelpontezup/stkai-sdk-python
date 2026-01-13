@@ -173,9 +173,6 @@ class RemoteQuickCommand:
         Raises:
             AssertionError: If any required parameter is invalid.
         """
-        assert slug_name, "RQC slug_name can not be empty."
-        self.slug_name = slug_name
-
         # Get global config for defaults
         from stkai._config import STKAI_CONFIG
         cfg = STKAI_CONFIG.rqc
@@ -187,8 +184,6 @@ class RemoteQuickCommand:
                 backoff_factor=cfg.backoff_factor,
                 request_timeout=cfg.request_timeout,
             )
-        self.create_execution_options = create_execution_options
-
         if get_result_options is None:
             get_result_options = GetResultOptions(
                 poll_interval=cfg.poll_interval,
@@ -196,30 +191,37 @@ class RemoteQuickCommand:
                 overload_timeout=cfg.overload_timeout,
                 request_timeout=cfg.request_timeout,
             )
-        self.get_result_options = get_result_options
 
         # Use provided max_workers, or fallback to global config
         if max_workers is None:
             max_workers = cfg.max_workers
 
-        assert max_workers, "Thread-pool max_workers can not be empty."
-        assert max_workers > 0, "Thread-pool max_workers must be greater than 0."
-
-        self.max_workers = max_workers
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
-
         if not http_client:
             from stkai.rqc._http import StkCLIRqcHttpClient
             http_client = StkCLIRqcHttpClient()
-        self.http_client: RqcHttpClient = http_client
 
         # Setup default FileLoggingListener when no listeners are specified (None).
         # To disable logging, pass an empty list: `listeners=[]`
         if listeners is None:
             from stkai.rqc._event_listeners import FileLoggingListener
             listeners = [
-                FileLoggingListener(output_dir=f"output/rqc/{self.slug_name}")
+                FileLoggingListener(output_dir=f"output/rqc/{slug_name}")
             ]
+
+        assert slug_name, "RQC slug_name can not be empty."
+        assert create_execution_options is not None, "RQC create_execution_options can not be None."
+        assert get_result_options is not None, "RQC create_execution_options can not be None."
+        assert max_workers, "Thread-pool max_workers can not be empty."
+        assert max_workers > 0, "Thread-pool max_workers must be greater than 0."
+        assert http_client is not None, "RQC http_client can not be None."
+        assert listeners is not None, "RQC listeners can not be None."
+
+        self.slug_name = slug_name
+        self.create_execution_options = create_execution_options
+        self.get_result_options = get_result_options
+        self.max_workers = max_workers
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.http_client: RqcHttpClient = http_client
         self.listeners: list[RqcEventListener] = listeners
 
     # ======================
