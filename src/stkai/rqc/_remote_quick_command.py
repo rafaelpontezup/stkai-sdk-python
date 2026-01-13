@@ -14,10 +14,10 @@ from typing import Any
 
 import requests
 
+from stkai._http import HttpClient
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
-from stkai.rqc._http import RqcHttpClient
 from stkai.rqc._models import RqcExecutionStatus, RqcRequest, RqcResponse
 
 # ======================
@@ -138,7 +138,7 @@ class RemoteQuickCommand:
         create_execution_options: Options for the create-execution phase.
         get_result_options: Options for the get-result (polling) phase.
         max_workers: Maximum concurrent executions for batch mode (default: 8).
-        http_client: HTTP client for API calls (default: StkCLIRqcHttpClient).
+        http_client: HTTP client for API calls (default: StkCLIHttpClient).
         listeners: List of event listeners for observing execution lifecycle.
     """
 
@@ -148,7 +148,7 @@ class RemoteQuickCommand:
         create_execution_options: CreateExecutionOptions | None = None,
         get_result_options: GetResultOptions | None = None,
         max_workers: int | None = None,
-        http_client: RqcHttpClient | None = None,
+        http_client: HttpClient | None = None,
         listeners: list[RqcEventListener] | None = None,
     ):
         """
@@ -165,7 +165,7 @@ class RemoteQuickCommand:
             max_workers: Maximum number of concurrent threads for execute_many().
                 If None, uses global config (default: 8).
             http_client: Custom HTTP client implementation for API calls.
-                If None, uses StkCLIRqcHttpClient (requires StackSpot CLI).
+                If None, uses StkCLIHttpClient (requires StackSpot CLI).
             listeners: Event listeners for observing execution lifecycle.
                 If None (default), registers a FileLoggingListener.
                 If [] (empty list), disables default logging.
@@ -197,8 +197,8 @@ class RemoteQuickCommand:
             max_workers = cfg.max_workers
 
         if not http_client:
-            from stkai.rqc._http import StkCLIRqcHttpClient
-            http_client = StkCLIRqcHttpClient()
+            from stkai._http import StkCLIHttpClient
+            http_client = StkCLIHttpClient()
 
         # Setup default FileLoggingListener when no listeners are specified (None).
         # To disable logging, pass an empty list: `listeners=[]`
@@ -221,7 +221,7 @@ class RemoteQuickCommand:
         self.get_result_options = get_result_options
         self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.http_client: RqcHttpClient = http_client
+        self.http_client: HttpClient = http_client
         self.listeners: list[RqcEventListener] = listeners
 
     # ======================
@@ -447,19 +447,25 @@ class RemoteQuickCommand:
         """Creates an RQC execution via POST with retries and exponential backoff."""
         assert request, "🌀 Sanity check | RQC-Request not provided to create-execution phase."
 
+        from stkai._config import STKAI_CONFIG
+
         request_id = request.id
         input_data = request.to_input_data()
         options = self.create_execution_options
         max_attempts = options.max_retries + 1
 
+        # Build full URL using base_url from config
+        base_url = STKAI_CONFIG.rqc.base_url.rstrip("/")
+        url = f"{base_url}/v1/quick-commands/create-execution/{self.slug_name}"
+
         for attempt in range(max_attempts):
             try:
                 logging.info(f"{request_id[:26]:<26} | RQC | Sending request to create execution (attempt {attempt + 1}/{max_attempts})...")
-                response = self.http_client.post_with_authorization(
-                    slug_name=self.slug_name, data=input_data, timeout=options.request_timeout
+                response = self.http_client.post(
+                    url=url, data=input_data, timeout=options.request_timeout
                 )
                 assert isinstance(response, requests.Response), \
-                    f"🌀 Sanity check | Object returned by `post_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
+                    f"🌀 Sanity check | Object returned by `post` method is not an instance of `requests.Response`. ({response.__class__})"
 
                 response.raise_for_status()
                 execution_id: str = response.json()
@@ -509,9 +515,22 @@ class RemoteQuickCommand:
         assert context is not None, "🌀 Sanity check | Event context not provided to polling phase."
         assert request.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
 
+        import random
+
+        from stkai._config import STKAI_CONFIG
+
         start_time = time.time()
         options = self.get_result_options
         execution_id = request.execution_id
+
+        # Build full URL using base_url from config
+        base_url = STKAI_CONFIG.rqc.base_url.rstrip("/")
+        nocache_param = random.randint(0, 1000000)
+        url = f"{base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
+        no_cache_headers = {
+            "Cache-Control": "no-cache, no-store",
+            "Pragma": "no-cache",
+        }
 
         last_status: RqcExecutionStatus = RqcExecutionStatus.CREATED  # Starts at CREATED since we notify PENDING → CREATED before polling
         created_since: float | None = None
@@ -528,11 +547,11 @@ class RemoteQuickCommand:
                     )
 
                 try:
-                    response = self.http_client.get_with_authorization(
-                        execution_id=execution_id, timeout=options.request_timeout
+                    response = self.http_client.get(
+                        url=url, headers=no_cache_headers, timeout=options.request_timeout
                     )
                     assert isinstance(response, requests.Response), \
-                        f"🌀 Sanity check | Object returned by `get_with_authorization` method is not an instance of `requests.Response`. ({response.__class__})"
+                        f"🌀 Sanity check | Object returned by `get` method is not an instance of `requests.Response`. ({response.__class__})"
 
                     response.raise_for_status()
                     response_data = response.json()

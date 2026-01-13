@@ -33,11 +33,6 @@ from stkai.agents._agent import (
     Agent,
     AgentOptions,
 )
-from stkai.agents._http import (
-    AgentHttpClient,
-    StandaloneAgentHttpClient,
-    StkCLIAgentHttpClient,
-)
 from stkai.agents._models import (
     ChatRequest,
     ChatResponse,
@@ -55,9 +50,4 @@ __all__ = [
     "ChatResponse",
     "ChatStatus",
     "ChatTokenUsage",
-    # HTTP client interface
-    "AgentHttpClient",
-    # HTTP client implementations
-    "StandaloneAgentHttpClient",
-    "StkCLIAgentHttpClient",
 ]

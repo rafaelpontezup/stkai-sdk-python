@@ -1,18 +1,30 @@
 """
-HTTP client implementations for Remote Quick Command.
+Unified HTTP client abstraction for the stkai SDK.
 
-This module contains the RqcHttpClient abstract base class and concrete
-implementations for making authorized HTTP requests to the StackSpot AI API.
+This module provides a generic HTTP client interface inspired by popular SDKs
+(OpenAI, Anthropic, Stripe) that can be used across all SDK components.
 
 Available implementations:
-    - StkCLIRqcHttpClient: Uses StackSpot CLI for authentication.
-    - StandaloneRqcHttpClient: Uses AuthProvider for standalone authentication.
-    - RateLimitedHttpClient: Wrapper that adds rate limiting to any client.
-    - AdaptiveRateLimitedHttpClient: Wrapper with adaptive rate limiting and 429 handling.
+    - StkCLIHttpClient: Uses StackSpot CLI (oscli) for authentication.
+    - StandaloneHttpClient: Uses AuthProvider for standalone authentication.
+    - RateLimitedHttpClient: Decorator that adds rate limiting (Token Bucket).
+    - AdaptiveRateLimitedHttpClient: Decorator with adaptive rate limiting and 429 handling.
+
+Example:
+    >>> from stkai._http import StkCLIHttpClient
+    >>> client = StkCLIHttpClient()
+    >>> response = client.post("https://api.example.com/v1/resource", data={"key": "value"})
+
+For rate limiting:
+    >>> from stkai._http import RateLimitedHttpClient, StkCLIHttpClient
+    >>> client = RateLimitedHttpClient(
+    ...     delegate=StkCLIHttpClient(),
+    ...     max_requests=10,
+    ...     time_window=60.0,
+    ... )
 """
 
 import logging
-import random
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -24,52 +36,88 @@ if TYPE_CHECKING:
     from stkai._auth import AuthProvider
 
 
-class RqcHttpClient(ABC):
+# =============================================================================
+# Abstract Base Class
+# =============================================================================
+
+
+class HttpClient(ABC):
     """
-    Abstract base class for RQC HTTP clients.
+    Abstract base class for HTTP clients.
 
-    Implement this class to provide custom HTTP client implementations
-    for different authentication mechanisms or environments.
+    This is the unified HTTP client interface for the stkai SDK.
+    All HTTP operations in the SDK should use this interface.
 
-    See Also:
-        StkCLIRqcHttpClient: Default implementation using StackSpot CLI credentials.
+    Implementations handle authentication and can be wrapped with
+    decorators for rate limiting, retries, and other cross-cutting concerns.
+
+    Example:
+        >>> class MyHttpClient(HttpClient):
+        ...     def get(self, url, headers=None, timeout=30):
+        ...         return requests.get(url, headers=headers, timeout=timeout)
+        ...     def post(self, url, data=None, headers=None, timeout=30):
+        ...         return requests.post(url, json=data, headers=headers, timeout=timeout)
     """
 
     @abstractmethod
-    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
         """
-        Execute an authorized GET request to retrieve execution status.
+        Execute an authenticated GET request.
 
         Args:
-            execution_id: The execution ID to query.
+            url: The full URL to request.
+            headers: Additional headers to include (merged with auth headers).
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response from the StackSpot AI API.
+            The HTTP response.
+
+        Raises:
+            requests.RequestException: If the HTTP request fails.
         """
         pass
 
     @abstractmethod
-    def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20) -> requests.Response:
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
         """
-        Execute an authorized POST request to create an execution.
+        Execute an authenticated POST request with JSON body.
 
         Args:
-            slug_name: The Quick Command slug name to execute.
-            data: The request payload to send.
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include (merged with auth headers).
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response from the StackSpot AI API.
+            The HTTP response.
+
+        Raises:
+            requests.RequestException: If the HTTP request fails.
         """
         pass
 
 
-class StkCLIRqcHttpClient(RqcHttpClient):
-    """
-    HTTP client implementation using StackSpot CLI for authorization.
+# =============================================================================
+# StackSpot CLI Implementation
+# =============================================================================
 
-    This client delegates authentication to the StackSpot CLI (oscli),
+
+class StkCLIHttpClient(HttpClient):
+    """
+    HTTP client using StackSpot CLI (oscli) for authentication.
+
+    This client delegates authentication to the StackSpot CLI,
     which must be installed and logged in for this client to work.
 
     The CLI handles token management, refresh, and injection of
@@ -80,78 +128,97 @@ class StkCLIRqcHttpClient(RqcHttpClient):
         Install via: pip install oscli
         Login via: stk login
 
+    Example:
+        >>> from stkai._http import StkCLIHttpClient
+        >>> client = StkCLIHttpClient()
+        >>> response = client.post("https://api.example.com/endpoint", data={"key": "value"})
+
     See Also:
-        RqcHttpClient: Abstract base class defining the interface.
+        StandaloneHttpClient: Alternative that doesn't require oscli.
     """
 
     @override
-    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
         """
-        Retrieves the execution status from the StackSpot AI API.
+        Execute an authenticated GET request using oscli.
 
         Args:
-            execution_id: The execution ID to query.
+            url: The full URL to request.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response containing execution status and result.
+            The HTTP response.
 
         Raises:
-            AssertionError: If execution_id is empty or timeout is invalid.
+            AssertionError: If url is empty or timeout is invalid.
             requests.RequestException: If the HTTP request fails.
         """
-        assert execution_id, "Execution ID can not be empty."
-        assert timeout is not None, "Timeout can not be None."
+        assert url, "URL cannot be empty."
+        assert timeout is not None, "Timeout cannot be None."
         assert timeout > 0, "Timeout must be greater than 0."
 
-        from oscli import __codebuddy_base_url__
         from oscli.core.http import get_with_authorization
 
-        codebuddy_base_url = __codebuddy_base_url__
-        nocache_param = random.randint(0, 1000000)
-        url = f"{codebuddy_base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
-        headers = {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-        }
-
-        response: requests.Response = get_with_authorization(url=url, timeout=timeout, headers=headers)
+        response: requests.Response = get_with_authorization(
+            url=url,
+            timeout=timeout,
+            headers=headers,
+        )
         return response
 
     @override
-    def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20) -> requests.Response:
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
         """
-        Creates a new Quick Command execution on the StackSpot AI API.
+        Execute an authenticated POST request using oscli.
 
         Args:
-            slug_name: The Quick Command slug name to execute.
-            data: The request payload containing input data.
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response containing the execution ID.
+            The HTTP response.
 
         Raises:
-            AssertionError: If slug_name is empty or timeout is invalid.
+            AssertionError: If url is empty or timeout is invalid.
             requests.RequestException: If the HTTP request fails.
         """
-        assert slug_name, "RQC slug-name can not be empty."
-        assert timeout is not None, "Timeout can not be None."
+        assert url, "URL cannot be empty."
+        assert timeout is not None, "Timeout cannot be None."
         assert timeout > 0, "Timeout must be greater than 0."
 
-        from oscli import __codebuddy_base_url__
         from oscli.core.http import post_with_authorization
 
-        codebuddy_base_url = __codebuddy_base_url__
-        url = f"{codebuddy_base_url}/v1/quick-commands/create-execution/{slug_name}"
-
-        response: requests.Response = post_with_authorization(url=url, body=data, timeout=timeout)
+        response: requests.Response = post_with_authorization(
+            url=url,
+            body=data,
+            timeout=timeout,
+            headers=headers,
+        )
         return response
 
 
-class StandaloneRqcHttpClient(RqcHttpClient):
+# =============================================================================
+# Standalone Implementation
+# =============================================================================
+
+
+class StandaloneHttpClient(HttpClient):
     """
-    HTTP client implementation using AuthProvider for standalone authentication.
+    HTTP client using AuthProvider for standalone authentication.
 
     This client uses an AuthProvider to obtain authorization tokens,
     enabling standalone operation without the StackSpot CLI.
@@ -163,40 +230,32 @@ class StandaloneRqcHttpClient(RqcHttpClient):
 
     Example:
         >>> from stkai._auth import ClientCredentialsAuthProvider
-        >>> from stkai.rqc._http import StandaloneRqcHttpClient
+        >>> from stkai._http import StandaloneHttpClient
         >>>
         >>> auth = ClientCredentialsAuthProvider(
         ...     client_id="my-client-id",
         ...     client_secret="my-client-secret",
         ... )
-        >>> client = StandaloneRqcHttpClient(auth_provider=auth)
-        >>> rqc = RemoteQuickCommand("my-slug", http_client=client)
+        >>> client = StandaloneHttpClient(auth_provider=auth)
+        >>> response = client.post("https://api.example.com/endpoint", data={"key": "value"})
 
     Args:
         auth_provider: Provider for authorization tokens.
-        base_url: Base URL for the RQC API.
 
     See Also:
         ClientCredentialsAuthProvider: OAuth2 client credentials implementation.
-        RqcHttpClient: Abstract base class defining the interface.
+        StkCLIHttpClient: Alternative that uses oscli for authentication.
     """
 
-    DEFAULT_BASE_URL = "https://genai-code-buddy-api.stackspot.com"
-
-    def __init__(
-        self,
-        auth_provider: "AuthProvider",
-        base_url: str = DEFAULT_BASE_URL,
-    ):
+    def __init__(self, auth_provider: "AuthProvider"):
         """
         Initialize the standalone HTTP client.
 
         Args:
             auth_provider: Provider for authorization tokens.
-            base_url: Base URL for the RQC API.
 
         Raises:
-            AssertionError: If auth_provider is None.
+            AssertionError: If auth_provider is None or invalid type.
         """
         from stkai._auth import AuthProvider
 
@@ -204,94 +263,104 @@ class StandaloneRqcHttpClient(RqcHttpClient):
         assert isinstance(auth_provider, AuthProvider), "auth_provider must be an AuthProvider instance"
 
         self._auth = auth_provider
-        self._base_url = base_url.rstrip("/")
 
     @override
-    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
         """
-        Retrieves the execution status from the StackSpot AI API.
+        Execute an authenticated GET request.
 
         Args:
-            execution_id: The execution ID to query.
+            url: The full URL to request.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response containing execution status and result.
+            The HTTP response.
 
         Raises:
-            AssertionError: If execution_id is empty or timeout is invalid.
+            AssertionError: If url is empty or timeout is invalid.
             requests.RequestException: If the HTTP request fails.
             AuthenticationError: If unable to obtain authorization token.
         """
-        assert execution_id, "Execution ID can not be empty."
-        assert timeout is not None, "Timeout can not be None."
+        assert url, "URL cannot be empty."
+        assert timeout is not None, "Timeout cannot be None."
         assert timeout > 0, "Timeout must be greater than 0."
 
-        nocache_param = random.randint(0, 1000000)
-        url = f"{self._base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
+        merged_headers = {**self._auth.get_auth_headers(), **(headers or {})}
 
         return requests.get(
             url,
-            headers={
-                **self._auth.get_auth_headers(),
-                "Cache-Control": "no-cache, no-store",
-                "Pragma": "no-cache",
-            },
+            headers=merged_headers,
             timeout=timeout,
         )
 
     @override
-    def post_with_authorization(
-        self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
     ) -> requests.Response:
         """
-        Creates a new Quick Command execution on the StackSpot AI API.
+        Execute an authenticated POST request with JSON body.
 
         Args:
-            slug_name: The Quick Command slug name to execute.
-            data: The request payload containing input data.
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response containing the execution ID.
+            The HTTP response.
 
         Raises:
-            AssertionError: If slug_name is empty or timeout is invalid.
+            AssertionError: If url is empty or timeout is invalid.
             requests.RequestException: If the HTTP request fails.
             AuthenticationError: If unable to obtain authorization token.
         """
-        assert slug_name, "RQC slug-name can not be empty."
-        assert timeout is not None, "Timeout can not be None."
+        assert url, "URL cannot be empty."
+        assert timeout is not None, "Timeout cannot be None."
         assert timeout > 0, "Timeout must be greater than 0."
 
-        url = f"{self._base_url}/v1/quick-commands/create-execution/{slug_name}"
+        merged_headers = {**self._auth.get_auth_headers(), **(headers or {})}
 
         return requests.post(
             url,
             json=data,
-            headers=self._auth.get_auth_headers(),
+            headers=merged_headers,
             timeout=timeout,
         )
 
 
-class RateLimitedHttpClient(RqcHttpClient):
+# =============================================================================
+# Rate-Limited Decorators
+# =============================================================================
+
+
+class RateLimitedHttpClient(HttpClient):
     """
-    HTTP client wrapper that applies rate limiting to requests.
+    HTTP client decorator that applies rate limiting to requests.
 
     Uses the Token Bucket algorithm to limit the rate of requests.
-    Only POST requests (create-execution) are rate-limited; GET requests
-    (polling) pass through without limiting.
+    Only POST requests are rate-limited; GET requests (typically polling)
+    pass through without limiting.
 
-    This wrapper is thread-safe and can be used with execute_many().
+    This decorator is thread-safe and can be used with concurrent requests.
 
     Example:
+        >>> from stkai._http import RateLimitedHttpClient, StkCLIHttpClient
         >>> # Limit to 10 requests per minute
         >>> client = RateLimitedHttpClient(
-        ...     delegate=StkCLIRqcHttpClient(),
+        ...     delegate=StkCLIHttpClient(),
         ...     max_requests=10,
         ...     time_window=60.0,
         ... )
-        >>> rqc = RemoteQuickCommand(slug_name="my-rqc", http_client=client)
 
     Args:
         delegate: The underlying HTTP client to delegate requests to.
@@ -301,7 +370,7 @@ class RateLimitedHttpClient(RqcHttpClient):
 
     def __init__(
         self,
-        delegate: RqcHttpClient,
+        delegate: HttpClient,
         max_requests: int,
         time_window: float,
     ):
@@ -316,10 +385,10 @@ class RateLimitedHttpClient(RqcHttpClient):
         Raises:
             AssertionError: If any parameter is invalid.
         """
-        assert delegate, "Delegate HTTP client is required."
-        assert max_requests is not None, "max_requests can not be None."
+        assert delegate is not None, "Delegate HTTP client is required."
+        assert max_requests is not None, "max_requests cannot be None."
         assert max_requests > 0, "max_requests must be greater than 0."
-        assert time_window is not None, "time_window can not be None."
+        assert time_window is not None, "time_window cannot be None."
         assert time_window > 0, "time_window must be greater than 0."
 
         self.delegate = delegate
@@ -333,7 +402,7 @@ class RateLimitedHttpClient(RqcHttpClient):
 
     def _acquire_token(self) -> None:
         """
-        Acquires a token, blocking if necessary until one is available.
+        Acquire a token, blocking if necessary until one is available.
 
         Uses Token Bucket algorithm:
         - Refills tokens based on elapsed time
@@ -362,47 +431,58 @@ class RateLimitedHttpClient(RqcHttpClient):
             time.sleep(wait_time)
 
     @override
-    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
         """
-        Delegates to underlying client without rate limiting.
+        Delegate GET request without rate limiting.
 
-        GET requests (polling) are not rate-limited as they typically
-        don't count against API rate limits.
+        GET requests (typically polling) are not rate-limited as they
+        usually don't count against API rate limits.
 
         Args:
-            execution_id: The execution ID to query.
+            url: The full URL to request.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response from the StackSpot AI API.
+            The HTTP response.
         """
-        return self.delegate.get_with_authorization(execution_id, timeout)
+        return self.delegate.get(url, headers, timeout)
 
     @override
-    def post_with_authorization(
-        self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
     ) -> requests.Response:
         """
-        Acquires a rate limit token, then delegates to underlying client.
+        Acquire a rate limit token, then delegate POST request.
 
         This method blocks until a token is available if the rate limit
         has been reached.
 
         Args:
-            slug_name: The Quick Command slug name to execute.
-            data: The request payload to send.
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response from the StackSpot AI API.
+            The HTTP response.
         """
         self._acquire_token()
-        return self.delegate.post_with_authorization(slug_name, data, timeout)
+        return self.delegate.post(url, data, headers, timeout)
 
 
-class AdaptiveRateLimitedHttpClient(RqcHttpClient):
+class AdaptiveRateLimitedHttpClient(HttpClient):
     """
-    HTTP client wrapper with adaptive rate limiting and automatic 429 handling.
+    HTTP client decorator with adaptive rate limiting and automatic 429 handling.
 
     Extends rate limiting with:
     - Automatic retry on HTTP 429 (Too Many Requests)
@@ -414,13 +494,13 @@ class AdaptiveRateLimitedHttpClient(RqcHttpClient):
     quota, where the effective available rate is unpredictable.
 
     Example:
+        >>> from stkai._http import AdaptiveRateLimitedHttpClient, StkCLIHttpClient
         >>> client = AdaptiveRateLimitedHttpClient(
-        ...     delegate=StkCLIRqcHttpClient(),
+        ...     delegate=StkCLIHttpClient(),
         ...     max_requests=100,
         ...     time_window=60.0,
         ...     min_rate_floor=0.1,  # Never below 10 req/min
         ... )
-        >>> rqc = RemoteQuickCommand(slug_name="my-rqc", http_client=client)
 
     Args:
         delegate: The underlying HTTP client to delegate requests to.
@@ -434,7 +514,7 @@ class AdaptiveRateLimitedHttpClient(RqcHttpClient):
 
     def __init__(
         self,
-        delegate: RqcHttpClient,
+        delegate: HttpClient,
         max_requests: int,
         time_window: float,
         min_rate_floor: float = 0.1,
@@ -457,18 +537,18 @@ class AdaptiveRateLimitedHttpClient(RqcHttpClient):
         Raises:
             AssertionError: If any parameter is invalid.
         """
-        assert delegate, "Delegate HTTP client is required."
-        assert max_requests is not None, "max_requests can not be None."
+        assert delegate is not None, "Delegate HTTP client is required."
+        assert max_requests is not None, "max_requests cannot be None."
         assert max_requests > 0, "max_requests must be greater than 0."
-        assert time_window is not None, "time_window can not be None."
+        assert time_window is not None, "time_window cannot be None."
         assert time_window > 0, "time_window must be greater than 0."
-        assert min_rate_floor is not None, "min_rate_floor can not be None."
+        assert min_rate_floor is not None, "min_rate_floor cannot be None."
         assert 0 < min_rate_floor <= 1, "min_rate_floor must be between 0 (exclusive) and 1 (inclusive)."
-        assert max_retries_on_429 is not None, "max_retries_on_429 can not be None."
+        assert max_retries_on_429 is not None, "max_retries_on_429 cannot be None."
         assert max_retries_on_429 >= 0, "max_retries_on_429 must be >= 0."
-        assert penalty_factor is not None, "penalty_factor can not be None."
+        assert penalty_factor is not None, "penalty_factor cannot be None."
         assert 0 < penalty_factor < 1, "penalty_factor must be between 0 and 1 (exclusive)."
-        assert recovery_factor is not None, "recovery_factor can not be None."
+        assert recovery_factor is not None, "recovery_factor cannot be None."
         assert 0 < recovery_factor < 1, "recovery_factor must be between 0 and 1 (exclusive)."
 
         self.delegate = delegate
@@ -488,13 +568,13 @@ class AdaptiveRateLimitedHttpClient(RqcHttpClient):
 
     @property
     def effective_max(self) -> float:
-        """Returns the current effective maximum requests (for monitoring)."""
+        """Return the current effective maximum requests (for monitoring)."""
         with self._lock:
             return self._effective_max
 
     def _acquire_token(self) -> None:
         """
-        Acquires a token using adaptive effective_max.
+        Acquire a token using adaptive effective_max.
 
         Uses Token Bucket algorithm with adaptive rate based on 429 responses.
         """
@@ -549,28 +629,38 @@ class AdaptiveRateLimitedHttpClient(RqcHttpClient):
             )
 
     @override
-    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
         """
-        Delegates to underlying client without rate limiting.
+        Delegate GET request without rate limiting.
 
-        GET requests (polling) are not rate-limited as they typically
-        don't count against API rate limits.
+        GET requests (typically polling) are not rate-limited as they
+        usually don't count against API rate limits.
 
         Args:
-            execution_id: The execution ID to query.
+            url: The full URL to request.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response from the StackSpot AI API.
+            The HTTP response.
         """
-        return self.delegate.get_with_authorization(execution_id, timeout)
+        return self.delegate.get(url, headers, timeout)
 
     @override
-    def post_with_authorization(
-        self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
     ) -> requests.Response:
         """
-        Acquires token, delegates request, handles 429 with retry and adaptation.
+        Acquire token, delegate request, handle 429 with retry and adaptation.
 
         This method:
         1. Acquires a rate limit token (blocking if necessary)
@@ -579,19 +669,20 @@ class AdaptiveRateLimitedHttpClient(RqcHttpClient):
         4. On 429: reduces effective rate and retries with backoff
 
         Args:
-            slug_name: The Quick Command slug name to execute.
-            data: The request payload to send.
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response from the StackSpot AI API.
+            The HTTP response.
             May return a 429 response if max_retries_on_429 is exceeded.
         """
         last_response: requests.Response | None = None
 
         for attempt in range(self.max_retries_on_429 + 1):
             self._acquire_token()
-            response = self.delegate.post_with_authorization(slug_name, data, timeout)
+            response = self.delegate.post(url, data, headers, timeout)
 
             if response.status_code != 429:
                 self._on_success()

@@ -1,13 +1,14 @@
 """Tests for Agent client and related classes."""
 
 import unittest
+from typing import Any
 from unittest.mock import MagicMock
 
 import requests
 
+from stkai import HttpClient
 from stkai.agents import (
     Agent,
-    AgentHttpClient,
     AgentOptions,
     ChatRequest,
     ChatResponse,
@@ -16,21 +17,43 @@ from stkai.agents import (
 )
 
 
-class MockAgentHttpClient(AgentHttpClient):
+class MockHttpClient(HttpClient):
     """Mock HTTP client for testing."""
 
     def __init__(self, response_data: dict | None = None, status_code: int = 200):
         self.response_data = response_data or {}
         self.status_code = status_code
-        self.calls: list[tuple[str, dict, int]] = []
+        self.calls: list[tuple[str, dict | None, int]] = []
 
-    def send_message(
+    def get(
         self,
-        agent_id: str,
-        data: dict,
-        timeout: int = 60,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
     ) -> requests.Response:
-        self.calls.append((agent_id, data, timeout))
+        self.calls.append((url, None, timeout))
+        response = MagicMock(spec=requests.Response)
+        response.status_code = self.status_code
+        response.json.return_value = self.response_data
+        response.text = str(self.response_data)
+
+        if self.status_code >= 400:
+            response.raise_for_status.side_effect = requests.HTTPError(
+                response=response
+            )
+        else:
+            response.raise_for_status.return_value = None
+
+        return response
+
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        self.calls.append((url, data, timeout))
         response = MagicMock(spec=requests.Response)
         response.status_code = self.status_code
         response.json.return_value = self.response_data
@@ -260,7 +283,7 @@ class TestAgent(unittest.TestCase):
 
     def test_init_with_custom_http_client(self):
         """Should initialize with custom HTTP client."""
-        mock_client = MockAgentHttpClient()
+        mock_client = MockHttpClient()
         agent = Agent(agent_id="my-agent", http_client=mock_client)
 
         self.assertEqual(agent.http_client, mock_client)
@@ -272,7 +295,7 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_success(self):
         """Should return successful response."""
-        mock_client = MockAgentHttpClient(
+        mock_client = MockHttpClient(
             response_data={
                 "message": "Hello! I'm an AI assistant.",
                 "stop_reason": "stop",
@@ -293,7 +316,7 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_with_conversation(self):
         """Should send conversation_id when use_conversation is True."""
-        mock_client = MockAgentHttpClient(
+        mock_client = MockHttpClient(
             response_data={"message": "Response", "conversation_id": "conv-456"}
         )
         agent = Agent(agent_id="my-agent", http_client=mock_client)
@@ -312,7 +335,7 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_with_knowledge_sources_disabled(self):
         """Should disable knowledge sources when configured in request."""
-        mock_client = MockAgentHttpClient(response_data={"message": "Response"})
+        mock_client = MockHttpClient(response_data={"message": "Response"})
         agent = Agent(agent_id="my-agent", http_client=mock_client)
 
         request = ChatRequest(
@@ -326,7 +349,7 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_with_return_knowledge_sources(self):
         """Should return knowledge source IDs when configured in request."""
-        mock_client = MockAgentHttpClient(
+        mock_client = MockHttpClient(
             response_data={
                 "message": "Response",
                 "knowledge_source_id": ["ks-1", "ks-2"],
@@ -346,7 +369,7 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_http_error(self):
         """Should return error response on HTTP error."""
-        mock_client = MockAgentHttpClient(
+        mock_client = MockHttpClient(
             response_data={"error": "Internal error"},
             status_code=500,
         )
@@ -360,7 +383,7 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_success_has_correct_status(self):
         """Should return SUCCESS status on successful response."""
-        mock_client = MockAgentHttpClient(
+        mock_client = MockHttpClient(
             response_data={"message": "Response"}
         )
         agent = Agent(agent_id="my-agent", http_client=mock_client)
@@ -372,7 +395,7 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_uses_custom_timeout(self):
         """Should use timeout from options."""
-        mock_client = MockAgentHttpClient(response_data={"message": "Response"})
+        mock_client = MockHttpClient(response_data={"message": "Response"})
         options = AgentOptions(request_timeout=120)
         agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
 
@@ -383,17 +406,17 @@ class TestAgent(unittest.TestCase):
 
     def test_chat_sends_to_correct_agent_id(self):
         """Should send request to the configured agent_id."""
-        mock_client = MockAgentHttpClient(response_data={"message": "Response"})
+        mock_client = MockHttpClient(response_data={"message": "Response"})
         agent = Agent(agent_id="specific-agent", http_client=mock_client)
 
         agent.chat(ChatRequest(user_prompt="Hello!"))
 
-        agent_id, _, _ = mock_client.calls[0]
-        self.assertEqual(agent_id, "specific-agent")
+        url, _, _ = mock_client.calls[0]
+        self.assertIn("/v1/agent/specific-agent/chat", url)
 
     def test_chat_response_without_tokens(self):
         """Should handle response without tokens field."""
-        mock_client = MockAgentHttpClient(
+        mock_client = MockHttpClient(
             response_data={"message": "Response without tokens"}
         )
         agent = Agent(agent_id="my-agent", http_client=mock_client)

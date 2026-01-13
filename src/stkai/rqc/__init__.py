@@ -41,15 +41,6 @@ from stkai.rqc._handlers import (
     RqcResultContext,
     RqcResultHandler,
 )
-from stkai.rqc._http import (
-    # HTTP client implementations
-    AdaptiveRateLimitedHttpClient,
-    RateLimitedHttpClient,
-    # HTTP client interface
-    RqcHttpClient,
-    StandaloneRqcHttpClient,
-    StkCLIRqcHttpClient,
-)
 from stkai.rqc._models import (
     # Data models
     RqcExecutionStatus,
@@ -90,13 +81,6 @@ __all__ = [
     # Event listener implementations
     "FileLoggingListener",
     "RqcPhasedEventListener",
-    # HTTP client interface
-    "RqcHttpClient",
-    # HTTP client implementations
-    "AdaptiveRateLimitedHttpClient",
-    "RateLimitedHttpClient",
-    "StandaloneRqcHttpClient",
-    "StkCLIRqcHttpClient",
     # Errors
     "MaxRetriesExceededError",
     "RqcResultHandlerError",

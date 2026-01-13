@@ -53,6 +53,13 @@ Authentication (Standalone):
     - ClientCredentialsAuthProvider: OAuth2 client credentials implementation.
     - AuthenticationError: Exception raised when authentication fails.
     - create_standalone_auth: Helper to create auth provider from config.
+
+HTTP Client:
+    - HttpClient: Abstract base class for HTTP clients.
+    - StkCLIHttpClient: HTTP client using StackSpot CLI for authentication.
+    - StandaloneHttpClient: HTTP client using AuthProvider for standalone auth.
+    - RateLimitedHttpClient: HTTP client decorator with rate limiting.
+    - AdaptiveRateLimitedHttpClient: HTTP client decorator with adaptive rate limiting.
 """
 
 __version__ = "0.1.0"
@@ -70,6 +77,13 @@ from stkai._config import (
     RqcConfig,
     StkAiConfig,
     configure_stkai,
+)
+from stkai._http import (
+    AdaptiveRateLimitedHttpClient,
+    HttpClient,
+    RateLimitedHttpClient,
+    StandaloneHttpClient,
+    StkCLIHttpClient,
 )
 from stkai.agents import (
     Agent,
@@ -98,6 +112,12 @@ __all__ = [
     "ClientCredentialsAuthProvider",
     "AuthenticationError",
     "create_standalone_auth",
+    # HTTP Client
+    "HttpClient",
+    "StkCLIHttpClient",
+    "StandaloneHttpClient",
+    "RateLimitedHttpClient",
+    "AdaptiveRateLimitedHttpClient",
     # RQC
     "RemoteQuickCommand",
     "RqcRequest",

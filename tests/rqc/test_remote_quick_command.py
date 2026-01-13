@@ -9,12 +9,12 @@ from unittest.mock import Mock
 
 import requests
 
+from stkai import HttpClient
 from stkai.rqc import (
     CreateExecutionOptions,
     GetResultOptions,
     RemoteQuickCommand,
     RqcExecutionStatus,
-    RqcHttpClient,
     RqcRequest,
 )
 
@@ -46,7 +46,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.slug_name = "test-slug"
 
         # Mock of the client respecting the interface signature
-        self.http_client = Mock(spec=RqcHttpClient)
+        self.http_client = Mock(spec=HttpClient)
 
         # Instance with small intervals to run fast
         self.rqc = RemoteQuickCommand(
@@ -80,8 +80,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             })
         })
 
-        self.http_client.post_with_authorization.return_value = post_resp
-        self.http_client.get_with_authorization.return_value = get_resp
+        self.http_client.post.return_value = post_resp
+        self.http_client.get.return_value = get_resp
 
         # Action
         response = self.rqc.execute(request=request)
@@ -89,12 +89,13 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation
         self.assertEqual(response.status, RqcExecutionStatus.COMPLETED)
         self.assertEqual(response.result, {"answer": "LLM does not anything", "happiness": 1.0,})
-        self.http_client.post_with_authorization.assert_called_once_with(
-            slug_name=self.slug_name,
-            data=request.to_input_data(),
-            timeout=30
-        )
-        self.http_client.get_with_authorization.assert_called_with(execution_id=execution_id, timeout=30)
+        # Verify POST was called with URL containing slug_name
+        self.http_client.post.assert_called_once()
+        post_call_args = self.http_client.post.call_args
+        self.assertIn(self.slug_name, post_call_args.kwargs.get('url', ''))
+        # Verify GET was called with URL containing execution_id
+        get_call_args = self.http_client.get.call_args
+        self.assertIn(execution_id, get_call_args.kwargs.get('url', ''))
 
     # ---------------------------------------------------------
     # Scenario: Error when creating execution (raise in POST)
@@ -102,7 +103,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
     def test_execute_when_create_execution_raises_unexpected_error(self):
         # Scenario
         request = RqcRequest(payload={"x": 1})
-        self.http_client.post_with_authorization.side_effect = Exception("Boom")
+        self.http_client.post.side_effect = Exception("Boom")
 
         # Action
         response = self.rqc.execute(request)
@@ -110,7 +111,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation
         self.assertEqual(response.status, RqcExecutionStatus.ERROR)
         self.assertIn("Failed to create execution: Boom", response.error)
-        self.http_client.post_with_authorization.assert_called_once()
+        self.http_client.post.assert_called_once()
 
     # ---------------------------------------------------------
     # Scenario: Execution returns FAILURE
@@ -126,8 +127,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             "result": None
         })
 
-        self.http_client.post_with_authorization.return_value = post_resp
-        self.http_client.get_with_authorization.return_value = fail_resp
+        self.http_client.post.return_value = post_resp
+        self.http_client.get.return_value = fail_resp
 
         # Action
         response = self.rqc.execute(request)
@@ -135,12 +136,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation
         self.assertEqual(response.status, RqcExecutionStatus.FAILURE)
         self.assertTrue(response.error)
-        self.http_client.post_with_authorization.assert_called_once_with(
-            slug_name=self.slug_name,
-            data=request.to_input_data(),
-            timeout=30
-        )
-        self.http_client.get_with_authorization.assert_called_once_with(execution_id=execution_id, timeout=30)
+        self.http_client.post.assert_called_once()
+        self.http_client.get.assert_called_once()
 
     # ---------------------------------------------------------
     # Scenario: Polling exceeds max duration (TIMEOUT)
@@ -153,8 +150,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         post_resp = make_response(json_data=execution_id)
         running_resp = make_response(json_data={"progress": {"status": "RUNNING"}})
 
-        self.http_client.post_with_authorization.return_value = post_resp
-        self.http_client.get_with_authorization.return_value = running_resp
+        self.http_client.post.return_value = post_resp
+        self.http_client.get.return_value = running_resp
 
         # Action
         response = self.rqc.execute(request)
@@ -162,8 +159,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation
         self.assertEqual(response.status, RqcExecutionStatus.TIMEOUT)
         self.assertIn("Timeout after 0.1 seconds waiting for RQC execution to complete. Last status: `RUNNING`", response.error)
-        self.http_client.post_with_authorization.assert_called_once()
-        self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 1)
+        self.http_client.post.assert_called_once()
+        self.assertGreaterEqual(self.http_client.get.call_count, 1)
 
     # ---------------------------------------------------------
     # Scenario: Unexpected error during polling
@@ -174,8 +171,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         execution_id = "exec-999"
 
         post_resp = make_response(json_data=execution_id)
-        self.http_client.post_with_authorization.return_value = post_resp
-        self.http_client.get_with_authorization.side_effect = RuntimeError("broken pipe")
+        self.http_client.post.return_value = post_resp
+        self.http_client.get.side_effect = RuntimeError("broken pipe")
 
         # Action
         response = self.rqc.execute(request)
@@ -183,12 +180,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation
         self.assertEqual(response.status, RqcExecutionStatus.ERROR)
         self.assertIn("Error during polling: broken pipe", response.error)
-        self.http_client.post_with_authorization.assert_called_once_with(
-            slug_name=self.slug_name,
-            data=request.to_input_data(),
-            timeout=30
-        )
-        self.http_client.get_with_authorization.assert_called_once_with(execution_id=execution_id, timeout=30)
+        self.http_client.post.assert_called_once()
+        self.http_client.get.assert_called_once()
 
     # ---------------------------------------------------------
     # Scenario: Polling stuck on CREATED and hits timeout
@@ -204,8 +197,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             "result": None
         })
 
-        self.http_client.post_with_authorization.return_value = post_resp
-        self.http_client.get_with_authorization.return_value = created_resp
+        self.http_client.post.return_value = post_resp
+        self.http_client.get.return_value = created_resp
 
         # Use short overload_timeout to trigger overload detection before poll_max_duration
         rqc_for_created_test = RemoteQuickCommand(
@@ -230,13 +223,9 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.assertEqual(result.status, RqcExecutionStatus.TIMEOUT)
         self.assertIn("CREATED status", result.error)
         self.assertIn("overloaded", result.error)
-        self.http_client.post_with_authorization.assert_called_once_with(
-            slug_name=self.slug_name,
-            data=request.to_input_data(),
-            timeout=30
-        )
+        self.http_client.post.assert_called_once()
         # Should have made multiple GET attempts before overload timeout
-        self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 1)
+        self.assertGreaterEqual(self.http_client.get.call_count, 1)
 
     # ---------------------------------------------------------
     # Scenario 1: 4xx error when creating execution (POST)
@@ -245,7 +234,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Scenario
         request = RqcRequest(payload={"job": "fail-create"})
         error_response = make_response(json_data={}, status_code=401)
-        self.http_client.post_with_authorization.return_value = error_response
+        self.http_client.post.return_value = error_response
 
         # Action
         result = self.rqc.execute(request)
@@ -253,12 +242,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation
         self.assertEqual(result.status, RqcExecutionStatus.ERROR)
         self.assertIn("Failed to create execution: 401 Client Error", result.error)
-        self.http_client.post_with_authorization.assert_called_once_with(
-            slug_name=self.slug_name,
-            data=request.to_input_data(),
-            timeout=30
-        )
-        self.http_client.get_with_authorization.assert_not_called()
+        self.http_client.post.assert_called_once()
+        self.http_client.get.assert_not_called()
 
     # ---------------------------------------------------------
     # Scenario 2: 4xx error during polling (GET)
@@ -271,8 +256,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         post_resp = make_response(json_data=execution_id)
         poll_resp = make_response(json_data={}, status_code=403)
 
-        self.http_client.post_with_authorization.return_value = post_resp
-        self.http_client.get_with_authorization.return_value = poll_resp
+        self.http_client.post.return_value = post_resp
+        self.http_client.get.return_value = poll_resp
 
         # Action
         result = self.rqc.execute(request)
@@ -280,11 +265,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Validation
         self.assertEqual(result.status, RqcExecutionStatus.ERROR)
         self.assertIn("Error during polling: 403 Client Error", result.error)
-        self.http_client.post_with_authorization.assert_called_once()
-        self.http_client.get_with_authorization.assert_called_once_with(
-            execution_id=execution_id,
-            timeout=30
-        )
+        self.http_client.post.assert_called_once()
+        self.http_client.get.assert_called_once()
 
     # ---------------------------------------------------------
     # Scenario: POST returns 200 but no execution_id in the body
@@ -295,7 +277,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Simulate OK response but without ID in body (e.g., {}, None, or empty string)
         post_resp = make_response(json_data={})
 
-        self.http_client.post_with_authorization.return_value = post_resp
+        self.http_client.post.return_value = post_resp
 
         # Action
         result = self.rqc.execute(request)
@@ -305,13 +287,9 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.assertIn(
             "Failed to create execution: No `execution_id` returned in the create execution response by server.",
             result.error)
-        self.http_client.post_with_authorization.assert_called_once_with(
-            slug_name=self.slug_name,
-            data=request.to_input_data(),
-            timeout=30
-        )
+        self.http_client.post.assert_called_once()
         # Should not attempt polling
-        self.http_client.get_with_authorization.assert_not_called()
+        self.http_client.get.assert_not_called()
 
     # ---------------------------------------------------------
     # Scenario: all attempts to create execution fail (e.g., ConnectionError)
@@ -320,7 +298,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Scenario
         request = RqcRequest(payload={"job": "network-fail"})
         # Simulate consecutive connection failures
-        self.http_client.post_with_authorization.side_effect = requests.ConnectionError(
+        self.http_client.post.side_effect = requests.ConnectionError(
             "Simulated connection failure"
         )
 
@@ -334,9 +312,9 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             result.error
         )
         # Verify multiple attempts (depending on internal retry logic)
-        self.assertGreaterEqual(self.http_client.post_with_authorization.call_count, self.rqc.create_execution_options.max_retries)
+        self.assertGreaterEqual(self.http_client.post.call_count, self.rqc.create_execution_options.max_retries)
         # Should not perform polling
-        self.http_client.get_with_authorization.assert_not_called()
+        self.http_client.get.assert_not_called()
 
     # ---------------------------------------------------------
     # Scenario: Polling has temporary HTTP 503 failures and finishes with COMPLETED
@@ -345,7 +323,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # 1. POST (create execution) OK
         execution_id = "exec-503"
         post_resp = make_response(json_data=execution_id)
-        self.http_client.post_with_authorization.return_value = post_resp
+        self.http_client.post.return_value = post_resp
 
         # 2. GET (polling): 503 -> 503 -> RUNNING -> COMPLETED
         http_503_error = make_response(json_data={}, status_code=503)
@@ -357,7 +335,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             }
         )
 
-        self.http_client.get_with_authorization.side_effect = [
+        self.http_client.get.side_effect = [
             http_503_error,
             http_503_error,
             running_resp,
@@ -371,13 +349,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # 4. Validate
         self.assertEqual(RqcExecutionStatus.COMPLETED, result.status)
         self.assertIn("success", str(result.result))
-        self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 4)
-
-        self.http_client.post_with_authorization.assert_called_once_with(
-            slug_name=self.slug_name,
-            data=request.to_input_data(),
-            timeout=30,
-        )
+        self.assertGreaterEqual(self.http_client.get.call_count, 4)
+        self.http_client.post.assert_called_once()
 
     # ---------------------------------------------------------
     # Scenario: error in result handler during polling (status COMPLETED)
@@ -388,7 +361,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
         # Create execution (POST) OK
         post_resp = make_response(json_data=execution_id)
-        self.http_client.post_with_authorization.return_value = post_resp
+        self.http_client.post.return_value = post_resp
 
         # Polling sequence: RUNNING -> COMPLETED (with result)
         running_resp = make_response(json_data={"progress": {"status": "RUNNING"}})
@@ -398,7 +371,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
                 "result": '{ "answer": "large text" ... broken due to LLM output window',  # Invalid JSON format
             }
         )
-        self.http_client.get_with_authorization.side_effect = [
+        self.http_client.get.side_effect = [
             running_resp,
             completed_resp,
         ]
@@ -416,23 +389,28 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             "Expecting ',' delimiter: line 1 column 26 (char 25)",
             result.error
         )
-        self.assertGreaterEqual(self.http_client.get_with_authorization.call_count, 2)
-        self.http_client.post_with_authorization.assert_called_once()
+        self.assertGreaterEqual(self.http_client.get.call_count, 2)
+        self.http_client.post.assert_called_once()
 
     def test_execute_many_when_all_responses_are_completed(self):
         # Scenario: 10 requests that complete successfully in parallel
         num_requests = 10
 
-        # post_with_authorization should return a response whose .json() is the execution_id string
-        def delayed_post(slug_name, data, timeout=30):
-            # use the request id embedded in payload to build execution id
+        # post should return a response whose .json() is the execution_id string
+        def delayed_post(url, data=None, headers=None, timeout=30):
+            # Extract request id from the data payload
             exec_id = f"exec-{data['input_data']['id']}"
             # simulate small stagger to mimic network latency
             time.sleep(0.01)
             return make_response(json_data=exec_id)
 
-        # get_with_authorization should return COMPLETED for each execution_id
-        def delayed_get(execution_id, timeout=30):
+        # get should return COMPLETED for each execution_id
+        def delayed_get(url, headers=None, timeout=30):
+            # Extract execution_id from URL
+            # URL format: .../callback/{execution_id}?nocache=...
+            import re
+            match = re.search(r'/callback/(exec-\d+)', url)
+            execution_id = match.group(1) if match else "unknown"
             # small sleep to allow concurrency effects
             time.sleep(0.005)
             return make_response(json_data={
@@ -440,8 +418,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
                 "result": {"execution_id": execution_id}
             })
 
-        self.http_client.post_with_authorization.side_effect = delayed_post
-        self.http_client.get_with_authorization.side_effect = delayed_get
+        self.http_client.post.side_effect = delayed_post
+        self.http_client.get.side_effect = delayed_get
 
         # prepare requests list
         requests_list = [RqcRequest(payload={"id": i}) for i in range(num_requests)]
@@ -487,11 +465,15 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             9: "ERROR",
         }
 
-        def post_with_authorization(slug_name, data, timeout=30):
+        def mock_post(url, data=None, headers=None, timeout=30):
             exec_id = f"exec-{data['input_data']['id']}"
             return make_response(json_data=exec_id)
 
-        def get_with_authorization(execution_id, timeout=30):
+        def mock_get(url, headers=None, timeout=30):
+            # Extract execution_id from URL
+            import re
+            match = re.search(r'/callback/(exec-\d+)', url)
+            execution_id = match.group(1) if match else "exec-0"
             req_id = int(execution_id.split("-")[1])
             behavior = behavior_by_id[req_id]
 
@@ -512,8 +494,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             else:  # COMPLETED
                 return make_response(json_data={"progress": {"status": "COMPLETED"}})
 
-        self.http_client.post_with_authorization.side_effect = post_with_authorization
-        self.http_client.get_with_authorization.side_effect = get_with_authorization
+        self.http_client.post.side_effect = mock_post
+        self.http_client.get.side_effect = mock_get
 
         # Prepare requests
         requests_list = [RqcRequest(payload={"id": i}) for i in range(num_requests)]

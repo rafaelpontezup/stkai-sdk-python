@@ -11,7 +11,7 @@ from typing import Any
 
 import requests
 
-from stkai.agents._http import AgentHttpClient, StkCLIAgentHttpClient
+from stkai._http import HttpClient
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus, ChatTokenUsage
 
 
@@ -54,14 +54,14 @@ class Agent:
     Attributes:
         agent_id: The Agent ID (slug) to interact with.
         options: Configuration options for the client.
-        http_client: HTTP client for API calls (default: StkCLIAgentHttpClient).
+        http_client: HTTP client for API calls (default: StkCLIHttpClient).
     """
 
     def __init__(
         self,
         agent_id: str,
         options: AgentOptions | None = None,
-        http_client: AgentHttpClient | None = None,
+        http_client: HttpClient | None = None,
     ):
         """
         Initialize the Agent client.
@@ -70,7 +70,7 @@ class Agent:
             agent_id: The Agent ID (slug) to interact with.
             options: Configuration options for the client.
             http_client: Custom HTTP client implementation for API calls.
-                If None, uses StkCLIAgentHttpClient (requires StackSpot CLI).
+                If None, uses StkCLIHttpClient (requires StackSpot CLI).
 
         Raises:
             AssertionError: If agent_id is empty.
@@ -88,8 +88,9 @@ class Agent:
         self.options = options
 
         if not http_client:
-            http_client = StkCLIAgentHttpClient(base_url=cfg.base_url)
-        self.http_client: AgentHttpClient = http_client
+            from stkai._http import StkCLIHttpClient
+            http_client = StkCLIHttpClient()
+        self.http_client: HttpClient = http_client
 
     def chat(self, request: ChatRequest) -> ChatResponse:
         """
@@ -130,10 +131,16 @@ class Agent:
             f"Sending message to agent '{self.agent_id}'..."
         )
 
+        from stkai._config import STKAI_CONFIG
+
+        # Build full URL using base_url from config
+        base_url = STKAI_CONFIG.agent.base_url.rstrip("/")
+        url = f"{base_url}/v1/agent/{self.agent_id}/chat"
+
         payload = request.to_api_payload()
         try:
-            http_response = self.http_client.send_message(
-                agent_id=self.agent_id,
+            http_response = self.http_client.post(
+                url=url,
                 data=payload,
                 timeout=self.options.request_timeout,
             )
