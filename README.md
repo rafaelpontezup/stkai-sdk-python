@@ -1,6 +1,9 @@
 # stkai
 
-StackSpot AI SDK for Python which allows Python developers to write software that makes use of StackSpot AI services, such as Remote Quick Commands (RQCs), Agents and more.
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
+Python SDK for [StackSpot AI](https://ai.stackspot.com/) - Execute Remote Quick Commands (RQCs) and interact with AI Agents.
 
 ## Installation
 
@@ -8,648 +11,96 @@ StackSpot AI SDK for Python which allows Python developers to write software tha
 pip install stkai
 ```
 
-For development:
-
-```bash
-pip install stkai[dev]
-```
-
 ## Requirements
 
 - Python 3.12+
-- StackSpot CLI (`oscli`) installed and authenticated
+- [StackSpot CLI](https://docs.stackspot.com/docs/stk-cli/installation/) installed and authenticated, or client credentials for standalone auth
 
 ## Quick Start
 
-### Remote Quick Commands (RQC)
-
-To execute a Remote Quick-Command (RQC) and handle its response you just need a code like this:
+### Remote Quick Commands
 
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
 
-# Create a client for your Quick Command
 rqc = RemoteQuickCommand(slug_name="my-quick-command")
 
-# Execute a request
 response = rqc.execute(
     request=RqcRequest(payload={"code": "def hello(): pass"})
 )
 
 if response.is_completed():
-    print(f"Result: {response.result}")
+    print(response.result)
 else:
-    print(f"Error: {response.error_with_details()}")
+    print(response.error_with_details())
 ```
 
-### Agents
-
-To interact with a StackSpot AI Agent and chat with it:
+### AI Agents
 
 ```python
 from stkai import Agent, ChatRequest
 
-# Create a client for your Agent
 agent = Agent(agent_id="my-agent-slug")
 
-# Send a chat message
 response = agent.chat(
     request=ChatRequest(user_prompt="What is SOLID?")
 )
 
 if response.is_success():
-    print(f"Response: {response.message}")
-else:
-    print(f"Error: {response.error}")
+    print(response.message)
 ```
 
-## Usage Guide
-
-### Remote Quick Commands (RQC)
-
-The `RemoteQuickCommand` (RQC) is a client abstraction that allows sending requests and handling their response results from LLM (StackSpot AI). Its idea is to simplify the developer's life as much as possible.
-
-Here you can see what it's possible to do with it:
-
-1. [Sending a single RQC request](#1-sending-a-single-rqc-request)
-2. [Sending a single RQC request with a result handler](#2-sending-a-single-rqc-request-with-a-result-handler)
-   - 2.1. [Chaining multiple result handlers](#21-chaining-multiple-result-handlers)
-3. [Sending multiple RQC requests at once](#3-sending-multiple-rqc-requests-at-once)
-4. [Filtering only completed responses](#4-filtering-only-completed-responses)
-5. [Configuration](#5-configuration)
-6. [Event Listeners](#6-event-listeners)
-   - 6.1. [Custom Event Listener](#61-custom-event-listener)
-   - 6.2. [Phased Event Listener](#62-phased-event-listener)
-7. [Rate Limiting](#7-rate-limiting)
-   - 7.1. [Fixed Rate Limiting](#71-fixed-rate-limiting)
-   - 7.2. [Adaptive Rate Limiting](#72-adaptive-rate-limiting)
-
-### Agents
-
-The `Agent` client allows you to interact with StackSpot AI Agents through a simple chat interface.
-
-8. [Sending a chat message](#8-sending-a-chat-message)
-9. [Using conversation context](#9-using-conversation-context)
-10. [Knowledge sources](#10-knowledge-sources)
-11. [Agent configuration](#11-agent-configuration)
-
-### 1. Sending a single RQC request
-
-Here is an example of using the `RemoteQuickCommand.execute()` method to send a request. It's a synchronous (blocking) call:
+### Batch Processing
 
 ```python
-from pathlib import Path
-from stkai import RemoteQuickCommand, RqcRequest, RqcResponse
-
-# Preparing the payload
-file_path = Path("product_service.py")
-code = {
-    "file_name": file_path.name,
-    "source_code": file_path.read_text(encoding="utf-8")
-}
-
-# Sending a RQC request
-rqc = RemoteQuickCommand(slug_name="explain-code-to-me")
-response: RqcResponse = rqc.execute(
-    request=RqcRequest(payload=code, id=file_path.name),
-)
-
-print(f"Response result: {response.result}")
-```
-
-The `RemoteQuickCommand.execute()` method **always** returns an instance of `RqcResponse` regardless it succeeded or failed. If the request's `id` attribute is not informed, it generates an UUIDv4 by default.
-
-### 2. Sending a single RQC request with a result handler
-
-By default, the `RemoteQuickCommand.execute()` method uses the `JsonResultHandler` to deserialize the RQC response result (what the LLM answered to you) for each **successful request**, which means the `RqcResponse.result` attribute will be a Python object, such as `dict` or `list`. However, you can inform a custom result handler to make any transformation, logging or logic you wish, as you can see below:
-
-```python
-from stkai import RemoteQuickCommand, RqcRequest
-from stkai.rqc import RqcResultHandler, RqcResultContext
-
-# Instantiate your handler
-result_handler = MyCustomXMLResultHandler()
-
-rqc = RemoteQuickCommand(slug_name="identify-and-list-all-security-issues")
-response = rqc.execute(
-    request=RqcRequest(payload=code),
-    result_handler=result_handler  # Pass your handler instance as argument
-)
-
-print(f"Response result as XML: {response.result}")
-```
-
-Here is an example of a custom result handler:
-
-```python
-from typing import Any
-from stkai.rqc import RqcResultHandler, RqcResultContext
-
-class MyCustomXMLResultHandler(RqcResultHandler):
-    def handle_result(self, context: RqcResultContext) -> Any:
-        raw_result = context.raw_result
-        return XmlParser.parse(raw_result)
-```
-
-#### 2.1. Chaining multiple result handlers
-
-Sometimes you just want to log, persist, validate or enrich a response result; and sometimes you just want to reuse an existing and battle-tested result handler (such as `JsonResultHandler`). So, instead of creating a new result handler with too many responsibilities, we can **chain multiple ones**:
-
-```python
-from stkai.rqc import ChainedResultHandler, JsonResultHandler
-
-custom_handler = ChainedResultHandler.of([
-    LogRawResultHandler(),           # Just logs the raw result from response
-    SaveAiTokenUsageResultHandler(), # Counts and saves AI token usage
-    JsonResultHandler(),             # Converts the JSON result to Python object
-    SaveResultInDiskResultHandler(), # Persists the Python object in disk
-])
-
-response = rqc.execute(
-    request=RqcRequest(payload=code),
-    result_handler=custom_handler
-)
-```
-
-The `ChainedResultHandler` works like a pipeline: it executes one handler after another, passing the previous output as input to the next handler.
-
-Also, if you want just map the JSON result from LLM to a domain model, you can leverage the `chain_with` method from `JsonResultHandler`:
-
-```python
-from stkai.rqc import JsonResultHandler
-
-domain_model_handler = JsonResultHandler.chain_with(
-    RefactoredCodeResultHandler()  # Chain your domain model handler
-)
-```
-
-### 3. Sending multiple RQC requests at once
-
-You can also send multiple RQC requests concurrently and wait for all pending responses using the `RemoteQuickCommand.execute_many()` method. This method is also blocking, so it waits for all responses to finish before resuming the execution:
-
-```python
-from stkai import RemoteQuickCommand, RqcRequest
-
-source_files = [
-    {"file_name": "order.py", "source_code": "..."},
-    {"file_name": "submit_order_controller.py", "source_code": "..."},
-    {"file_name": "list_pending_orders_controller.py", "source_code": "..."},
-    # ...
-]
-
-rqc = RemoteQuickCommand(slug_name="refactor-code-with-SOLID-principles")
-all_responses = rqc.execute_many(
-    request_list=[
-        RqcRequest(payload=f, id=f["file_name"]) for f in source_files
-    ],
-    result_handler=result_handler  # Optional: custom handler
-)
-
-# This will be executed only after all RQC-responses are received
-for seq, resp in enumerate(all_responses, start=1):
-    print(f"{seq} | Response result: {resp.result}")
-```
-
-As you can see, it also supports a custom `RqcResultHandler` via `result_handler` parameter. By default, it uses the `JsonResultHandler`.
-
-### 4. Filtering only completed responses
-
-Typically, after receiving all responses, you will want to process only the successful ones. To do that, you can check the `RqcResponse.status` attribute or simply invoke one of its methods, such as `is_completed()`, `is_failure()`, `is_error()` etc:
-
-```python
-from stkai import RemoteQuickCommand, RqcRequest
-
-rqc = RemoteQuickCommand(slug_name="refactor-code-with-SOLID-principles")
-all_responses = rqc.execute_many(
-    request_list=[
-        RqcRequest(payload=f, id=f["file_name"]) for f in source_files
-    ]
-)
-
-# Filter only successful responses
-completed_responses = [r for r in all_responses if r.is_completed()]
-for resp in completed_responses:
-    print(f"Response result: {resp.result}")
-
-# You can also filter by other statuses
-failed = [r for r in all_responses if r.is_failure()]
-errors = [r for r in all_responses if r.is_error()]
-timeouts = [r for r in all_responses if r.is_timeout()]
-```
-
-#### RQC Response Status
-
-| Status | Description |
-|--------|-------------|
-| `PENDING` | Client-side status before request is submitted to server |
-| `CREATED` | Server acknowledged the request and created an execution |
-| `RUNNING` | Execution is currently being processed by the server |
-| `COMPLETED` | Execution finished successfully with a result |
-| `FAILURE` | Execution failed on the server-side (StackSpot AI returned an error) |
-| `ERROR` | Client-side error occurred (network issues, invalid response, handler errors) |
-| `TIMEOUT` | Execution did not complete within the configured `poll_max_duration` |
-
-### 5. Configuration
-
-`RemoteQuickCommand` accepts several configuration options organized into two option classes:
-
-```python
-from stkai import RemoteQuickCommand
-from stkai.rqc import CreateExecutionOptions, GetResultOptions
-
-rqc = RemoteQuickCommand(
-    slug_name="my-quick-command",
-    create_execution_options=CreateExecutionOptions(
-        max_retries=3,          # Retries for failed create-execution calls (default: 3)
-        backoff_factor=0.5,     # Exponential backoff factor (default: 0.5)
-        request_timeout=30,     # HTTP request timeout in seconds (default: 30)
-    ),
-    get_result_options=GetResultOptions(
-        poll_interval=10.0,     # Seconds between status checks (default: 10)
-        poll_max_duration=600.0,# Max wait time in seconds (default: 600 = 10min)
-        overload_timeout=60.0,  # Max seconds in CREATED status before timeout (default: 60)
-        request_timeout=30,     # HTTP request timeout in seconds (default: 30)
-    ),
-    max_workers=8,              # Concurrent requests for execute_many (default: 8)
-)
-```
-
-### 6. Event Listeners
-
-You can observe the RQC execution lifecycle by registering event listeners. Listeners are useful for logging, metrics collection, or custom processing:
-
-```python
-from pathlib import Path
-from stkai import RemoteQuickCommand
-from stkai.rqc import RqcEventListener, FileLoggingListener
-
-# Use the built-in FileLoggingListener to persist request/response to JSON files
-listener = FileLoggingListener(output_dir=Path("./output/rqc"))
-
-rqc = RemoteQuickCommand(
-    slug_name="my-quick-command",
-    listeners=[listener]
-)
-```
-
-By default, if no listeners are provided, a `FileLoggingListener` is automatically registered to save request/response logs to `output/rqc/{slug_name}/`.
-
-#### 6.1. Custom Event Listener
-
-You can create custom listeners by extending the `RqcEventListener` class:
-
-```python
-import time
-from typing import Any
-from stkai.rqc import RqcEventListener, RqcRequest, RqcResponse
-
-class MetricsListener(RqcEventListener):
-    def on_before_execute(self, request: RqcRequest, context: dict[str, Any]) -> None:
-        context['start_time'] = time.time()
-
-    def on_status_change(
-        self,
-        request: RqcRequest,
-        old_status: str,
-        new_status: str,
-        context: dict[str, Any],
-    ) -> None:
-        print(f"Status changed: {old_status} -> {new_status}")
-
-    def on_after_execute(
-        self,
-        request: RqcRequest,
-        response: RqcResponse,
-        context: dict[str, Any],
-    ) -> None:
-        duration = time.time() - context['start_time']
-        print(f"Execution took {duration:.2f}s with status: {response.status}")
-
-# Use your custom listener
-rqc = RemoteQuickCommand(
-    slug_name="my-quick-command",
-    listeners=[MetricsListener()]
-)
-```
-
-#### 6.2. Phased Event Listener
-
-The base `RqcEventListener` provides general lifecycle hooks, but sometimes you need more granular control over the **two distinct phases** of RQC execution:
-
-1. **Create-execution phase**: POST request to create the execution
-2. **Get-result phase**: Polling until the result is ready
-
-The `RqcPhasedEventListener` provides phase-specific hooks that make it easier to handle each phase separately:
-
-| Base Class Hook | Phased Listener Hooks |
-|-----------------|----------------------|
-| `on_before_execute()` | `on_create_execution_start()` |
-| `on_status_change()` | `on_create_execution_end()` + `on_get_result_start()` |
-| `on_after_execute()` | `on_get_result_end()` (or `on_create_execution_end()` if failed early) |
-
-```python
-import time
-from typing import Any
-from requests import Response
-from stkai import RemoteQuickCommand
-from stkai.rqc import RqcPhasedEventListener, RqcRequest, RqcResponse
-
-class DetailedMetricsListener(RqcPhasedEventListener):
-    """Listener that tracks metrics for each phase separately."""
-
-    def on_create_execution_start(
-        self, request: RqcRequest, context: dict[str, Any]
-    ) -> None:
-        context['create_start'] = time.time()
-        print(f"[{request.id}] Starting create-execution...")
-
-    def on_create_execution_end(
-        self,
-        request: RqcRequest,
-        success: bool,
-        response: Response | None,
-        context: dict[str, Any],
-    ) -> None:
-        duration = time.time() - context['create_start']
-        status = "OK" if success else "FAILED"
-        print(f"[{request.id}] Create-execution {status} in {duration:.2f}s")
-
-    def on_get_result_start(
-        self, request: RqcRequest, context: dict[str, Any]
-    ) -> None:
-        context['poll_start'] = time.time()
-        print(f"[{request.id}] Starting polling...")
-
-    def on_get_result_end(
-        self,
-        request: RqcRequest,
-        response: RqcResponse,
-        context: dict[str, Any],
-    ) -> None:
-        duration = time.time() - context['poll_start']
-        print(f"[{request.id}] Polling completed in {duration:.2f}s: {response.status}")
-
-# Use the phased listener
-rqc = RemoteQuickCommand(
-    slug_name="my-quick-command",
-    listeners=[DetailedMetricsListener()]
-)
-```
-
-**When to use which:**
-
-| Scenario | Recommended Listener |
-|----------|---------------------|
-| Simple logging or metrics | `RqcEventListener` |
-| Different handling per phase | `RqcPhasedEventListener` |
-| Track create-execution failures separately | `RqcPhasedEventListener` |
-| Measure polling duration independently | `RqcPhasedEventListener` |
-
-### 7. Rate Limiting
-
-When processing many requests with `execute_many()`, you may need to limit the request rate to avoid overwhelming the StackSpot AI API or hitting rate limits. The SDK provides two HTTP client wrappers for this purpose:
-
-| Client | Strategy | Best For |
-|--------|----------|----------|
-| `RateLimitedHttpClient` | Fixed Token Bucket | Known, stable rate limits |
-| `AdaptiveRateLimitedHttpClient` | Adaptive + 429 handling | Shared quotas, unpredictable limits |
-
-#### 7.1. Fixed Rate Limiting
-
-Use `RateLimitedHttpClient` when you know the exact rate limit and it's stable. It uses the **Token Bucket algorithm** to enforce a maximum number of requests per time window:
-
-```python
-from stkai import RemoteQuickCommand, RqcRequest
-from stkai import RateLimitedHttpClient, StkCLIHttpClient
-
-# Limit to 30 requests per minute
-http_client = RateLimitedHttpClient(
-    delegate=StkCLIHttpClient(),
-    max_requests=30,
-    time_window=60.0,  # seconds
-)
-
-rqc = RemoteQuickCommand(
-    slug_name="my-quick-command",
-    http_client=http_client,
-)
-
-# Now execute_many() will automatically throttle requests
 responses = rqc.execute_many(
-    request_list=[RqcRequest(payload=data) for data in large_dataset]
+    request_list=[RqcRequest(payload=data) for data in files]
 )
+
+completed = [r for r in responses if r.is_completed()]
 ```
 
-**How it works:**
-- Only POST requests (create-execution) are rate-limited
-- GET requests (polling) pass through without limiting
-- When the limit is reached, requests block until tokens are available
-- Thread-safe: works correctly with `execute_many()` concurrency
+## Features
 
-#### 7.2. Adaptive Rate Limiting
+| Feature | Description | Docs |
+|---------|-------------|------|
+| **Remote Quick Commands** | Execute AI commands with polling and retries | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/) |
+| **AI Agents** | Chat with agents, conversations, knowledge sources | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/agents/) |
+| **Batch Execution** | Process multiple requests concurrently | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/usage/#batch-execution) |
+| **Result Handlers** | Customize response processing | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/handlers/) |
+| **Event Listeners** | Monitor execution lifecycle | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/listeners/) |
+| **Rate Limiting** | Token Bucket and adaptive AIMD algorithms | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/rate-limiting/) |
+| **Configuration** | Global config via code or environment variables | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/configuration/) |
 
-Use `AdaptiveRateLimitedHttpClient` when multiple clients share the same rate limit quota, or when the effective rate is unpredictable. It extends fixed rate limiting with:
+## Documentation
 
-- **Automatic retry on HTTP 429** (Too Many Requests)
-- **Respects `Retry-After` header** from server
-- **AIMD algorithm** (Additive Increase, Multiplicative Decrease) to adapt rate based on server responses
-- **Floor protection** to prevent deadlock
+Full documentation available at: **https://rafaelpontezup.github.io/stkai-sdk-python/**
 
-```python
-from stkai import RemoteQuickCommand, RqcRequest
-from stkai import AdaptiveRateLimitedHttpClient, StkCLIHttpClient
-
-# Start with 100 req/min, adapt based on 429 responses
-http_client = AdaptiveRateLimitedHttpClient(
-    delegate=StkCLIHttpClient(),
-    max_requests=100,
-    time_window=60.0,
-    min_rate_floor=0.1,       # Never go below 10% (10 req/min)
-    max_retries_on_429=3,     # Retry up to 3 times on 429
-    penalty_factor=0.2,       # Reduce rate by 20% after 429
-    recovery_factor=0.01,     # Increase rate by 1% after success
-)
-
-rqc = RemoteQuickCommand(
-    slug_name="my-quick-command",
-    http_client=http_client,
-)
-
-responses = rqc.execute_many(
-    request_list=[RqcRequest(payload=data) for data in large_dataset]
-)
-```
-
-**How the AIMD algorithm works:**
-- **On success:** `effective_rate += max_requests * recovery_factor` (additive increase)
-- **On 429:** `effective_rate *= (1 - penalty_factor)` (multiplicative decrease)
-- **Floor protection:** `effective_rate >= max_requests * min_rate_floor`
-- **Ceiling:** `effective_rate <= max_requests`
-
-**When to use which:**
-
-| Scenario | Recommended Client |
-|----------|-------------------|
-| Single client, known API limit | `RateLimitedHttpClient` |
-| Multiple clients sharing quota | `AdaptiveRateLimitedHttpClient` |
-| API returns 429 frequently | `AdaptiveRateLimitedHttpClient` |
-| Predictable, stable workload | `RateLimitedHttpClient` |
-
-### 8. Sending a chat message
-
-Here is an example of using the `Agent.chat()` method to send a chat message to a StackSpot AI Agent:
-
-```python
-from stkai import Agent, ChatRequest, ChatResponse
-
-# Create an Agent client
-agent = Agent(agent_id="my-agent-slug")
-
-# Send a chat message
-response: ChatResponse = agent.chat(
-    request=ChatRequest(user_prompt="Explain what SOLID principles are")
-)
-
-if response.is_success():
-    print(f"Agent says: {response.message}")
-    if response.tokens:
-        print(f"Tokens used: {response.tokens.total}")
-else:
-    print(f"Error: {response.error}")
-```
-
-The `Agent.chat()` method **always** returns an instance of `ChatResponse` regardless of whether it succeeded or failed.
-
-#### Agent Response Status
-
-| Status | Description |
-|--------|-------------|
-| `SUCCESS` | Response received successfully from the Agent |
-| `ERROR` | Client-side error (HTTP error, network issue, parsing error) |
-| `TIMEOUT` | Request timed out waiting for response |
-
-### 9. Using conversation context
-
-Agents support multi-turn conversations. You can maintain context across messages by using the `conversation_id`:
-
-```python
-from stkai import Agent, ChatRequest
-
-agent = Agent(agent_id="my-agent-slug")
-
-# First message - start a new conversation
-response1 = agent.chat(
-    request=ChatRequest(
-        user_prompt="What is Python?",
-        use_conversation=True  # Enable conversation context
-    )
-)
-
-print(f"Agent: {response1.message}")
-print(f"Conversation ID: {response1.conversation_id}")
-
-# Second message - continue the conversation
-response2 = agent.chat(
-    request=ChatRequest(
-        user_prompt="What are its main features?",  # Agent remembers we're talking about Python
-        conversation_id=response1.conversation_id,  # Use the same conversation
-        use_conversation=True
-    )
-)
-
-print(f"Agent: {response2.message}")
-```
-
-### 10. Knowledge sources
-
-StackSpot AI Agents can use knowledge sources to enrich their responses. You can control this behavior:
-
-```python
-from stkai import Agent, ChatRequest
-
-agent = Agent(agent_id="my-agent-slug")
-
-# With knowledge sources (default)
-response = agent.chat(
-    request=ChatRequest(
-        user_prompt="What is our company's coding standard?",
-        use_knowledge_sources=True,  # Use knowledge sources (default)
-        return_knowledge_sources=True  # Include which KS were used in response
-    )
-)
-
-if response.is_success():
-    print(f"Agent: {response.message}")
-    if response.knowledge_sources:
-        print(f"Knowledge sources used: {response.knowledge_sources}")
-
-# Without knowledge sources
-response_no_ks = agent.chat(
-    request=ChatRequest(
-        user_prompt="What is 2 + 2?",
-        use_knowledge_sources=False  # Don't use knowledge sources
-    )
-)
-```
-
-### 11. Agent configuration
-
-The `Agent` client accepts configuration options via `AgentOptions`:
-
-```python
-from stkai import Agent, ChatRequest
-from stkai.agents import AgentOptions
-
-agent = Agent(
-    agent_id="my-agent-slug",
-    options=AgentOptions(
-        request_timeout=120  # HTTP request timeout in seconds (default: 60)
-    )
-)
-
-response = agent.chat(ChatRequest(user_prompt="Hello!"))
-```
-
-You can also inject a custom HTTP client for testing or custom behavior:
-
-```python
-from stkai import Agent, StkCLIHttpClient, RateLimitedHttpClient
-
-# Use rate-limited HTTP client for Agent
-http_client = RateLimitedHttpClient(
-    delegate=StkCLIHttpClient(),
-    max_requests=60,
-    time_window=60.0
-)
-
-agent = Agent(
-    agent_id="my-agent-slug",
-    http_client=http_client
-)
-```
+- [Getting Started](https://rafaelpontezup.github.io/stkai-sdk-python/getting-started/)
+- [RQC Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/)
+- [Agents Guide](https://rafaelpontezup.github.io/stkai-sdk-python/agents/)
+- [Configuration](https://rafaelpontezup.github.io/stkai-sdk-python/configuration/)
+- [API Reference](https://rafaelpontezup.github.io/stkai-sdk-python/api/rqc/)
 
 ## Development
 
 ```bash
-# Clone the repository
+# Clone and setup
 git clone https://github.com/rafaelpontezup/stkai-sdk.git
 cd stkai-sdk
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install in development mode
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
 # Run tests
 pytest
 
-# Run linter
+# Lint and type check
 ruff check src tests
-
-# Run type checker
 mypy src
+
+# Build docs locally
+pip install -e ".[docs]"
+mkdocs serve
 ```
 
 ## License
