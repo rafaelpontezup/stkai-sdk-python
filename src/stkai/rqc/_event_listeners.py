@@ -112,19 +112,19 @@ class RqcPhasedEventListener(RqcEventListener):
     focused on specific phases of the execution lifecycle.
 
     Phase 1 - Create Execution:
-        - on_before_create_execution: Before POST to create execution
-        - on_after_create_execution: After creation (success or failure)
+        - on_create_execution_start: Before POST to create execution
+        - on_create_execution_end: After creation (success or failure)
 
     Phase 2 - Get Result (Polling):
-        - on_before_get_result: Before polling loop starts
-        - on_after_get_result: After polling completes (any terminal status)
+        - on_get_result_start: Before polling loop starts
+        - on_get_result_end: After polling completes (any terminal status)
 
     Example:
         >>> class MetricsListener(RqcPhasedEventListener):
-        ...     def on_before_create_execution(self, request, context):
+        ...     def on_create_execution_start(self, request, context):
         ...         context['create_start'] = time.time()
         ...
-        ...     def on_after_create_execution(self, request, status, response, context):
+        ...     def on_create_execution_end(self, request, status, response, context):
         ...         duration = time.time() - context['create_start']
         ...         if status == RqcExecutionStatus.CREATED:
         ...             statsd.timing('rqc.create.success', duration)
@@ -136,7 +136,7 @@ class RqcPhasedEventListener(RqcEventListener):
     # Phase 1: Create Execution
     # ==================
 
-    def on_before_create_execution(
+    def on_create_execution_start(
         self,
         request: RqcRequest,
         context: dict[str, Any],
@@ -150,7 +150,7 @@ class RqcPhasedEventListener(RqcEventListener):
         """
         pass
 
-    def on_after_create_execution(
+    def on_create_execution_end(
         self,
         request: RqcRequest,
         status: RqcExecutionStatus,
@@ -173,7 +173,7 @@ class RqcPhasedEventListener(RqcEventListener):
     # Phase 2: Get Result (Polling)
     # ==================
 
-    def on_before_get_result(
+    def on_get_result_start(
         self,
         request: RqcRequest,
         context: dict[str, Any],
@@ -189,7 +189,7 @@ class RqcPhasedEventListener(RqcEventListener):
         """
         pass
 
-    def on_after_get_result(
+    def on_get_result_end(
         self,
         request: RqcRequest,
         response: RqcResponse,
@@ -215,8 +215,8 @@ class RqcPhasedEventListener(RqcEventListener):
         request: RqcRequest,
         context: dict[str, Any],
     ) -> None:
-        """Delegates to on_before_create_execution."""
-        self.on_before_create_execution(request, context)
+        """Delegates to on_create_execution_start."""
+        self.on_create_execution_start(request, context)
 
     @override
     def on_status_change(
@@ -229,13 +229,13 @@ class RqcPhasedEventListener(RqcEventListener):
         """
         Delegates to phase-specific methods based on status transitions.
 
-        - PENDING → CREATED: Calls on_after_create_execution (success) + on_before_get_result
+        - PENDING → CREATED: Calls on_create_execution_end (success) + on_get_result_start
         - PENDING → ERROR/TIMEOUT: Handled in on_after_execute (failure case)
         """
         # Create-execution succeeded, polling is about to start
         if old_status == RqcExecutionStatus.PENDING and new_status == RqcExecutionStatus.CREATED:
-            self.on_after_create_execution(request, new_status, None, context)
-            self.on_before_get_result(request, context)
+            self.on_create_execution_end(request, new_status, None, context)
+            self.on_get_result_start(request, context)
 
     @override
     def on_after_execute(
@@ -247,15 +247,15 @@ class RqcPhasedEventListener(RqcEventListener):
         """
         Delegates to phase-specific methods based on execution outcome.
 
-        - No execution_id: Create-execution failed → on_after_create_execution
-        - Has execution_id: Polling finished → on_after_get_result
+        - No execution_id: Create-execution failed → on_create_execution_end
+        - Has execution_id: Polling finished → on_get_result_end
         """
         if request.execution_id is None:
             # Failed during create-execution phase
-            self.on_after_create_execution(request, response.status, response, context)
+            self.on_create_execution_end(request, response.status, response, context)
         else:
             # Polling phase completed
-            self.on_after_get_result(request, response, context)
+            self.on_get_result_end(request, response, context)
 
 
 class FileLoggingListener(RqcEventListener):

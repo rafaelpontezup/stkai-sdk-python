@@ -297,9 +297,9 @@ The `RqcPhasedEventListener` provides phase-specific hooks that make it easier t
 
 | Base Class Hook | Phased Listener Hooks |
 |-----------------|----------------------|
-| `on_before_execute()` | `on_before_create_execution()` |
-| `on_status_change()` | `on_after_create_execution()` + `on_before_get_result()` |
-| `on_after_execute()` | `on_after_get_result()` (or `on_after_create_execution()` if failed early) |
+| `on_before_execute()` | `on_create_execution_start()` |
+| `on_status_change()` | `on_create_execution_end()` + `on_get_result_start()` |
+| `on_after_execute()` | `on_get_result_end()` (or `on_create_execution_end()` if failed early) |
 
 ```python
 import time
@@ -311,13 +311,13 @@ from stkai.rqc import RqcPhasedEventListener, RqcRequest, RqcResponse
 class DetailedMetricsListener(RqcPhasedEventListener):
     """Listener that tracks metrics for each phase separately."""
 
-    def on_before_create_execution(
+    def on_create_execution_start(
         self, request: RqcRequest, context: dict[str, Any]
     ) -> None:
         context['create_start'] = time.time()
         print(f"[{request.id}] Starting create-execution...")
 
-    def on_after_create_execution(
+    def on_create_execution_end(
         self,
         request: RqcRequest,
         success: bool,
@@ -328,13 +328,13 @@ class DetailedMetricsListener(RqcPhasedEventListener):
         status = "OK" if success else "FAILED"
         print(f"[{request.id}] Create-execution {status} in {duration:.2f}s")
 
-    def on_before_get_result(
+    def on_get_result_start(
         self, request: RqcRequest, context: dict[str, Any]
     ) -> None:
         context['poll_start'] = time.time()
         print(f"[{request.id}] Starting polling...")
 
-    def on_after_get_result(
+    def on_get_result_end(
         self,
         request: RqcRequest,
         response: RqcResponse,

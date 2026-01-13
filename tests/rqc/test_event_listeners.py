@@ -376,29 +376,29 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
             def __init__(inner_self):
                 pass
 
-            def on_before_create_execution(inner_self, request, context):
-                self.calls.append(("on_before_create_execution", {
+            def on_create_execution_start(inner_self, request, context):
+                self.calls.append(("on_create_execution_start", {
                     "request_id": request.id,
                     "context": dict(context),
                 }))
 
-            def on_after_create_execution(inner_self, request, status, response, context):
-                self.calls.append(("on_after_create_execution", {
+            def on_create_execution_end(inner_self, request, status, response, context):
+                self.calls.append(("on_create_execution_end", {
                     "request_id": request.id,
                     "status": status,
                     "response": response,
                     "context": dict(context),
                 }))
 
-            def on_before_get_result(inner_self, request, context):
-                self.calls.append(("on_before_get_result", {
+            def on_get_result_start(inner_self, request, context):
+                self.calls.append(("on_get_result_start", {
                     "request_id": request.id,
                     "execution_id": request.execution_id,
                     "context": dict(context),
                 }))
 
-            def on_after_get_result(inner_self, request, response, context):
-                self.calls.append(("on_after_get_result", {
+            def on_get_result_end(inner_self, request, response, context):
+                self.calls.append(("on_get_result_end", {
                     "request_id": request.id,
                     "response_status": response.status,
                     "context": dict(context),
@@ -406,20 +406,20 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
 
         self.listener = RecordingListener()
 
-    def test_on_before_execute_delegates_to_on_before_create_execution(self):
-        """on_before_execute should delegate to on_before_create_execution."""
+    def test_on_before_execute_delegates_to_on_create_execution_start(self):
+        """on_before_execute should delegate to on_create_execution_start."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
         context = {"key": "value"}
 
         self.listener.on_before_execute(request=request, context=context)
 
         self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.calls[0][0], "on_before_create_execution")
+        self.assertEqual(self.calls[0][0], "on_create_execution_start")
         self.assertEqual(self.calls[0][1]["request_id"], "req-123")
         self.assertEqual(self.calls[0][1]["context"], {"key": "value"})
 
     def test_on_status_change_pending_to_created_triggers_success_hooks(self):
-        """PENDING→CREATED should call on_after_create_execution (success) and on_before_get_result."""
+        """PENDING→CREATED should call on_create_execution_end (success) and on_get_result_start."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
         request.mark_as_submitted(execution_id="exec-456")
         context = {"start_time": 123.45}
@@ -432,12 +432,12 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
         )
 
         self.assertEqual(len(self.calls), 2)
-        # First: on_after_create_execution with success (response=None)
-        self.assertEqual(self.calls[0][0], "on_after_create_execution")
+        # First: on_create_execution_end with success (response=None)
+        self.assertEqual(self.calls[0][0], "on_create_execution_end")
         self.assertEqual(self.calls[0][1]["status"], RqcExecutionStatus.CREATED)
         self.assertIsNone(self.calls[0][1]["response"])
-        # Second: on_before_get_result
-        self.assertEqual(self.calls[1][0], "on_before_get_result")
+        # Second: on_get_result_start
+        self.assertEqual(self.calls[1][0], "on_get_result_start")
         self.assertEqual(self.calls[1][1]["execution_id"], "exec-456")
 
     def test_on_status_change_other_transitions_do_not_trigger_hooks(self):
@@ -468,8 +468,8 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
 
         self.assertEqual(len(self.calls), 0)
 
-    def test_on_after_execute_with_execution_id_delegates_to_on_after_get_result(self):
-        """When execution_id exists, on_after_execute should delegate to on_after_get_result."""
+    def test_on_after_execute_with_execution_id_delegates_to_on_get_result_end(self):
+        """When execution_id exists, on_after_execute should delegate to on_get_result_end."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
         request.mark_as_submitted(execution_id="exec-456")
         response = RqcResponse(
@@ -481,11 +481,11 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
         self.listener.on_after_execute(request=request, response=response, context={})
 
         self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.calls[0][0], "on_after_get_result")
+        self.assertEqual(self.calls[0][0], "on_get_result_end")
         self.assertEqual(self.calls[0][1]["response_status"], RqcExecutionStatus.COMPLETED)
 
-    def test_on_after_execute_without_execution_id_delegates_to_on_after_create_execution(self):
-        """When execution_id is None (create failed), should delegate to on_after_create_execution."""
+    def test_on_after_execute_without_execution_id_delegates_to_on_create_execution_end(self):
+        """When execution_id is None (create failed), should delegate to on_create_execution_end."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
         # Note: NOT calling mark_as_submitted, so execution_id is None
         response = RqcResponse(
@@ -497,13 +497,13 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
         self.listener.on_after_execute(request=request, response=response, context={})
 
         self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.calls[0][0], "on_after_create_execution")
+        self.assertEqual(self.calls[0][0], "on_create_execution_end")
         self.assertEqual(self.calls[0][1]["status"], RqcExecutionStatus.ERROR)
         self.assertIsNotNone(self.calls[0][1]["response"])
         self.assertEqual(self.calls[0][1]["response"].error, "Network error during create")
 
     def test_on_after_execute_with_timeout_during_create_delegates_correctly(self):
-        """TIMEOUT during create (no execution_id) should delegate to on_after_create_execution."""
+        """TIMEOUT during create (no execution_id) should delegate to on_create_execution_end."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
         # Note: NOT calling mark_as_submitted, so execution_id is None
         response = RqcResponse(
@@ -515,7 +515,7 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
         self.listener.on_after_execute(request=request, response=response, context={})
 
         self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.calls[0][0], "on_after_create_execution")
+        self.assertEqual(self.calls[0][0], "on_create_execution_end")
         self.assertEqual(self.calls[0][1]["status"], RqcExecutionStatus.TIMEOUT)
 
 
@@ -530,17 +530,17 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
             def __init__(inner_self):
                 pass
 
-            def on_before_create_execution(inner_self, request, context):
-                self.call_order.append("before_create")
+            def on_create_execution_start(inner_self, request, context):
+                self.call_order.append("create_execution_start")
 
-            def on_after_create_execution(inner_self, request, status, response, context):
-                self.call_order.append(f"after_create:{status.value}")
+            def on_create_execution_end(inner_self, request, status, response, context):
+                self.call_order.append(f"create_execution_end:{status.value}")
 
-            def on_before_get_result(inner_self, request, context):
-                self.call_order.append("before_get_result")
+            def on_get_result_start(inner_self, request, context):
+                self.call_order.append("get_result_start")
 
-            def on_after_get_result(inner_self, request, response, context):
-                self.call_order.append(f"after_get_result:{response.status.value}")
+            def on_get_result_end(inner_self, request, response, context):
+                self.call_order.append(f"get_result_end:{response.status.value}")
 
         self.listener = OrderRecordingListener()
 
@@ -579,10 +579,10 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
 
         # Verify call order
         self.assertEqual(self.call_order, [
-            "before_create",
-            "after_create:CREATED",
-            "before_get_result",
-            "after_get_result:COMPLETED",
+            "create_execution_start",
+            "create_execution_end:CREATED",
+            "get_result_start",
+            "get_result_end:COMPLETED",
         ])
 
     def test_create_execution_failure_flow_calls_only_create_hooks(self):
@@ -612,8 +612,8 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
 
         # Verify: only create hooks, no polling hooks
         self.assertEqual(self.call_order, [
-            "before_create",
-            "after_create:ERROR",
+            "create_execution_start",
+            "create_execution_end:ERROR",
         ])
 
     def test_polling_failure_flow_calls_all_hooks(self):
@@ -643,10 +643,10 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
 
         # Verify: all hooks called, with FAILURE in polling phase
         self.assertEqual(self.call_order, [
-            "before_create",
-            "after_create:CREATED",
-            "before_get_result",
-            "after_get_result:FAILURE",
+            "create_execution_start",
+            "create_execution_end:CREATED",
+            "get_result_start",
+            "get_result_end:FAILURE",
         ])
 
     def test_polling_timeout_flow_calls_all_hooks(self):
@@ -676,10 +676,10 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
 
         # Verify: all hooks called, with TIMEOUT in polling phase
         self.assertEqual(self.call_order, [
-            "before_create",
-            "after_create:CREATED",
-            "before_get_result",
-            "after_get_result:TIMEOUT",
+            "create_execution_start",
+            "create_execution_end:CREATED",
+            "get_result_start",
+            "get_result_end:TIMEOUT",
         ])
 
 
@@ -700,10 +700,10 @@ class TestRqcPhasedEventListenerDefaultImplementation(unittest.TestCase):
         context: dict = {}
 
         # None of these should raise
-        listener.on_before_create_execution(request, context)
-        listener.on_after_create_execution(request, RqcExecutionStatus.CREATED, None, context)
-        listener.on_before_get_result(request, context)
-        listener.on_after_get_result(request, response, context)
+        listener.on_create_execution_start(request, context)
+        listener.on_create_execution_end(request, RqcExecutionStatus.CREATED, None, context)
+        listener.on_get_result_start(request, context)
+        listener.on_get_result_end(request, response, context)
 
     def test_base_methods_delegate_correctly_even_with_default_hooks(self):
         """Base methods should work correctly even when hooks are not overridden."""
