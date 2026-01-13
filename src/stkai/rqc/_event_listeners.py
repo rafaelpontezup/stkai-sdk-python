@@ -1,10 +1,11 @@
 """
-Event listener implementations for Remote Quick Command.
+Event listeners for Remote Quick Command.
 
-This module contains concrete implementations of RqcEventListener
+This module contains the RqcEventListener base class and concrete implementations
 for observing RQC execution lifecycle events.
 
 Available Listeners:
+    - RqcEventListener: Base class for all event listeners.
     - RqcPhasedEventListener: Abstract listener with granular phase-specific hooks.
     - FileLoggingListener: Persists request/response to JSON files for debugging.
 
@@ -17,12 +18,89 @@ Example:
 from pathlib import Path
 from typing import Any, override
 
-from stkai.rqc._remote_quick_command import (
-    RqcEventListener,
+from stkai.rqc._models import (
     RqcExecutionStatus,
     RqcRequest,
     RqcResponse,
 )
+
+
+class RqcEventListener:
+    """
+    Base class for observing RQC execution lifecycle events.
+
+    Listeners are read-only observers: they can react to events, log, notify,
+    or collect metrics, but should NOT modify the request or response.
+
+    The `context` dict is shared across all listener calls for a single execution,
+    allowing listeners to store and retrieve state (e.g., start time for telemetry).
+
+    All methods have default empty implementations, so subclasses only need to
+    override the methods they care about.
+
+    Example:
+        >>> class MetricsListener(RqcEventListener):
+        ...     def on_before_execute(self, request, context):
+        ...         context['start_time'] = time.time()
+        ...
+        ...     def on_after_execute(self, request, response, context):
+        ...         duration = time.time() - context['start_time']
+        ...         statsd.timing('rqc.duration', duration)
+    """
+
+    def on_before_execute(self, request: RqcRequest, context: dict[str, Any]) -> None:
+        """
+        Called before starting the execution.
+
+        Args:
+            request: The request about to be executed.
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    def on_status_change(
+        self,
+        request: RqcRequest,
+        old_status: RqcExecutionStatus,
+        new_status: RqcExecutionStatus,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called when the execution status changes throughout the lifecycle.
+
+        This method is invoked at key state transitions:
+        - PENDING → CREATED: Execution was successfully created on the server.
+        - PENDING → ERROR/TIMEOUT: Failed to create execution (network error, timeout, etc.).
+        - CREATED → RUNNING: Server started processing the execution.
+        - RUNNING → COMPLETED: Execution finished successfully.
+        - RUNNING → FAILURE: Execution failed on the server-side.
+        - Any → TIMEOUT: Polling timed out waiting for completion.
+
+        Args:
+            request: The request being executed.
+            old_status: The previous status.
+            new_status: The new status.
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
+
+    def on_after_execute(
+        self,
+        request: RqcRequest,
+        response: RqcResponse,
+        context: dict[str, Any],
+    ) -> None:
+        """
+        Called after execution completes (success or failure).
+
+        Check response.status or response.is_completed() to determine the outcome.
+
+        Args:
+            request: The executed request.
+            response: The final response (always provided, check status for outcome).
+            context: Mutable dict for sharing state between listener calls.
+        """
+        pass
 
 
 class RqcPhasedEventListener(RqcEventListener):

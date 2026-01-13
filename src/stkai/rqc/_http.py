@@ -1,8 +1,8 @@
 """
 HTTP client implementations for Remote Quick Command.
 
-This module contains concrete implementations of RqcHttpClient
-for making authorized HTTP requests to the StackSpot AI API.
+This module contains the RqcHttpClient abstract base class and concrete
+implementations for making authorized HTTP requests to the StackSpot AI API.
 
 Available implementations:
     - StkCLIRqcHttpClient: Uses StackSpot CLI for authentication.
@@ -15,6 +15,7 @@ import logging
 import random
 import threading
 import time
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, override
 
 import requests
@@ -22,7 +23,46 @@ import requests
 if TYPE_CHECKING:
     from stkai._auth import AuthProvider
 
-from stkai.rqc._remote_quick_command import RqcHttpClient
+
+class RqcHttpClient(ABC):
+    """
+    Abstract base class for RQC HTTP clients.
+
+    Implement this class to provide custom HTTP client implementations
+    for different authentication mechanisms or environments.
+
+    See Also:
+        StkCLIRqcHttpClient: Default implementation using StackSpot CLI credentials.
+    """
+
+    @abstractmethod
+    def get_with_authorization(self, execution_id: str, timeout: int = 30) -> requests.Response:
+        """
+        Execute an authorized GET request to retrieve execution status.
+
+        Args:
+            execution_id: The execution ID to query.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response from the StackSpot AI API.
+        """
+        pass
+
+    @abstractmethod
+    def post_with_authorization(self, slug_name: str, data: dict[str, Any] | None = None, timeout: int = 20) -> requests.Response:
+        """
+        Execute an authorized POST request to create an execution.
+
+        Args:
+            slug_name: The Quick Command slug name to execute.
+            data: The request payload to send.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response from the StackSpot AI API.
+        """
+        pass
 
 
 class StkCLIRqcHttpClient(RqcHttpClient):

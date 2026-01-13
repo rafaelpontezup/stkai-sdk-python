@@ -1,8 +1,8 @@
 """
-Result handlers implementations for Remote Quick Command responses.
+Result handlers for Remote Quick Command responses.
 
-This module contains concrete implementations of RqcResultHandler
-for processing RQC execution results in different ways.
+This module contains the RqcResultHandler abstract base class, RqcResultContext
+dataclass, and concrete implementations for processing RQC execution results.
 
 Available Handlers:
     - JsonResultHandler: Parses JSON strings into Python objects (default).
@@ -21,11 +21,73 @@ Example:
 
 import json
 import logging
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, override
 
-from stkai.rqc._remote_quick_command import RqcResultContext, RqcResultHandler
+from stkai.rqc._models import RqcRequest
+
+
+@dataclass(frozen=True)
+class RqcResultContext:
+    """
+    Context passed to result handlers during processing.
+
+    This immutable class provides result handlers with all the information
+    needed to process an execution result, including the original request
+    and the raw result from the API.
+
+    Attributes:
+        request: The original RqcRequest (with execution_id already set).
+        raw_result: The unprocessed result from the StackSpot AI API.
+        handled: Flag indicating if a previous handler has already processed this result.
+    """
+    request: RqcRequest
+    raw_result: Any
+    handled: bool = False
+
+    def __post_init__(self) -> None:
+        assert self.request, "RQC-Request can not be empty."
+        assert self.request.execution_id, "RQC-Request's execution_id can not be empty."
+        assert self.handled is not None, "Context's handled flag can not be None."
+
+    @property
+    def execution_id(self) -> str:
+        """Returns the execution ID from the associated request."""
+        assert self.request.execution_id, "Execution ID is expected to exist at this point."
+        return self.request.execution_id
+
+
+class RqcResultHandler(ABC):
+    """
+    Abstract base class for result handlers.
+
+    Result handlers are responsible for transforming the raw API response
+    into a more useful format. Implement this class to create custom handlers.
+
+    Example:
+        >>> class MyHandler(RqcResultHandler):
+        ...     def handle_result(self, context: RqcResultContext) -> Any:
+        ...         return context.raw_result.upper()
+    """
+
+    @abstractmethod
+    def handle_result(self, context: RqcResultContext) -> Any:
+        """
+        Process the result and return the transformed value.
+
+        Args:
+            context: The RqcResultContext containing the raw result and request info.
+
+        Returns:
+            The transformed result value.
+
+        Raises:
+            Any exception raised will be wrapped in RqcResultHandlerError.
+        """
+        pass
 
 
 class ChainedResultHandler(RqcResultHandler):
