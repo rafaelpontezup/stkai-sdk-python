@@ -1,7 +1,6 @@
 """Tests for HTTP client implementations, focusing on rate limiting."""
 
 import threading
-import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,7 +12,6 @@ from stkai import (
     RateLimitedHttpClient,
     RateLimitTimeoutError,
 )
-
 
 # =============================================================================
 # RateLimitTimeoutError Tests
