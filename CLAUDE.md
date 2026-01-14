@@ -4,30 +4,44 @@ This file provides guidance to Claude Code (claude.ai/claude-code) when working 
 
 ## Project Overview
 
-**stkai** is a Python SDK for StackSpot AI that provides a client abstraction for executing Remote Quick Commands (RQC). It simplifies sending requests to StackSpot AI's LLM-powered quick commands and handling their responses.
+**stkai** is a Python SDK for StackSpot AI that provides client abstractions for:
+
+- **Remote Quick Commands (RQC)**: Execute LLM-powered quick commands with polling, retries, and batch execution
+- **Agents**: Interact with StackSpot AI Agents for conversational AI capabilities
 
 ## Tech Stack
 
 - **Language**: Python 3.12+
 - **Dependencies**: `requests` (HTTP client)
 - **Dev Tools**: pytest, mypy, ruff
-- **External Dependency**: StackSpot CLI (`oscli`) for authentication
+- **Authentication**: StackSpot CLI (`oscli`) OR client credentials (environment variables)
 
 ## Project Structure
 
 ```
 src/stkai/
-├── __init__.py                    # Public API exports (RemoteQuickCommand, RqcRequest, RqcResponse)
-├── agents/                        # Future: AI agents module (placeholder)
+├── __init__.py                    # Public API exports (root module)
+├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
+├── _config.py                     # Global config: STKAI_CONFIG, configure_stkai()
+├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, RateLimitedHttpClient
+├── _utils.py                      # Internal utilities
+├── agents/                        # AI Agents module
+│   ├── __init__.py                # Agents public API exports
+│   ├── _agent.py                  # Agent client
+│   └── _models.py                 # ChatRequest, ChatResponse, ChatStatus
 └── rqc/                           # Remote Quick Commands module
     ├── __init__.py                # RQC public API exports
-    ├── _remote_quick_command.py   # Core: RemoteQuickCommand client, RqcRequest, RqcResponse, RqcEventListener
+    ├── _remote_quick_command.py   # RemoteQuickCommand client
+    ├── _models.py                 # RqcRequest, RqcResponse, RqcExecutionStatus
     ├── _handlers.py               # Result handlers: JsonResultHandler, RawResultHandler, ChainedResultHandler
-    ├── _event_listeners.py        # Event listeners: FileLoggingListener
-    ├── _http.py                   # HTTP client: StkCLIRqcHttpClient (uses oscli for auth)
-    └── _utils.py                  # Internal utilities: sleep_with_jitter, save_json_file
+    └── _event_listeners.py        # Event listeners: FileLoggingListener, RqcEventListener
 
 tests/
+├── test_auth.py
+├── test_config.py
+├── test_http.py
+├── agents/
+│   └── test_agent.py
 └── rqc/
     ├── test_remote_quick_command.py
     ├── test_handlers.py
@@ -99,3 +113,27 @@ mypy src
 - Assertions for internal sanity checks with `"🌀 Sanity check |"` prefix
 - Logging format: `{id} | RQC | {message}`
 - Dataclasses with `frozen=True` for immutable config objects
+
+### Module Export Conventions
+
+The SDK uses a **hybrid namespace** approach to balance simplicity and avoid naming conflicts:
+
+| Location | What to Export | Example |
+|----------|----------------|---------|
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `ChatRequest`, `EnvironmentAwareHttpClient` |
+| `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener` |
+| `stkai.agents` | Agent-specific handlers, listeners, options | (future: `AgentEventListener`, etc.) |
+
+**Rationale:**
+- 80% of users only need root imports (simple usage)
+- Advanced users import from submodules for customization
+- Prevents naming conflicts (e.g., `rqc.JsonResultHandler` vs `agents.JsonResultHandler`)
+
+**Import examples:**
+```python
+# Common usage - root imports
+from stkai import RemoteQuickCommand, Agent, RqcRequest, ChatRequest
+
+# Advanced usage - submodule imports
+from stkai.rqc import JsonResultHandler, ChainedResultHandler, FileLoggingListener
+```
