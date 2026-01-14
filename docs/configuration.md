@@ -48,6 +48,43 @@ export STKAI_RQC_MAX_RETRIES=5
 export STKAI_AGENT_REQUEST_TIMEOUT=120
 ```
 
+### Using with python-dotenv
+
+!!! warning "Import Order Matters"
+    The SDK reads environment variables **at import time**. If you use `python-dotenv`, you must load the `.env` file **before** importing from `stkai`.
+
+```python
+# ✅ Correct: load dotenv BEFORE importing stkai
+from dotenv import load_dotenv
+load_dotenv()
+
+from stkai import RemoteQuickCommand, create_standalone_auth
+
+auth = create_standalone_auth()  # Works!
+```
+
+```python
+# ❌ Wrong: importing stkai BEFORE loading dotenv
+from stkai import RemoteQuickCommand, create_standalone_auth
+from dotenv import load_dotenv
+
+load_dotenv()  # Too late! stkai already loaded with empty env vars
+
+auth = create_standalone_auth()  # Fails: credentials not found
+```
+
+**Alternative:** If you cannot control import order, call `configure_stkai()` after loading the `.env`:
+
+```python
+from stkai import RemoteQuickCommand, configure_stkai
+from dotenv import load_dotenv
+
+load_dotenv()
+configure_stkai()  # Reloads configuration with env vars
+
+# Now it works
+```
+
 ## Accessing Configuration
 
 Use the global `STKAI_CONFIG` to access current settings:
