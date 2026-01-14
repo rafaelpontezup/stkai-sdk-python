@@ -48,6 +48,15 @@ tests/
     └── test_event_listeners.py
 ```
 
+## Development Environment
+
+This project uses **Python virtual environment (venv)**. Always activate it before running commands:
+
+```bash
+# Activate virtual environment (required before any command)
+source .venv/bin/activate
+```
+
 ## Common Commands
 
 ```bash
