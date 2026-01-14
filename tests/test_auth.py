@@ -14,7 +14,7 @@ from stkai._auth import (
     TokenInfo,
     create_standalone_auth,
 )
-from stkai._config import reset_stkai_config
+from stkai._config import STKAI
 
 
 class TestTokenInfo(unittest.TestCase):
@@ -290,10 +290,10 @@ class TestCreateStandaloneAuth(unittest.TestCase):
     """Tests for create_standalone_auth helper function."""
 
     def setUp(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def tearDown(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def test_raises_when_no_credentials_configured(self):
         """Should raise ValueError when credentials not configured."""
@@ -307,7 +307,7 @@ class TestCreateStandaloneAuth(unittest.TestCase):
     })
     def test_uses_credentials_from_env(self):
         """Should use credentials from environment variables."""
-        reset_stkai_config()  # Re-read env vars
+        STKAI.reset()  # Re-read env vars
         auth = create_standalone_auth()
 
         self.assertIsInstance(auth, ClientCredentialsAuthProvider)

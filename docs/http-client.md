@@ -33,7 +33,7 @@ from stkai import RemoteQuickCommand
 rqc = RemoteQuickCommand(slug_name="my-command")
 ```
 
-The detection happens lazily on the first request, allowing you to call `configure_stkai()` after import.
+The detection happens lazily on the first request, allowing you to call `STKAI.configure()` after import.
 
 !!! tip "Zero Configuration"
     With `EnvironmentAwareHttpClient`, you don't need to worry about which client to use:
@@ -91,10 +91,10 @@ rqc = RemoteQuickCommand(
 Or use the global configuration:
 
 ```python
-from stkai import configure_stkai, create_standalone_auth, StandaloneHttpClient
+from stkai import STKAI, create_standalone_auth, StandaloneHttpClient
 
 # Configure credentials globally
-configure_stkai(
+STKAI.configure(
     auth={
         "client_id": "your-client-id",
         "client_secret": "your-client-secret",

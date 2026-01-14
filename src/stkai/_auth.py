@@ -272,11 +272,11 @@ def create_standalone_auth(config: AuthConfig | None = None) -> ClientCredential
     Create a ClientCredentialsAuthProvider from configuration.
 
     This helper function creates an auth provider using credentials from
-    the provided config or from the global STKAI_CONFIG.
+    the provided config or from the global STKAI.config.
 
     Args:
         config: Optional AuthConfig with credentials. If None, uses
-            STKAI_CONFIG.auth from global configuration.
+            STKAI.config.auth from global configuration.
 
     Returns:
         Configured ClientCredentialsAuthProvider instance.
@@ -285,20 +285,20 @@ def create_standalone_auth(config: AuthConfig | None = None) -> ClientCredential
         ValueError: If credentials are not configured.
 
     Example:
-        >>> from stkai import configure_stkai
-        >>> configure_stkai(auth={"client_id": "x", "client_secret": "y"})
+        >>> from stkai import STKAI
+        >>> STKAI.configure(auth={"client_id": "x", "client_secret": "y"})
         >>> auth = create_standalone_auth()
         >>> # Uses credentials from global config
     """
     if config is None:
-        from stkai._config import STKAI_CONFIG
+        from stkai._config import STKAI
 
-        config = STKAI_CONFIG.auth
+        config = STKAI.config.auth
 
     if not config.has_credentials():
         raise ValueError(
             "Client credentials not configured. "
-            "Set client_id and client_secret via configure_stkai() or environment variables "
+            "Set client_id and client_secret via STKAI.configure() or environment variables "
             "(STKAI_AUTH_CLIENT_ID, STKAI_AUTH_CLIENT_SECRET)."
         )
 

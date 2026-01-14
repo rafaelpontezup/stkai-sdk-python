@@ -81,8 +81,8 @@ class Agent:
         self.agent_id = agent_id
 
         # Get global config for defaults
-        from stkai._config import STKAI_CONFIG
-        cfg = STKAI_CONFIG.agent
+        from stkai._config import STKAI
+        cfg = STKAI.config.agent
 
         # Use provided options, or create from global config
         if options is None:
@@ -133,10 +133,10 @@ class Agent:
             f"Sending message to agent '{self.agent_id}'..."
         )
 
-        from stkai._config import STKAI_CONFIG
+        from stkai._config import STKAI
 
         # Build full URL using base_url from config
-        base_url = STKAI_CONFIG.agent.base_url.rstrip("/")
+        base_url = STKAI.config.agent.base_url.rstrip("/")
         url = f"{base_url}/v1/agent/{self.agent_id}/chat"
 
         payload = request.to_api_payload()

@@ -5,13 +5,11 @@ import unittest
 from unittest.mock import patch
 
 from stkai._config import (
-    STKAI_CONFIG,
+    STKAI,
     AgentConfig,
     AuthConfig,
     RqcConfig,
     StkAiConfig,
-    configure_stkai,
-    reset_stkai_config,
 )
 
 
@@ -19,185 +17,185 @@ class TestDefaults(unittest.TestCase):
     """Tests for default configuration values."""
 
     def setUp(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def tearDown(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def test_rqc_defaults(self):
         """Should return sensible defaults for RQC config."""
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 30)
-        self.assertEqual(STKAI_CONFIG.rqc.max_retries, 3)
-        self.assertEqual(STKAI_CONFIG.rqc.backoff_factor, 0.5)
-        self.assertEqual(STKAI_CONFIG.rqc.poll_interval, 10.0)
-        self.assertEqual(STKAI_CONFIG.rqc.poll_max_duration, 600.0)
-        self.assertEqual(STKAI_CONFIG.rqc.overload_timeout, 60.0)
-        self.assertEqual(STKAI_CONFIG.rqc.max_workers, 8)
-        self.assertEqual(STKAI_CONFIG.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
+        self.assertEqual(STKAI.config.rqc.request_timeout, 30)
+        self.assertEqual(STKAI.config.rqc.max_retries, 3)
+        self.assertEqual(STKAI.config.rqc.backoff_factor, 0.5)
+        self.assertEqual(STKAI.config.rqc.poll_interval, 10.0)
+        self.assertEqual(STKAI.config.rqc.poll_max_duration, 600.0)
+        self.assertEqual(STKAI.config.rqc.overload_timeout, 60.0)
+        self.assertEqual(STKAI.config.rqc.max_workers, 8)
+        self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
 
     def test_agent_defaults(self):
         """Should return sensible defaults for Agent config."""
-        self.assertEqual(STKAI_CONFIG.agent.base_url, "https://genai-inference-app.stackspot.com")
-        self.assertEqual(STKAI_CONFIG.agent.request_timeout, 60)
+        self.assertEqual(STKAI.config.agent.base_url, "https://genai-inference-app.stackspot.com")
+        self.assertEqual(STKAI.config.agent.request_timeout, 60)
 
     def test_auth_defaults(self):
         """Should return None for auth credentials when not configured."""
-        self.assertIsNone(STKAI_CONFIG.auth.client_id)
-        self.assertIsNone(STKAI_CONFIG.auth.client_secret)
+        self.assertIsNone(STKAI.config.auth.client_id)
+        self.assertIsNone(STKAI.config.auth.client_secret)
 
     def test_has_credentials_false_by_default(self):
         """Should return False when no credentials configured."""
-        self.assertFalse(STKAI_CONFIG.auth.has_credentials())
+        self.assertFalse(STKAI.config.auth.has_credentials())
 
 
-class TestConfigureStkai(unittest.TestCase):
-    """Tests for configure_stkai() function."""
+class TestSTKAIConfigure(unittest.TestCase):
+    """Tests for STKAI.configure() method."""
 
     def setUp(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def tearDown(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def test_configure_rqc_values(self):
-        """Should override RQC defaults with configure_stkai()."""
-        configure_stkai(rqc={"request_timeout": 60, "max_retries": 10})
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 60)
-        self.assertEqual(STKAI_CONFIG.rqc.max_retries, 10)
+        """Should override RQC defaults with STKAI.configure()."""
+        STKAI.configure(rqc={"request_timeout": 60, "max_retries": 10})
+        self.assertEqual(STKAI.config.rqc.request_timeout, 60)
+        self.assertEqual(STKAI.config.rqc.max_retries, 10)
         # Other values should remain default
-        self.assertEqual(STKAI_CONFIG.rqc.poll_interval, 10.0)
+        self.assertEqual(STKAI.config.rqc.poll_interval, 10.0)
 
     def test_configure_agent_values(self):
-        """Should override Agent defaults with configure_stkai()."""
-        configure_stkai(agent={"request_timeout": 120})
-        self.assertEqual(STKAI_CONFIG.agent.request_timeout, 120)
+        """Should override Agent defaults with STKAI.configure()."""
+        STKAI.configure(agent={"request_timeout": 120})
+        self.assertEqual(STKAI.config.agent.request_timeout, 120)
         # Base URL should remain default
-        self.assertEqual(STKAI_CONFIG.agent.base_url, "https://genai-inference-app.stackspot.com")
+        self.assertEqual(STKAI.config.agent.base_url, "https://genai-inference-app.stackspot.com")
 
     def test_configure_auth_values(self):
-        """Should set auth credentials via configure_stkai()."""
-        configure_stkai(auth={"client_id": "my-id", "client_secret": "my-secret"})
-        self.assertEqual(STKAI_CONFIG.auth.client_id, "my-id")
-        self.assertEqual(STKAI_CONFIG.auth.client_secret, "my-secret")
-        self.assertTrue(STKAI_CONFIG.auth.has_credentials())
+        """Should set auth credentials via STKAI.configure()."""
+        STKAI.configure(auth={"client_id": "my-id", "client_secret": "my-secret"})
+        self.assertEqual(STKAI.config.auth.client_id, "my-id")
+        self.assertEqual(STKAI.config.auth.client_secret, "my-secret")
+        self.assertTrue(STKAI.config.auth.has_credentials())
 
     def test_configure_partial_auth(self):
         """Should handle partial auth credentials."""
-        configure_stkai(auth={"client_id": "my-id"})
-        self.assertFalse(STKAI_CONFIG.auth.has_credentials())  # Need both
+        STKAI.configure(auth={"client_id": "my-id"})
+        self.assertFalse(STKAI.config.auth.has_credentials())  # Need both
 
     def test_configure_returns_instance(self):
         """Should return the configured StkAiConfig instance."""
-        result = configure_stkai(rqc={"request_timeout": 60})
+        result = STKAI.configure(rqc={"request_timeout": 60})
         self.assertIsInstance(result, StkAiConfig)
         self.assertEqual(result.rqc.request_timeout, 60)
-        # STKAI_CONFIG is a proxy, so check values match
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 60)
+        # STKAI.config should return same values
+        self.assertEqual(STKAI.config.rqc.request_timeout, 60)
 
     def test_configure_isolation_between_rqc_and_agent(self):
         """RQC config should not affect Agent config and vice versa."""
-        configure_stkai(rqc={"request_timeout": 30}, agent={"request_timeout": 120})
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 30)
-        self.assertEqual(STKAI_CONFIG.agent.request_timeout, 120)
+        STKAI.configure(rqc={"request_timeout": 30}, agent={"request_timeout": 120})
+        self.assertEqual(STKAI.config.rqc.request_timeout, 30)
+        self.assertEqual(STKAI.config.agent.request_timeout, 120)
 
 
 class TestEnvVars(unittest.TestCase):
     """Tests for environment variable override."""
 
     def setUp(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def tearDown(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
     def test_rqc_env_var_override(self):
         """Should use env var value over defaults."""
-        reset_stkai_config()  # Re-read env vars
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 45)
+        STKAI.reset()  # Re-read env vars
+        self.assertEqual(STKAI.config.rqc.request_timeout, 45)
 
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "7"})
     def test_rqc_env_var_int_conversion(self):
         """Should convert env var string to int."""
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.rqc.max_retries, 7)
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.max_retries, 7)
 
     @patch.dict(os.environ, {"STKAI_RQC_POLL_INTERVAL": "15.5"})
     def test_rqc_env_var_float_conversion(self):
         """Should convert env var string to float."""
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.rqc.poll_interval, 15.5)
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.poll_interval, 15.5)
 
     @patch.dict(os.environ, {"STKAI_AGENT_REQUEST_TIMEOUT": "180"})
     def test_agent_env_var_override(self):
         """Should use env var value for Agent config."""
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.agent.request_timeout, 180)
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.request_timeout, 180)
 
     @patch.dict(os.environ, {"STKAI_AGENT_BASE_URL": "https://custom.url"})
     def test_agent_base_url_env_var(self):
         """Should use env var for Agent base_url."""
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.agent.base_url, "https://custom.url")
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.base_url, "https://custom.url")
 
     @patch.dict(os.environ, {"STKAI_AUTH_CLIENT_ID": "env-id", "STKAI_AUTH_CLIENT_SECRET": "env-secret"})
     def test_auth_from_env_vars(self):
         """Should read auth credentials from env vars."""
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.auth.client_id, "env-id")
-        self.assertEqual(STKAI_CONFIG.auth.client_secret, "env-secret")
-        self.assertTrue(STKAI_CONFIG.auth.has_credentials())
+        STKAI.reset()
+        self.assertEqual(STKAI.config.auth.client_id, "env-id")
+        self.assertEqual(STKAI.config.auth.client_secret, "env-secret")
+        self.assertTrue(STKAI.config.auth.has_credentials())
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
-    def test_env_vars_override_configure_stkai(self):
-        """env vars should take precedence over configure_stkai() when allow_env_override=True."""
-        configure_stkai(rqc={"request_timeout": 90}, allow_env_override=True)
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 45)  # env var wins
+    def test_env_vars_override_configure(self):
+        """env vars should take precedence over STKAI.configure() when allow_env_override=True."""
+        STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=True)
+        self.assertEqual(STKAI.config.rqc.request_timeout, 45)  # env var wins
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
     def test_configure_without_env_override(self):
-        """configure_stkai() values should win when allow_env_override=False."""
-        configure_stkai(rqc={"request_timeout": 90}, allow_env_override=False)
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 90)  # configure wins
+        """STKAI.configure() values should win when allow_env_override=False."""
+        STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=False)
+        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # configure wins
 
 
-class TestResetStkaiConfig(unittest.TestCase):
-    """Tests for reset_stkai_config() function."""
+class TestSTKAIReset(unittest.TestCase):
+    """Tests for STKAI.reset() method."""
 
     def setUp(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def tearDown(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def test_reset_clears_config(self):
-        """reset_stkai_config() should restore defaults."""
-        configure_stkai(
+        """STKAI.reset() should restore defaults."""
+        STKAI.configure(
             auth={"client_id": "my-id", "client_secret": "my-secret"},
             rqc={"request_timeout": 999},
             agent={"request_timeout": 888},
         )
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 30)
-        self.assertEqual(STKAI_CONFIG.agent.request_timeout, 60)
-        self.assertFalse(STKAI_CONFIG.auth.has_credentials())
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.request_timeout, 30)
+        self.assertEqual(STKAI.config.agent.request_timeout, 60)
+        self.assertFalse(STKAI.config.auth.has_credentials())
 
     def test_reset_returns_instance(self):
-        """reset_stkai_config() should return the reset instance."""
-        result = reset_stkai_config()
+        """STKAI.reset() should return the reset instance."""
+        result = STKAI.reset()
         self.assertIsInstance(result, StkAiConfig)
-        # STKAI_CONFIG is a proxy, so check values match
-        self.assertEqual(result.rqc.request_timeout, STKAI_CONFIG.rqc.request_timeout)
+        # STKAI.config should return same values
+        self.assertEqual(result.rqc.request_timeout, STKAI.config.rqc.request_timeout)
 
 
 class TestAllEnvVars(unittest.TestCase):
     """Tests to ensure all env vars work correctly."""
 
     def setUp(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def tearDown(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     @patch.dict(
         os.environ,
@@ -214,15 +212,15 @@ class TestAllEnvVars(unittest.TestCase):
     )
     def test_all_rqc_env_vars(self):
         """All RQC env vars should be read correctly."""
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.rqc.base_url, "https://rqc.custom")
-        self.assertEqual(STKAI_CONFIG.rqc.request_timeout, 100)
-        self.assertEqual(STKAI_CONFIG.rqc.max_retries, 5)
-        self.assertEqual(STKAI_CONFIG.rqc.backoff_factor, 1.0)
-        self.assertEqual(STKAI_CONFIG.rqc.poll_interval, 20.0)
-        self.assertEqual(STKAI_CONFIG.rqc.poll_max_duration, 900.0)
-        self.assertEqual(STKAI_CONFIG.rqc.overload_timeout, 120.0)
-        self.assertEqual(STKAI_CONFIG.rqc.max_workers, 16)
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.base_url, "https://rqc.custom")
+        self.assertEqual(STKAI.config.rqc.request_timeout, 100)
+        self.assertEqual(STKAI.config.rqc.max_retries, 5)
+        self.assertEqual(STKAI.config.rqc.backoff_factor, 1.0)
+        self.assertEqual(STKAI.config.rqc.poll_interval, 20.0)
+        self.assertEqual(STKAI.config.rqc.poll_max_duration, 900.0)
+        self.assertEqual(STKAI.config.rqc.overload_timeout, 120.0)
+        self.assertEqual(STKAI.config.rqc.max_workers, 16)
 
     @patch.dict(
         os.environ,
@@ -233,9 +231,9 @@ class TestAllEnvVars(unittest.TestCase):
     )
     def test_all_agent_env_vars(self):
         """All Agent env vars should be read correctly."""
-        reset_stkai_config()
-        self.assertEqual(STKAI_CONFIG.agent.base_url, "https://agent.custom")
-        self.assertEqual(STKAI_CONFIG.agent.request_timeout, 200)
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.base_url, "https://agent.custom")
+        self.assertEqual(STKAI.config.agent.request_timeout, 200)
 
 
 class TestWithOverrides(unittest.TestCase):
@@ -287,10 +285,10 @@ class TestDataclassImmutability(unittest.TestCase):
     """Tests for dataclass immutability (frozen=True)."""
 
     def setUp(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def tearDown(self):
-        reset_stkai_config()
+        STKAI.reset()
 
     def test_rqc_config_is_frozen(self):
         """RqcConfig should be immutable."""
@@ -338,6 +336,16 @@ class TestAuthConfigHasCredentials(unittest.TestCase):
         """Should return False when credentials are empty strings."""
         config = AuthConfig(client_id="", client_secret="")
         self.assertFalse(config.has_credentials())
+
+
+class TestSTKAIRepr(unittest.TestCase):
+    """Tests for STKAI.__repr__() method."""
+
+    def test_repr_includes_config(self):
+        """STKAI repr should include config representation."""
+        repr_str = repr(STKAI)
+        self.assertIn("STKAI", repr_str)
+        self.assertIn("config=", repr_str)
 
 
 if __name__ == "__main__":

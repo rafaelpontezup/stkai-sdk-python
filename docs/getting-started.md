@@ -53,10 +53,10 @@ response = rqc.execute(RqcRequest(payload={"input": "data"}))
 For environments without StackSpot CLI (CI/CD, serverless, containers), use client credentials:
 
 ```python
-from stkai import configure_stkai, RemoteQuickCommand, RqcRequest
+from stkai import STKAI, RemoteQuickCommand, RqcRequest
 
 # Configure authentication
-configure_stkai(
+STKAI.configure(
     auth={
         "client_id": "your-client-id",
         "client_secret": "your-client-secret",

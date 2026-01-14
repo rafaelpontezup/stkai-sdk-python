@@ -176,8 +176,8 @@ class RemoteQuickCommand:
             AssertionError: If any required parameter is invalid.
         """
         # Get global config for defaults
-        from stkai._config import STKAI_CONFIG
-        cfg = STKAI_CONFIG.rqc
+        from stkai._config import STKAI
+        cfg = STKAI.config.rqc
 
         # Use provided options, or create from global config
         if create_execution_options is None:
@@ -449,7 +449,7 @@ class RemoteQuickCommand:
         """Creates an RQC execution via POST with retries and exponential backoff."""
         assert request, "🌀 Sanity check | RQC-Request not provided to create-execution phase."
 
-        from stkai._config import STKAI_CONFIG
+        from stkai._config import STKAI
 
         request_id = request.id
         input_data = request.to_input_data()
@@ -457,7 +457,7 @@ class RemoteQuickCommand:
         max_attempts = options.max_retries + 1
 
         # Build full URL using base_url from config
-        base_url = STKAI_CONFIG.rqc.base_url.rstrip("/")
+        base_url = STKAI.config.rqc.base_url.rstrip("/")
         url = f"{base_url}/v1/quick-commands/create-execution/{self.slug_name}"
 
         for attempt in range(max_attempts):
@@ -519,14 +519,14 @@ class RemoteQuickCommand:
 
         import random
 
-        from stkai._config import STKAI_CONFIG
+        from stkai._config import STKAI
 
         start_time = time.time()
         options = self.get_result_options
         execution_id = request.execution_id
 
         # Build full URL using base_url from config
-        base_url = STKAI_CONFIG.rqc.base_url.rstrip("/")
+        base_url = STKAI.config.rqc.base_url.rstrip("/")
         nocache_param = random.randint(0, 1000000)
         url = f"{base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
         no_cache_headers = {

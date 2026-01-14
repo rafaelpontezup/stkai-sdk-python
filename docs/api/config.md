@@ -4,11 +4,7 @@ Complete API reference for SDK configuration.
 
 ## Global Configuration
 
-::: stkai.STKAI_CONFIG
-    options:
-      show_root_heading: true
-
-::: stkai.configure_stkai
+::: stkai.STKAI
     options:
       show_root_heading: true
 

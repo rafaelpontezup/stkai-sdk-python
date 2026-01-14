@@ -2,23 +2,23 @@
 Global configuration for the stkai SDK.
 
 This module provides a simple configuration system following Convention over Configuration (CoC).
-Users can optionally call configure_stkai() at application startup to customize defaults.
+Users can optionally call STKAI.configure() at application startup to customize defaults.
 If not called, sensible defaults are used.
 
 Hierarchy of precedence (highest to lowest):
 1. *Options passed to client constructors
 2. Environment variables (STKAI_*) - when allow_env_override=True
-3. Values set via configure_stkai()
+3. Values set via STKAI.configure()
 4. Hardcoded defaults (in dataclass fields)
 
 Example:
-    >>> from stkai import STKAI_CONFIG, configure_stkai
+    >>> from stkai import STKAI
     >>>
     >>> # Pre-loaded with defaults + env vars
-    >>> timeout = STKAI_CONFIG.agent.request_timeout
+    >>> timeout = STKAI.config.agent.request_timeout
     >>>
     >>> # Custom configuration
-    >>> configure_stkai(
+    >>> STKAI.configure(
     ...     auth={"client_id": "x", "client_secret": "y"},
     ...     rqc={"request_timeout": 60},
     ... )
@@ -108,8 +108,8 @@ class AuthConfig(OverridableConfig):
             Env var: STKAI_AUTH_TOKEN_URL
 
     Example:
-        >>> from stkai import STKAI_CONFIG
-        >>> if STKAI_CONFIG.auth.has_credentials():
+        >>> from stkai import STKAI
+        >>> if STKAI.config.auth.has_credentials():
         ...     print("Credentials configured")
     """
 
@@ -160,10 +160,10 @@ class RqcConfig(OverridableConfig):
             Env var: STKAI_RQC_BASE_URL
 
     Example:
-        >>> from stkai import STKAI_CONFIG
-        >>> STKAI_CONFIG.rqc.request_timeout
+        >>> from stkai import STKAI
+        >>> STKAI.config.rqc.request_timeout
         30
-        >>> STKAI_CONFIG.rqc.max_retries
+        >>> STKAI.config.rqc.max_retries
         3
     """
 
@@ -193,10 +193,10 @@ class AgentConfig(OverridableConfig):
             Env var: STKAI_AGENT_BASE_URL
 
     Example:
-        >>> from stkai import STKAI_CONFIG
-        >>> STKAI_CONFIG.agent.request_timeout
+        >>> from stkai import STKAI
+        >>> STKAI.config.agent.request_timeout
         60
-        >>> STKAI_CONFIG.agent.base_url
+        >>> STKAI.config.agent.base_url
         'https://genai-inference-app.stackspot.com'
     """
 
@@ -210,7 +210,7 @@ class StkAiConfig:
     Global configuration for the stkai SDK.
 
     Aggregates all configuration sections: auth, rqc, and agent.
-    Access via the global `STKAI_CONFIG` constant.
+    Access via the global `STKAI.config` property.
 
     Attributes:
         auth: Authentication configuration.
@@ -218,10 +218,10 @@ class StkAiConfig:
         agent: Agent configuration.
 
     Example:
-        >>> from stkai import STKAI_CONFIG
-        >>> STKAI_CONFIG.rqc.request_timeout
+        >>> from stkai import STKAI
+        >>> STKAI.config.rqc.request_timeout
         30
-        >>> STKAI_CONFIG.auth.has_credentials()
+        >>> STKAI.config.auth.has_credentials()
         False
     """
 
@@ -282,141 +282,140 @@ def _get_agent_from_env() -> dict[str, Any]:
 
 
 # =============================================================================
-# Global Configuration Instance
+# Global Configuration Singleton
 # =============================================================================
 
 
-# Internal mutable reference to the current config
-# Initialized with defaults; configure_stkai() is called at module end to apply env vars
-_current_config: StkAiConfig = StkAiConfig()
-
-
-class _StkAiConfigProxy:
+class _STKAI:
     """
-    Proxy that provides attribute access to the current global configuration.
+    Singleton for SDK configuration.
 
-    This proxy ensures that `STKAI_CONFIG.rqc.request_timeout` always returns
-    the current value, even after `configure_stkai()` is called. Without this,
-    importing `STKAI_CONFIG` would copy the reference and not see updates.
+    Provides a centralized configuration system for the stkai SDK.
+    Use `STKAI.configure()` to customize settings and `STKAI.config`
+    to access current configuration.
 
     Example:
-        >>> from stkai import STKAI_CONFIG
-        >>> STKAI_CONFIG.rqc.request_timeout  # Always current value
-        30
+        >>> from stkai import STKAI
+        >>> STKAI.configure(auth={"client_id": "..."})
+        >>> print(STKAI.config.rqc.request_timeout)
     """
 
-    @property
-    def auth(self) -> AuthConfig:
-        """Get current authentication configuration."""
-        return _current_config.auth
+    def __init__(self) -> None:
+        """Initialize with defaults and apply environment variables."""
+        self._config: StkAiConfig = StkAiConfig()
+        self._apply_env_vars()
+
+    def _apply_env_vars(self) -> None:
+        """Apply environment variables on top of current config."""
+        auth_overrides = _get_auth_from_env()
+        rqc_overrides = _get_rqc_from_env()
+        agent_overrides = _get_agent_from_env()
+
+        self._config = StkAiConfig(
+            auth=self._config.auth.with_overrides(auth_overrides),
+            rqc=self._config.rqc.with_overrides(rqc_overrides),
+            agent=self._config.agent.with_overrides(agent_overrides),
+        )
+
+    def configure(
+        self,
+        *,
+        auth: dict[str, Any] | None = None,
+        rqc: dict[str, Any] | None = None,
+        agent: dict[str, Any] | None = None,
+        allow_env_override: bool = True,
+    ) -> StkAiConfig:
+        """
+        Configure SDK settings.
+
+        Call at application startup to customize defaults. Updates the
+        internal configuration and returns the configured instance.
+
+        Args:
+            auth: Authentication config overrides (client_id, client_secret, token_url).
+            rqc: RemoteQuickCommand config overrides (timeouts, retries, polling).
+            agent: Agent config overrides (timeout, base_url).
+            allow_env_override: If True (default), env vars take precedence
+                over provided values. If False, ignores env vars entirely.
+
+        Returns:
+            The configured StkAiConfig instance.
+
+        Raises:
+            ValueError: If any dict contains unknown field names.
+
+        Precedence (allow_env_override=True):
+            ENV vars > STKAI.configure() > defaults
+
+        Precedence (allow_env_override=False):
+            STKAI.configure() > defaults
+
+        Example:
+            >>> from stkai import STKAI
+            >>> STKAI.configure(
+            ...     auth={"client_id": "x", "client_secret": "y"},
+            ...     rqc={"request_timeout": 60},
+            ... )
+        """
+        # Start with defaults
+        auth_config = AuthConfig()
+        rqc_config = RqcConfig()
+        agent_config = AgentConfig()
+
+        # Apply user overrides
+        auth_config = auth_config.with_overrides(auth or {})
+        rqc_config = rqc_config.with_overrides(rqc or {})
+        agent_config = agent_config.with_overrides(agent or {})
+
+        # Apply env vars on top (if enabled) - env vars have highest priority
+        if allow_env_override:
+            auth_config = auth_config.with_overrides(_get_auth_from_env())
+            rqc_config = rqc_config.with_overrides(_get_rqc_from_env())
+            agent_config = agent_config.with_overrides(_get_agent_from_env())
+
+        self._config = StkAiConfig(
+            auth=auth_config,
+            rqc=rqc_config,
+            agent=agent_config,
+        )
+
+        return self._config
 
     @property
-    def rqc(self) -> RqcConfig:
-        """Get current RQC configuration."""
-        return _current_config.rqc
+    def config(self) -> StkAiConfig:
+        """
+        Access current configuration (read-only).
 
-    @property
-    def agent(self) -> AgentConfig:
-        """Get current Agent configuration."""
-        return _current_config.agent
+        Returns:
+            The current StkAiConfig instance.
+
+        Example:
+            >>> from stkai import STKAI
+            >>> STKAI.config.rqc.request_timeout
+            30
+        """
+        return self._config
+
+    def reset(self) -> StkAiConfig:
+        """
+        Reset configuration to defaults + env vars.
+
+        Useful for testing to ensure clean state between tests.
+
+        Returns:
+            The reset StkAiConfig instance.
+
+        Example:
+            >>> from stkai import STKAI
+            >>> STKAI.reset()
+        """
+        self._config = StkAiConfig()
+        self._apply_env_vars()
+        return self._config
 
     def __repr__(self) -> str:
-        return repr(_current_config)
+        return f"STKAI(config={self._config!r})"
 
 
-# Global config proxy - always reflects current configuration
-STKAI_CONFIG: _StkAiConfigProxy = _StkAiConfigProxy()
-
-
-# =============================================================================
-# Public API
-# =============================================================================
-
-
-def configure_stkai(
-    *,
-    auth: dict[str, Any] | None = None,
-    rqc: dict[str, Any] | None = None,
-    agent: dict[str, Any] | None = None,
-    allow_env_override: bool = True,
-) -> StkAiConfig:
-    """
-    Configure global SDK settings.
-
-    Call at application startup to customize defaults. Updates the
-    global `STKAI_CONFIG` and returns the configured instance.
-
-    Args:
-        auth: Authentication config overrides (client_id, client_secret).
-        rqc: RemoteQuickCommand config overrides.
-        agent: Agent config overrides.
-        allow_env_override: If True (default), env vars take precedence
-            over provided values. If False, ignores env vars entirely.
-
-    Returns:
-        The configured StkAiConfig instance.
-
-    Raises:
-        ValueError: If any dict contains unknown field names.
-
-    Precedence (allow_env_override=True):
-        ENV vars > configure_stkai() > defaults
-
-    Precedence (allow_env_override=False):
-        configure_stkai() > defaults
-
-    Example:
-        >>> from stkai import configure_stkai
-        >>> config = configure_stkai(
-        ...     auth={"client_id": "x", "client_secret": "y"},
-        ...     rqc={"request_timeout": 60},
-        ... )
-    """
-    # Start with defaults
-    auth_config = AuthConfig()
-    rqc_config = RqcConfig()
-    agent_config = AgentConfig()
-
-    # Apply user overrides from configure_stkai()
-    auth_config = auth_config.with_overrides(auth or {})
-    rqc_config = rqc_config.with_overrides(rqc or {})
-    agent_config = agent_config.with_overrides(agent or {})
-
-    # Apply env vars on top (if enabled) - env vars have highest priority
-    if allow_env_override:
-        auth_config = auth_config.with_overrides(_get_auth_from_env())
-        rqc_config = rqc_config.with_overrides(_get_rqc_from_env())
-        agent_config = agent_config.with_overrides(_get_agent_from_env())
-
-    global _current_config
-    _current_config = StkAiConfig(
-        auth=auth_config,
-        rqc=rqc_config,
-        agent=agent_config,
-    )
-
-    return _current_config
-
-
-def reset_stkai_config() -> StkAiConfig:
-    """
-    Reset configuration to defaults + env vars.
-
-    Useful for testing to ensure clean state between tests.
-
-    Returns:
-        The reset StkAiConfig instance.
-
-    Example:
-        >>> from stkai._config import reset_stkai_config
-        >>> reset_stkai_config()
-    """
-    return configure_stkai()
-
-
-# =============================================================================
-# Module Initialization
-# =============================================================================
-
-# Apply defaults + env vars at module load time
-configure_stkai()
+# Global singleton instance - always reflects current configuration
+STKAI: _STKAI = _STKAI()

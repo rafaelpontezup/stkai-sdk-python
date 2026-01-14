@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/claude-code) when working 
 src/stkai/
 ├── __init__.py                    # Public API exports (root module)
 ├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
-├── _config.py                     # Global config: STKAI_CONFIG, configure_stkai()
+├── _config.py                     # Global config: STKAI singleton (configure, config, reset)
 ├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, RateLimitedHttpClient
 ├── _utils.py                      # Internal utilities
 ├── agents/                        # AI Agents module
@@ -120,7 +120,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 
 | Location | What to Export | Example |
 |----------|----------------|---------|
-| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `ChatRequest`, `EnvironmentAwareHttpClient` |
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `ChatRequest`, `STKAI`, `EnvironmentAwareHttpClient` |
 | `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener` |
 | `stkai.agents` | Agent-specific handlers, listeners, options | (future: `AgentEventListener`, etc.) |
 
@@ -132,7 +132,11 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 **Import examples:**
 ```python
 # Common usage - root imports
-from stkai import RemoteQuickCommand, Agent, RqcRequest, ChatRequest
+from stkai import RemoteQuickCommand, Agent, RqcRequest, ChatRequest, STKAI
+
+# Configuration
+STKAI.configure(auth={"client_id": "...", "client_secret": "..."})
+print(STKAI.config.rqc.request_timeout)
 
 # Advanced usage - submodule imports
 from stkai.rqc import JsonResultHandler, ChainedResultHandler, FileLoggingListener

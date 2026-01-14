@@ -869,8 +869,11 @@ class TestEnvironmentAwareHttpClientDelegateCreation:
         mock_config = MagicMock()
         mock_config.auth = mock_auth_config
 
+        mock_stkai = MagicMock()
+        mock_stkai.config = mock_config
+
         with patch.object(client, "_is_cli_available", return_value=False):
-            with patch("stkai._config.STKAI_CONFIG", mock_config):
+            with patch("stkai._config.STKAI", mock_stkai):
                 with patch("stkai._auth.create_standalone_auth") as mock_create_auth:
                     mock_auth_provider = MagicMock(spec=AuthProvider)
                     mock_create_auth.return_value = mock_auth_provider
@@ -890,8 +893,11 @@ class TestEnvironmentAwareHttpClientDelegateCreation:
         mock_config = MagicMock()
         mock_config.auth = mock_auth_config
 
+        mock_stkai = MagicMock()
+        mock_stkai.config = mock_config
+
         with patch.object(client, "_is_cli_available", return_value=False):
-            with patch("stkai._config.STKAI_CONFIG", mock_config):
+            with patch("stkai._config.STKAI", mock_stkai):
                 with pytest.raises(ValueError, match="No authentication method available"):
                     client._create_delegate()
 
@@ -904,8 +910,11 @@ class TestEnvironmentAwareHttpClientDelegateCreation:
         mock_config = MagicMock()
         mock_config.auth = mock_auth_config
 
+        mock_stkai = MagicMock()
+        mock_stkai.config = mock_config
+
         with patch.object(client, "_is_cli_available", return_value=False):
-            with patch("stkai._config.STKAI_CONFIG", mock_config):
+            with patch("stkai._config.STKAI", mock_stkai):
                 with pytest.raises(ValueError) as exc_info:
                     client._create_delegate()
 
@@ -913,7 +922,7 @@ class TestEnvironmentAwareHttpClientDelegateCreation:
                 assert "stk login" in error_message
                 assert "STKAI_AUTH_CLIENT_ID" in error_message
                 assert "STKAI_AUTH_CLIENT_SECRET" in error_message
-                assert "configure_stkai" in error_message
+                assert "STKAI.configure" in error_message
 
 
 class TestEnvironmentAwareHttpClientGet:
@@ -1017,8 +1026,8 @@ class TestEnvironmentAwareHttpClientLazyInitialization:
             # Should only create delegate once
             mock_create.assert_called_once()
 
-    def test_allows_configure_stkai_after_import(self):
-        """Test that lazy initialization allows configure_stkai() to be called after import."""
+    def test_allows_stkai_configure_after_import(self):
+        """Test that lazy initialization allows STKAI.configure() to be called after import."""
         client = EnvironmentAwareHttpClient()
 
         # At this point, no delegate is created

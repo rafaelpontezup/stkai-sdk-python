@@ -8,7 +8,7 @@ Settings are resolved in this order (highest precedence first):
 
 1. **Options passed to client constructors** (e.g., `AgentOptions`)
 2. **Environment variables** (`STKAI_*`)
-3. **Values set via `configure_stkai()`**
+3. **Values set via `STKAI.configure()`**
 4. **Hardcoded defaults**
 
 ## Quick Configuration
@@ -16,9 +16,9 @@ Settings are resolved in this order (highest precedence first):
 ### Via Code
 
 ```python
-from stkai import configure_stkai
+from stkai import STKAI
 
-configure_stkai(
+STKAI.configure(
     auth={
         "client_id": "your-client-id",
         "client_secret": "your-client-secret",
@@ -54,7 +54,7 @@ export STKAI_AGENT_REQUEST_TIMEOUT=120
     The SDK reads environment variables **at import time**. If you use `python-dotenv`, you must load the `.env` file **before** importing from `stkai`.
 
 ```python
-# ✅ Correct: load dotenv BEFORE importing stkai
+# Correct: load dotenv BEFORE importing stkai
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -64,7 +64,7 @@ auth = create_standalone_auth()  # Works!
 ```
 
 ```python
-# ❌ Wrong: importing stkai BEFORE loading dotenv
+# Wrong: importing stkai BEFORE loading dotenv
 from stkai import RemoteQuickCommand, create_standalone_auth
 from dotenv import load_dotenv
 
@@ -73,31 +73,31 @@ load_dotenv()  # Too late! stkai already loaded with empty env vars
 auth = create_standalone_auth()  # Fails: credentials not found
 ```
 
-**Alternative:** If you cannot control import order, call `configure_stkai()` after loading the `.env`:
+**Alternative:** If you cannot control import order, call `STKAI.configure()` after loading the `.env`:
 
 ```python
-from stkai import RemoteQuickCommand, configure_stkai
+from stkai import RemoteQuickCommand, STKAI
 from dotenv import load_dotenv
 
 load_dotenv()
-configure_stkai()  # Reloads configuration with env vars
+STKAI.configure()  # Reloads configuration with env vars
 
 # Now it works
 ```
 
 ## Accessing Configuration
 
-Use the global `STKAI_CONFIG` to access current settings:
+Use `STKAI.config` to access current settings:
 
 ```python
-from stkai import STKAI_CONFIG
+from stkai import STKAI
 
 # Check current values
-print(STKAI_CONFIG.rqc.request_timeout)  # 30
-print(STKAI_CONFIG.agent.base_url)       # https://genai-inference-app.stackspot.com
+print(STKAI.config.rqc.request_timeout)  # 30
+print(STKAI.config.agent.base_url)       # https://genai-inference-app.stackspot.com
 
 # Check if credentials are configured
-if STKAI_CONFIG.auth.has_credentials():
+if STKAI.config.auth.has_credentials():
     print("Standalone auth available")
 ```
 
@@ -114,9 +114,9 @@ Authentication settings for standalone mode (without StackSpot CLI):
 | `token_url` | `STKAI_AUTH_TOKEN_URL` | StackSpot IdM URL | OAuth2 token endpoint |
 
 ```python
-from stkai import STKAI_CONFIG
+from stkai import STKAI
 
-if STKAI_CONFIG.auth.has_credentials():
+if STKAI.config.auth.has_credentials():
     # Standalone auth is configured
     pass
 ```
@@ -168,10 +168,10 @@ agent = Agent(agent_id="my-agent")
 ### Testing with Mock Settings
 
 ```python
-from stkai import configure_stkai
+from stkai import STKAI
 
 # Configure for testing
-configure_stkai(
+STKAI.configure(
     rqc={
         "request_timeout": 5,      # Fast timeout for tests
         "poll_interval": 0.1,      # Fast polling
@@ -225,10 +225,10 @@ agent = Agent(
 For testing, reset to defaults:
 
 ```python
-from stkai._config import reset_stkai_config
+from stkai import STKAI
 
 # Reset to defaults + env vars
-reset_stkai_config()
+STKAI.reset()
 ```
 
 ## Logging
@@ -309,7 +309,7 @@ With `DEBUG` level enabled (shows HTTP client detection):
 
 ```
 EnvironmentAwareHttpClient: StackSpot CLI (oscli) detected. Using StkCLIHttpClient.
-a1b2c3d4-e5f6-7890-abcd | RQC | 🛜 Starting execution of a single request.
+a1b2c3d4-e5f6-7890-abcd | RQC | Starting execution of a single request.
 ...
 ```
 

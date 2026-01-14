@@ -395,7 +395,7 @@ class EnvironmentAwareHttpClient(HttpClient):
     3. Otherwise → raises ValueError with clear instructions
 
     The detection happens lazily on the first request, allowing configuration
-    via `configure_stkai()` after import.
+    via `STKAI.configure()` after import.
 
     This implementation is thread-safe using double-checked locking pattern.
 
@@ -456,9 +456,9 @@ class EnvironmentAwareHttpClient(HttpClient):
 
         # 2. Try standalone with credentials
         from stkai._auth import create_standalone_auth
-        from stkai._config import STKAI_CONFIG
+        from stkai._config import STKAI
 
-        if STKAI_CONFIG.auth.has_credentials():
+        if STKAI.config.auth.has_credentials():
             logger.debug(
                 "EnvironmentAwareHttpClient: Client credentials detected. "
                 "Using StandaloneHttpClient."
@@ -476,7 +476,7 @@ class EnvironmentAwareHttpClient(HttpClient):
             "  1. Install and login to StackSpot CLI: pip install oscli && stk login\n"
             "  2. Set credentials via environment variables:\n"
             "     STKAI_AUTH_CLIENT_ID and STKAI_AUTH_CLIENT_SECRET\n"
-            "  3. Call configure_stkai(auth={...}) at startup"
+            "  3. Call STKAI.configure(auth={...}) at startup"
         )
 
     def _is_cli_available(self) -> bool:
