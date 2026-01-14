@@ -23,7 +23,7 @@ src/stkai/
 ├── __init__.py                    # Public API exports (root module)
 ├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
 ├── _config.py                     # Global config: STKAI singleton (configure, config, reset)
-├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, RateLimitedHttpClient
+├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, RateLimitedHttpClient, AdaptiveRateLimitedHttpClient
 ├── _utils.py                      # Internal utilities
 ├── agents/                        # AI Agents module
 │   ├── __init__.py                # Agents public API exports
@@ -107,6 +107,56 @@ mypy src
 
 - **CreateExecutionOptions**: `max_retries`, `backoff_factor`, `request_timeout`
 - **GetResultOptions**: `poll_interval`, `poll_max_duration`, `overload_timeout`, `request_timeout`
+- **RateLimitConfig**: `enabled`, `strategy`, `max_requests`, `time_window`, `max_wait_time`, etc.
+
+### Rate Limiting
+
+The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, `EnvironmentAwareHttpClient` automatically wraps HTTP requests with rate limiting.
+
+**Available strategies:**
+- `token_bucket`: Simple Token Bucket algorithm. Limits requests to `max_requests` per `time_window`.
+- `adaptive`: Adaptive rate limiting with AIMD (Additive Increase, Multiplicative Decrease). Automatically adjusts rate based on HTTP 429 responses.
+
+**Configuration via code:**
+```python
+from stkai import STKAI
+
+# Token Bucket (simple)
+STKAI.configure(
+    rate_limit={
+        "enabled": True,
+        "strategy": "token_bucket",
+        "max_requests": 10,
+        "time_window": 60.0,
+    }
+)
+
+# Adaptive (AIMD + 429 handling)
+STKAI.configure(
+    rate_limit={
+        "enabled": True,
+        "strategy": "adaptive",
+        "max_requests": 100,
+        "min_rate_floor": 0.1,
+    }
+)
+
+# Unlimited wait time
+STKAI.configure(rate_limit={"max_wait_time": None})  # or "unlimited"
+```
+
+**Configuration via environment variables:**
+```bash
+STKAI_RATE_LIMIT_ENABLED=true
+STKAI_RATE_LIMIT_STRATEGY=adaptive
+STKAI_RATE_LIMIT_MAX_REQUESTS=50
+STKAI_RATE_LIMIT_TIME_WINDOW=60.0
+STKAI_RATE_LIMIT_MAX_WAIT_TIME=unlimited  # or "none", "null"
+STKAI_RATE_LIMIT_MIN_RATE_FLOOR=0.1
+STKAI_RATE_LIMIT_MAX_RETRIES_ON_429=3
+STKAI_RATE_LIMIT_PENALTY_FACTOR=0.2
+STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
+```
 
 ### Execution Flow
 
@@ -129,7 +179,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 
 | Location | What to Export | Example |
 |----------|----------------|---------|
-| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `ChatRequest`, `STKAI`, `EnvironmentAwareHttpClient` |
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `ChatRequest`, `STKAI`, `RateLimitConfig`, `RateLimitStrategy`, `EnvironmentAwareHttpClient` |
 | `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener` |
 | `stkai.agents` | Agent-specific handlers, listeners, options | (future: `AgentEventListener`, etc.) |
 
@@ -143,9 +193,13 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 # Common usage - root imports
 from stkai import RemoteQuickCommand, Agent, RqcRequest, ChatRequest, STKAI
 
-# Configuration
-STKAI.configure(auth={"client_id": "...", "client_secret": "..."})
+# Configuration (with rate limiting)
+STKAI.configure(
+    auth={"client_id": "...", "client_secret": "..."},
+    rate_limit={"enabled": True, "strategy": "token_bucket", "max_requests": 10},
+)
 print(STKAI.config.rqc.request_timeout)
+print(STKAI.config.rate_limit.enabled)  # True
 
 # Advanced usage - submodule imports
 from stkai.rqc import JsonResultHandler, ChainedResultHandler, FileLoggingListener

@@ -8,6 +8,7 @@ from stkai._config import (
     STKAI,
     AgentConfig,
     AuthConfig,
+    RateLimitConfig,
     RqcConfig,
     STKAIConfig,
 )
@@ -346,6 +347,256 @@ class TestSTKAIRepr(unittest.TestCase):
         repr_str = repr(STKAI)
         self.assertIn("STKAI", repr_str)
         self.assertIn("config=", repr_str)
+
+
+class TestRateLimitConfigDefaults(unittest.TestCase):
+    """Tests for RateLimitConfig default values."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    def test_rate_limit_disabled_by_default(self):
+        """Rate limiting should be disabled by default."""
+        self.assertFalse(STKAI.config.rate_limit.enabled)
+
+    def test_rate_limit_default_strategy(self):
+        """Default strategy should be token_bucket."""
+        self.assertEqual(STKAI.config.rate_limit.strategy, "token_bucket")
+
+    def test_rate_limit_default_values(self):
+        """Should have sensible defaults for rate limiting."""
+        rl = STKAI.config.rate_limit
+        self.assertEqual(rl.max_requests, 100)
+        self.assertEqual(rl.time_window, 60.0)
+        self.assertEqual(rl.max_wait_time, 60.0)
+        self.assertEqual(rl.min_rate_floor, 0.1)
+        self.assertEqual(rl.max_retries_on_429, 3)
+        self.assertEqual(rl.penalty_factor, 0.2)
+        self.assertEqual(rl.recovery_factor, 0.01)
+
+
+class TestRateLimitConfigure(unittest.TestCase):
+    """Tests for configuring rate limiting via STKAI.configure()."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    def test_configure_rate_limit_enabled(self):
+        """Should enable rate limiting via configure()."""
+        STKAI.configure(rate_limit={"enabled": True})
+        self.assertTrue(STKAI.config.rate_limit.enabled)
+
+    def test_configure_rate_limit_strategy(self):
+        """Should set strategy via configure()."""
+        STKAI.configure(rate_limit={"strategy": "adaptive"})
+        self.assertEqual(STKAI.config.rate_limit.strategy, "adaptive")
+
+    def test_configure_rate_limit_token_bucket(self):
+        """Should configure token_bucket strategy."""
+        STKAI.configure(
+            rate_limit={
+                "enabled": True,
+                "strategy": "token_bucket",
+                "max_requests": 10,
+                "time_window": 30.0,
+            }
+        )
+        rl = STKAI.config.rate_limit
+        self.assertTrue(rl.enabled)
+        self.assertEqual(rl.strategy, "token_bucket")
+        self.assertEqual(rl.max_requests, 10)
+        self.assertEqual(rl.time_window, 30.0)
+
+    def test_configure_rate_limit_adaptive(self):
+        """Should configure adaptive strategy with all parameters."""
+        STKAI.configure(
+            rate_limit={
+                "enabled": True,
+                "strategy": "adaptive",
+                "max_requests": 50,
+                "time_window": 120.0,
+                "max_wait_time": 30.0,
+                "min_rate_floor": 0.2,
+                "max_retries_on_429": 5,
+                "penalty_factor": 0.3,
+                "recovery_factor": 0.02,
+            }
+        )
+        rl = STKAI.config.rate_limit
+        self.assertTrue(rl.enabled)
+        self.assertEqual(rl.strategy, "adaptive")
+        self.assertEqual(rl.max_requests, 50)
+        self.assertEqual(rl.time_window, 120.0)
+        self.assertEqual(rl.max_wait_time, 30.0)
+        self.assertEqual(rl.min_rate_floor, 0.2)
+        self.assertEqual(rl.max_retries_on_429, 5)
+        self.assertEqual(rl.penalty_factor, 0.3)
+        self.assertEqual(rl.recovery_factor, 0.02)
+
+    def test_configure_rate_limit_max_wait_time_none(self):
+        """Should allow None for max_wait_time (unlimited wait)."""
+        STKAI.configure(rate_limit={"max_wait_time": None})
+        self.assertIsNone(STKAI.config.rate_limit.max_wait_time)
+
+    def test_configure_rate_limit_invalid_field_raises_error(self):
+        """Should raise ValueError for unknown fields."""
+        with self.assertRaises(ValueError) as context:
+            STKAI.configure(rate_limit={"invalid_field": True})
+        self.assertIn("invalid_field", str(context.exception))
+
+
+class TestRateLimitEnvVars(unittest.TestCase):
+    """Tests for rate limit environment variables."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true"})
+    def test_enabled_env_var_true(self):
+        """Should read enabled=true from env var."""
+        STKAI.reset()
+        self.assertTrue(STKAI.config.rate_limit.enabled)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "1"})
+    def test_enabled_env_var_one(self):
+        """Should read enabled=1 from env var."""
+        STKAI.reset()
+        self.assertTrue(STKAI.config.rate_limit.enabled)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "yes"})
+    def test_enabled_env_var_yes(self):
+        """Should read enabled=yes from env var."""
+        STKAI.reset()
+        self.assertTrue(STKAI.config.rate_limit.enabled)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "false"})
+    def test_enabled_env_var_false(self):
+        """Should read enabled=false from env var."""
+        STKAI.reset()
+        self.assertFalse(STKAI.config.rate_limit.enabled)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_STRATEGY": "adaptive"})
+    def test_strategy_env_var(self):
+        """Should read strategy from env var."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rate_limit.strategy, "adaptive")
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_MAX_REQUESTS": "50"})
+    def test_max_requests_env_var(self):
+        """Should read max_requests from env var."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rate_limit.max_requests, 50)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_TIME_WINDOW": "120.5"})
+    def test_time_window_env_var(self):
+        """Should read time_window from env var."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rate_limit.time_window, 120.5)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_MAX_WAIT_TIME": "30.0"})
+    def test_max_wait_time_env_var(self):
+        """Should read max_wait_time from env var."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rate_limit.max_wait_time, 30.0)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_MAX_WAIT_TIME": "none"})
+    def test_max_wait_time_env_var_none(self):
+        """Should read max_wait_time=None from env var."""
+        STKAI.reset()
+        self.assertIsNone(STKAI.config.rate_limit.max_wait_time)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_MAX_WAIT_TIME": "unlimited"})
+    def test_max_wait_time_env_var_unlimited(self):
+        """Should read max_wait_time=unlimited as None from env var."""
+        STKAI.reset()
+        self.assertIsNone(STKAI.config.rate_limit.max_wait_time)
+
+    @patch.dict(
+        os.environ,
+        {
+            "STKAI_RATE_LIMIT_ENABLED": "true",
+            "STKAI_RATE_LIMIT_STRATEGY": "adaptive",
+            "STKAI_RATE_LIMIT_MAX_REQUESTS": "25",
+            "STKAI_RATE_LIMIT_TIME_WINDOW": "30.0",
+            "STKAI_RATE_LIMIT_MIN_RATE_FLOOR": "0.15",
+            "STKAI_RATE_LIMIT_MAX_RETRIES_ON_429": "7",
+            "STKAI_RATE_LIMIT_PENALTY_FACTOR": "0.25",
+            "STKAI_RATE_LIMIT_RECOVERY_FACTOR": "0.05",
+        },
+    )
+    def test_all_rate_limit_env_vars(self):
+        """All rate limit env vars should be read correctly."""
+        STKAI.reset()
+        rl = STKAI.config.rate_limit
+        self.assertTrue(rl.enabled)
+        self.assertEqual(rl.strategy, "adaptive")
+        self.assertEqual(rl.max_requests, 25)
+        self.assertEqual(rl.time_window, 30.0)
+        self.assertEqual(rl.min_rate_floor, 0.15)
+        self.assertEqual(rl.max_retries_on_429, 7)
+        self.assertEqual(rl.penalty_factor, 0.25)
+        self.assertEqual(rl.recovery_factor, 0.05)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true"})
+    def test_env_vars_override_configure(self):
+        """Env vars should take precedence over configure() when allow_env_override=True."""
+        STKAI.configure(rate_limit={"enabled": False}, allow_env_override=True)
+        self.assertTrue(STKAI.config.rate_limit.enabled)
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true"})
+    def test_configure_without_env_override(self):
+        """Configure values should win when allow_env_override=False."""
+        STKAI.configure(rate_limit={"enabled": False}, allow_env_override=False)
+        self.assertFalse(STKAI.config.rate_limit.enabled)
+
+
+class TestRateLimitConfigImmutability(unittest.TestCase):
+    """Tests for RateLimitConfig immutability (frozen=True)."""
+
+    def test_rate_limit_config_is_frozen(self):
+        """RateLimitConfig should be immutable."""
+        config = RateLimitConfig()
+        with self.assertRaises(AttributeError):
+            config.enabled = True  # type: ignore
+
+    def test_rate_limit_config_is_frozen_strategy(self):
+        """RateLimitConfig.strategy should be immutable."""
+        config = RateLimitConfig()
+        with self.assertRaises(AttributeError):
+            config.strategy = "adaptive"  # type: ignore
+
+
+class TestRateLimitConfigReset(unittest.TestCase):
+    """Tests for STKAI.reset() with rate limit config."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    def test_reset_clears_rate_limit_config(self):
+        """STKAI.reset() should restore rate limit defaults."""
+        STKAI.configure(
+            rate_limit={
+                "enabled": True,
+                "strategy": "adaptive",
+                "max_requests": 999,
+            }
+        )
+        STKAI.reset()
+        self.assertFalse(STKAI.config.rate_limit.enabled)
+        self.assertEqual(STKAI.config.rate_limit.strategy, "token_bucket")
+        self.assertEqual(STKAI.config.rate_limit.max_requests, 100)
 
 
 if __name__ == "__main__":

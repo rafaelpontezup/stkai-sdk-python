@@ -28,7 +28,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field, fields, replace
-from typing import Any, Self
+from typing import Any, Literal, Self
+
+# Type alias for rate limit strategies
+RateLimitStrategy = Literal["token_bucket", "adaptive"]
 
 # =============================================================================
 # Base Class
@@ -51,13 +54,19 @@ class OverridableConfig:
         60
     """
 
-    def with_overrides(self, overrides: dict[str, Any]) -> Self:
+    def with_overrides(
+        self,
+        overrides: dict[str, Any],
+        allow_none_fields: set[str] | None = None,
+    ) -> Self:
         """
         Return a new instance with specified fields overridden.
 
         Args:
             overrides: Dict of field names to new values.
                        Only existing fields are allowed.
+            allow_none_fields: Set of field names that accept None as a valid value.
+                       By default, None values are filtered out.
 
         Returns:
             New instance with updated values.
@@ -67,6 +76,7 @@ class OverridableConfig:
 
         Example:
             >>> config.with_overrides({"request_timeout": 60})
+            >>> config.with_overrides({"max_wait_time": None}, allow_none_fields={"max_wait_time"})
         """
         if not overrides:
             return self
@@ -80,7 +90,8 @@ class OverridableConfig:
                 f"Valid fields are: {valid_fields}"
             )
 
-        filtered = {k: v for k, v in overrides.items() if v is not None}
+        allow_none = allow_none_fields or set()
+        filtered = {k: v for k, v in overrides.items() if v is not None or k in allow_none}
         return replace(self, **filtered) if filtered else self
 
 
@@ -205,17 +216,133 @@ class AgentConfig(OverridableConfig):
 
 
 @dataclass(frozen=True)
+class RateLimitConfig(OverridableConfig):
+    """
+    Configuration for HTTP client rate limiting.
+
+    When enabled, the EnvironmentAwareHttpClient automatically wraps the
+    underlying HTTP client with rate limiting based on the selected strategy.
+
+    Available strategies:
+        - "token_bucket": Simple Token Bucket algorithm. Limits requests to
+            max_requests per time_window. Blocks if limit exceeded.
+        - "adaptive": Adaptive rate limiting with AIMD (Additive Increase,
+            Multiplicative Decrease). Automatically adjusts rate based on
+            HTTP 429 responses from the server.
+
+    Attributes:
+        enabled: Whether to enable rate limiting.
+            Env var: STKAI_RATE_LIMIT_ENABLED
+
+        strategy: Rate limiting strategy to use.
+            Env var: STKAI_RATE_LIMIT_STRATEGY
+
+        max_requests: Maximum requests allowed in the time window.
+            Env var: STKAI_RATE_LIMIT_MAX_REQUESTS
+
+        time_window: Time window in seconds for the rate limit.
+            Env var: STKAI_RATE_LIMIT_TIME_WINDOW
+
+        max_wait_time: Maximum seconds to wait for a token before raising
+            RateLimitTimeoutError. None means wait indefinitely.
+            Env var: STKAI_RATE_LIMIT_MAX_WAIT_TIME
+
+        min_rate_floor: (adaptive only) Minimum rate as fraction of max_requests.
+            Prevents rate from dropping below this floor.
+            Env var: STKAI_RATE_LIMIT_MIN_RATE_FLOOR
+
+        max_retries_on_429: (adaptive only) Maximum retries on HTTP 429.
+            Env var: STKAI_RATE_LIMIT_MAX_RETRIES_ON_429
+
+        penalty_factor: (adaptive only) Rate reduction factor on 429 (0-1).
+            Env var: STKAI_RATE_LIMIT_PENALTY_FACTOR
+
+        recovery_factor: (adaptive only) Rate increase factor on success (0-1).
+            Env var: STKAI_RATE_LIMIT_RECOVERY_FACTOR
+
+    Example:
+        >>> from stkai import STKAI
+        >>> STKAI.configure(
+        ...     rate_limit={
+        ...         "enabled": True,
+        ...         "strategy": "token_bucket",
+        ...         "max_requests": 10,
+        ...         "time_window": 60.0,
+        ...     }
+        ... )
+
+        >>> # Or with adaptive strategy
+        >>> STKAI.configure(
+        ...     rate_limit={
+        ...         "enabled": True,
+        ...         "strategy": "adaptive",
+        ...         "max_requests": 100,
+        ...         "min_rate_floor": 0.1,
+        ...     }
+        ... )
+    """
+
+    enabled: bool = False
+    strategy: RateLimitStrategy = "token_bucket"
+
+    # Common parameters
+    max_requests: int = 100
+    time_window: float = 60.0
+    max_wait_time: float | None = 60.0
+
+    # Adaptive strategy parameters (ignored if strategy != "adaptive")
+    min_rate_floor: float = 0.1
+    max_retries_on_429: int = 3
+    penalty_factor: float = 0.2
+    recovery_factor: float = 0.01
+
+    def with_overrides(
+        self,
+        overrides: dict[str, Any],
+        allow_none_fields: set[str] | None = None,
+    ) -> Self:
+        """
+        Return a new instance with specified fields overridden.
+
+        Extends base implementation to support special values:
+        - max_wait_time: Can be None, a float, or "unlimited"/"none"/"null"
+          (strings are converted to None for unlimited waiting).
+
+        Args:
+            overrides: Dict of field names to new values.
+            allow_none_fields: Additional fields that accept None (merged with max_wait_time).
+
+        Returns:
+            New instance with updated values.
+        """
+        if not overrides:
+            return self
+
+        # Convert "unlimited"/"none"/"null" strings to None for max_wait_time
+        processed = dict(overrides)
+        if "max_wait_time" in processed:
+            value = processed["max_wait_time"]
+            if isinstance(value, str) and value.lower() in ("none", "null", "unlimited"):
+                processed["max_wait_time"] = None
+
+        # Always allow None for max_wait_time, plus any additional fields
+        merged_allow_none = {"max_wait_time"} | (allow_none_fields or set())
+        return super().with_overrides(processed, allow_none_fields=merged_allow_none)
+
+
+@dataclass(frozen=True)
 class STKAIConfig:
     """
     Global configuration for the stkai SDK.
 
-    Aggregates all configuration sections: auth, rqc, and agent.
+    Aggregates all configuration sections: auth, rqc, agent, and rate_limit.
     Access via the global `STKAI.config` property.
 
     Attributes:
         auth: Authentication configuration.
         rqc: RemoteQuickCommand configuration.
         agent: Agent configuration.
+        rate_limit: Rate limiting configuration for HTTP clients.
 
     Example:
         >>> from stkai import STKAI
@@ -223,11 +350,14 @@ class STKAIConfig:
         30
         >>> STKAI.config.auth.has_credentials()
         False
+        >>> STKAI.config.rate_limit.enabled
+        False
     """
 
     auth: AuthConfig = field(default_factory=AuthConfig)
     rqc: RqcConfig = field(default_factory=RqcConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
+    rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
     def with_env_vars(self) -> STKAIConfig:
         """
@@ -249,6 +379,7 @@ class STKAIConfig:
             auth=self.auth.with_overrides(_get_auth_from_env()),
             rqc=self.rqc.with_overrides(_get_rqc_from_env()),
             agent=self.agent.with_overrides(_get_agent_from_env()),
+            rate_limit=self.rate_limit.with_overrides(_get_rate_limit_from_env()),
         )
 
 
@@ -303,6 +434,40 @@ def _get_agent_from_env() -> dict[str, Any]:
     return result
 
 
+def _get_rate_limit_from_env() -> dict[str, Any]:
+    """Read RateLimitConfig values from environment variables."""
+    result: dict[str, Any] = {}
+
+    # Handle boolean 'enabled' field specially
+    if enabled_str := os.environ.get("STKAI_RATE_LIMIT_ENABLED"):
+        result["enabled"] = enabled_str.lower() in ("true", "1", "yes")
+
+    # Handle strategy (string, but validated by dataclass)
+    if strategy := os.environ.get("STKAI_RATE_LIMIT_STRATEGY"):
+        result["strategy"] = strategy
+
+    # Handle max_wait_time specially (can be None for "unlimited")
+    if max_wait_str := os.environ.get("STKAI_RATE_LIMIT_MAX_WAIT_TIME"):
+        if max_wait_str.lower() in ("none", "null", "unlimited"):
+            result["max_wait_time"] = None
+        else:
+            result["max_wait_time"] = float(max_wait_str)
+
+    # Standard numeric fields
+    env_mapping: list[tuple[str, str, type]] = [
+        ("max_requests", "STKAI_RATE_LIMIT_MAX_REQUESTS", int),
+        ("time_window", "STKAI_RATE_LIMIT_TIME_WINDOW", float),
+        ("min_rate_floor", "STKAI_RATE_LIMIT_MIN_RATE_FLOOR", float),
+        ("max_retries_on_429", "STKAI_RATE_LIMIT_MAX_RETRIES_ON_429", int),
+        ("penalty_factor", "STKAI_RATE_LIMIT_PENALTY_FACTOR", float),
+        ("recovery_factor", "STKAI_RATE_LIMIT_RECOVERY_FACTOR", float),
+    ]
+    for key, env_var, type_fn in env_mapping:
+        if value := os.environ.get(env_var):
+            result[key] = type_fn(value)
+    return result
+
+
 # =============================================================================
 # Global Configuration Singleton
 # =============================================================================
@@ -332,6 +497,7 @@ class _STKAI:
         auth: dict[str, Any] | None = None,
         rqc: dict[str, Any] | None = None,
         agent: dict[str, Any] | None = None,
+        rate_limit: dict[str, Any] | None = None,
         allow_env_override: bool = True,
     ) -> STKAIConfig:
         """
@@ -344,6 +510,7 @@ class _STKAI:
             auth: Authentication config overrides (client_id, client_secret, token_url).
             rqc: RemoteQuickCommand config overrides (timeouts, retries, polling).
             agent: Agent config overrides (timeout, base_url).
+            rate_limit: Rate limiting config overrides (enabled, strategy, max_requests, etc.).
             allow_env_override: If True (default), env vars take precedence
                 over provided values. If False, ignores env vars entirely.
 
@@ -364,6 +531,7 @@ class _STKAI:
             >>> STKAI.configure(
             ...     auth={"client_id": "x", "client_secret": "y"},
             ...     rqc={"request_timeout": 60},
+            ...     rate_limit={"enabled": True, "max_requests": 10},
             ... )
         """
         # Start with defaults and apply user overrides
@@ -371,6 +539,7 @@ class _STKAI:
             auth=AuthConfig().with_overrides(auth or {}),
             rqc=RqcConfig().with_overrides(rqc or {}),
             agent=AgentConfig().with_overrides(agent or {}),
+            rate_limit=RateLimitConfig().with_overrides(rate_limit or {}),
         )
 
         # Apply env vars on top (if enabled) - env vars have highest priority

@@ -442,6 +442,23 @@ class EnvironmentAwareHttpClient(HttpClient):
 
         Returns:
             StkCLIHttpClient if oscli is available, otherwise StandaloneHttpClient.
+            Wrapped with rate limiting if configured via STKAI.config.rate_limit.
+
+        Raises:
+            ValueError: If no authentication method is available.
+        """
+        # 1. Create base client
+        base_client = self._create_base_client()
+
+        # 2. Apply rate limiting if configured
+        return self._apply_rate_limiting(base_client)
+
+    def _create_base_client(self) -> HttpClient:
+        """
+        Create the base HTTP client based on environment detection.
+
+        Returns:
+            StkCLIHttpClient if oscli is available, otherwise StandaloneHttpClient.
 
         Raises:
             ValueError: If no authentication method is available.
@@ -478,6 +495,59 @@ class EnvironmentAwareHttpClient(HttpClient):
             "     STKAI_AUTH_CLIENT_ID and STKAI_AUTH_CLIENT_SECRET\n"
             "  3. Call STKAI.configure(auth={...}) at startup"
         )
+
+    def _apply_rate_limiting(self, client: HttpClient) -> HttpClient:
+        """
+        Wrap the client with rate limiting if configured.
+
+        Args:
+            client: The base HTTP client to potentially wrap.
+
+        Returns:
+            The client wrapped with rate limiting, or the original client
+            if rate limiting is not enabled.
+
+        Raises:
+            ValueError: If an unknown rate limit strategy is configured.
+        """
+        from stkai._config import STKAI
+
+        rl_config = STKAI.config.rate_limit
+
+        if not rl_config.enabled:
+            return client
+
+        if rl_config.strategy == "token_bucket":
+            logger.debug(
+                "EnvironmentAwareHttpClient: Applying token_bucket rate limiting "
+                f"(max_requests={rl_config.max_requests}, time_window={rl_config.time_window}s)."
+            )
+            return RateLimitedHttpClient(
+                delegate=client,
+                max_requests=rl_config.max_requests,
+                time_window=rl_config.time_window,
+                max_wait_time=rl_config.max_wait_time,
+            )
+        elif rl_config.strategy == "adaptive":
+            logger.debug(
+                "EnvironmentAwareHttpClient: Applying adaptive rate limiting "
+                f"(max_requests={rl_config.max_requests}, time_window={rl_config.time_window}s)."
+            )
+            return AdaptiveRateLimitedHttpClient(
+                delegate=client,
+                max_requests=rl_config.max_requests,
+                time_window=rl_config.time_window,
+                max_wait_time=rl_config.max_wait_time,
+                min_rate_floor=rl_config.min_rate_floor,
+                max_retries_on_429=rl_config.max_retries_on_429,
+                penalty_factor=rl_config.penalty_factor,
+                recovery_factor=rl_config.recovery_factor,
+            )
+        else:
+            raise ValueError(
+                f"Unknown rate limit strategy: {rl_config.strategy}. "
+                f"Valid strategies are: 'token_bucket', 'adaptive'."
+            )
 
     def _is_cli_available(self) -> bool:
         """

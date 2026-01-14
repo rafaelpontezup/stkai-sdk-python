@@ -28,6 +28,7 @@ Global Configuration:
     ...     auth={"client_id": "x", "client_secret": "y"},
     ...     rqc={"request_timeout": 60, "max_retries": 5},
     ...     agent={"request_timeout": 120},
+    ...     rate_limit={"enabled": True, "strategy": "token_bucket", "max_requests": 10},
     ... )
 
 Main Classes:
@@ -46,6 +47,8 @@ Configuration:
     - AuthConfig: Authentication configuration.
     - RqcConfig: RemoteQuickCommand configuration.
     - AgentConfig: Agent configuration.
+    - RateLimitConfig: Rate limiting configuration.
+    - RateLimitStrategy: Type alias for valid rate limiting strategies.
 
 Authentication (Standalone):
     - AuthProvider: Abstract base class for authentication providers.
@@ -77,6 +80,8 @@ from stkai._config import (
     STKAI,
     AgentConfig,
     AuthConfig,
+    RateLimitConfig,
+    RateLimitStrategy,
     RqcConfig,
     STKAIConfig,
 )
@@ -110,6 +115,8 @@ __all__ = [
     "AuthConfig",
     "RqcConfig",
     "AgentConfig",
+    "RateLimitConfig",
+    "RateLimitStrategy",
     # Authentication (Standalone)
     "AuthProvider",
     "ClientCredentialsAuthProvider",

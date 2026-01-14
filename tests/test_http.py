@@ -866,8 +866,13 @@ class TestEnvironmentAwareHttpClientDelegateCreation:
         mock_auth_config.client_secret = "test-client-secret"
         mock_auth_config.token_url = "https://example.com/token"
 
+        # Mock rate limit config (disabled)
+        mock_rate_limit_config = MagicMock()
+        mock_rate_limit_config.enabled = False
+
         mock_config = MagicMock()
         mock_config.auth = mock_auth_config
+        mock_config.rate_limit = mock_rate_limit_config
 
         mock_stkai = MagicMock()
         mock_stkai.config = mock_config
