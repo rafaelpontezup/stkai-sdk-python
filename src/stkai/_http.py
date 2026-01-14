@@ -5,20 +5,26 @@ This module provides a generic HTTP client interface inspired by popular SDKs
 (OpenAI, Anthropic, Stripe) that can be used across all SDK components.
 
 Available implementations:
+    - EnvironmentAwareHttpClient: Auto-detects environment (CLI or standalone). Default.
     - StkCLIHttpClient: Uses StackSpot CLI (oscli) for authentication.
     - StandaloneHttpClient: Uses AuthProvider for standalone authentication.
     - RateLimitedHttpClient: Decorator that adds rate limiting (Token Bucket).
     - AdaptiveRateLimitedHttpClient: Decorator with adaptive rate limiting and 429 handling.
 
-Example:
+Example (recommended - auto-detection):
+    >>> from stkai._http import EnvironmentAwareHttpClient
+    >>> client = EnvironmentAwareHttpClient()
+    >>> response = client.post("https://api.example.com/v1/resource", data={"key": "value"})
+
+Example (explicit CLI):
     >>> from stkai._http import StkCLIHttpClient
     >>> client = StkCLIHttpClient()
     >>> response = client.post("https://api.example.com/v1/resource", data={"key": "value"})
 
 For rate limiting:
-    >>> from stkai._http import RateLimitedHttpClient, StkCLIHttpClient
+    >>> from stkai._http import RateLimitedHttpClient, EnvironmentAwareHttpClient
     >>> client = RateLimitedHttpClient(
-    ...     delegate=StkCLIHttpClient(),
+    ...     delegate=EnvironmentAwareHttpClient(),
     ...     max_requests=10,
     ...     time_window=60.0,
     ... )
@@ -368,6 +374,152 @@ class StandaloneHttpClient(HttpClient):
             headers=merged_headers,
             timeout=timeout,
         )
+
+
+# =============================================================================
+# Environment-Aware Implementation
+# =============================================================================
+
+
+class EnvironmentAwareHttpClient(HttpClient):
+    """
+    Environment-aware HTTP client that automatically selects the appropriate implementation.
+
+    This client detects the runtime environment and lazily creates the appropriate
+    HTTP client implementation:
+
+    1. If StackSpot CLI (oscli) is installed → uses StkCLIHttpClient
+    2. If credentials are configured → uses StandaloneHttpClient
+    3. Otherwise → raises ValueError with clear instructions
+
+    The detection happens lazily on the first request, allowing configuration
+    via `configure_stkai()` after import.
+
+    This implementation is thread-safe using double-checked locking pattern.
+
+    Example:
+        >>> from stkai._http import EnvironmentAwareHttpClient
+        >>> client = EnvironmentAwareHttpClient()
+        >>> # Automatically uses CLI or standalone based on environment
+        >>> response = client.post("https://api.example.com/endpoint", data={"key": "value"})
+
+    Note:
+        CLI takes precedence over credentials if both are available.
+
+    See Also:
+        StkCLIHttpClient: Explicit CLI-based client.
+        StandaloneHttpClient: Explicit standalone client.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the environment-aware HTTP client."""
+        self._delegate: HttpClient | None = None
+        self._lock = threading.Lock()
+
+    def _get_delegate(self) -> HttpClient:
+        """
+        Get or create the delegate HTTP client.
+
+        Uses double-checked locking for thread-safe lazy initialization.
+
+        Returns:
+            The appropriate HttpClient implementation for the current environment.
+
+        Raises:
+            ValueError: If no authentication method is available.
+        """
+        if self._delegate is None:
+            with self._lock:
+                if self._delegate is None:
+                    self._delegate = self._create_delegate()
+        return self._delegate
+
+    def _create_delegate(self) -> HttpClient:
+        """
+        Create the appropriate HTTP client based on environment detection.
+
+        Returns:
+            StkCLIHttpClient if oscli is available, otherwise StandaloneHttpClient.
+
+        Raises:
+            ValueError: If no authentication method is available.
+        """
+        # 1. Try CLI first (has priority)
+        if self._is_cli_available():
+            return StkCLIHttpClient()
+
+        # 2. Try standalone with credentials
+        from stkai._auth import create_standalone_auth
+        from stkai._config import STKAI_CONFIG
+
+        if STKAI_CONFIG.auth.has_credentials():
+            auth = create_standalone_auth()
+            return StandaloneHttpClient(auth_provider=auth)
+
+        # 3. No valid configuration
+        raise ValueError(
+            "No authentication method available. Either:\n"
+            "  1. Install and login to StackSpot CLI: pip install oscli && stk login\n"
+            "  2. Set credentials via environment variables:\n"
+            "     STKAI_AUTH_CLIENT_ID and STKAI_AUTH_CLIENT_SECRET\n"
+            "  3. Call configure_stkai(auth={...}) at startup"
+        )
+
+    def _is_cli_available(self) -> bool:
+        """
+        Check if StackSpot CLI (oscli) is available.
+
+        Returns:
+            True if oscli can be imported, False otherwise.
+        """
+        try:
+            import oscli  # noqa: F401
+
+            return True
+        except ImportError:
+            return False
+
+    @override
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Delegate GET request to the appropriate HTTP client.
+
+        Args:
+            url: The full URL to request.
+            headers: Additional headers to include.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response.
+        """
+        return self._get_delegate().get(url, headers, timeout)
+
+    @override
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Delegate POST request to the appropriate HTTP client.
+
+        Args:
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response.
+        """
+        return self._get_delegate().post(url, data, headers, timeout)
 
 
 # =============================================================================

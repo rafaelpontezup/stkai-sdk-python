@@ -138,7 +138,7 @@ class RemoteQuickCommand:
         create_execution_options: Options for the create-execution phase.
         get_result_options: Options for the get-result (polling) phase.
         max_workers: Maximum concurrent executions for batch mode (default: 8).
-        http_client: HTTP client for API calls (default: StkCLIHttpClient).
+        http_client: HTTP client for API calls (default: EnvironmentAwareHttpClient).
         listeners: List of event listeners for observing execution lifecycle.
     """
 
@@ -165,7 +165,7 @@ class RemoteQuickCommand:
             max_workers: Maximum number of concurrent threads for execute_many().
                 If None, uses global config (default: 8).
             http_client: Custom HTTP client implementation for API calls.
-                If None, uses StkCLIHttpClient (requires StackSpot CLI).
+                If None, uses EnvironmentAwareHttpClient (auto-detects CLI or standalone).
             listeners: Event listeners for observing execution lifecycle.
                 If None (default), registers a FileLoggingListener.
                 If [] (empty list), disables default logging.
@@ -197,8 +197,8 @@ class RemoteQuickCommand:
             max_workers = cfg.max_workers
 
         if not http_client:
-            from stkai._http import StkCLIHttpClient
-            http_client = StkCLIHttpClient()
+            from stkai._http import EnvironmentAwareHttpClient
+            http_client = EnvironmentAwareHttpClient()
 
         # Setup default FileLoggingListener when no listeners are specified (None).
         # To disable logging, pass an empty list: `listeners=[]`

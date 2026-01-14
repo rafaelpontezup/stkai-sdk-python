@@ -56,6 +56,7 @@ Authentication (Standalone):
 
 HTTP Client:
     - HttpClient: Abstract base class for HTTP clients.
+    - EnvironmentAwareHttpClient: Auto-detects environment (CLI or standalone). Default.
     - StkCLIHttpClient: HTTP client using StackSpot CLI for authentication.
     - StandaloneHttpClient: HTTP client using AuthProvider for standalone auth.
     - RateLimitedHttpClient: HTTP client decorator with rate limiting.
@@ -83,6 +84,7 @@ from stkai._config import (
 )
 from stkai._http import (
     AdaptiveRateLimitedHttpClient,
+    EnvironmentAwareHttpClient,
     HttpClient,
     RateLimitedHttpClient,
     RateLimitTimeoutError,
@@ -118,6 +120,7 @@ __all__ = [
     "create_standalone_auth",
     # HTTP Client
     "HttpClient",
+    "EnvironmentAwareHttpClient",
     "StkCLIHttpClient",
     "StandaloneHttpClient",
     "RateLimitedHttpClient",

@@ -18,17 +18,37 @@ The SDK uses a unified `HttpClient` abstraction for all HTTP communication. This
 
 ## Built-in Implementations
 
-### StkCLIHttpClient (Default)
+### EnvironmentAwareHttpClient (Default)
 
-Delegates authentication to the StackSpot CLI (`oscli`):
+Automatically detects the runtime environment and uses the appropriate client:
+
+1. **CLI available** → Uses `StkCLIHttpClient`
+2. **Credentials configured** → Uses `StandaloneHttpClient`
+3. **Neither** → Raises `ValueError` with clear instructions
+
+```python
+from stkai import RemoteQuickCommand
+
+# Works automatically in any environment
+rqc = RemoteQuickCommand(slug_name="my-command")
+```
+
+The detection happens lazily on the first request, allowing you to call `configure_stkai()` after import.
+
+!!! tip "Zero Configuration"
+    With `EnvironmentAwareHttpClient`, you don't need to worry about which client to use:
+
+    - **Development**: Install CLI and run `stk login`
+    - **Production/CI**: Set `STKAI_AUTH_CLIENT_ID` and `STKAI_AUTH_CLIENT_SECRET`
+
+### StkCLIHttpClient
+
+Explicitly delegates authentication to the StackSpot CLI (`oscli`):
 
 ```python
 from stkai import RemoteQuickCommand, StkCLIHttpClient
 
-# This is the default - no need to specify
-rqc = RemoteQuickCommand(slug_name="my-command")
-
-# Explicit usage
+# Explicit CLI usage
 rqc = RemoteQuickCommand(
     slug_name="my-command",
     http_client=StkCLIHttpClient(),
@@ -43,7 +63,7 @@ rqc = RemoteQuickCommand(
 
 ### StandaloneHttpClient
 
-Uses client credentials for environments without StackSpot CLI:
+Explicitly uses client credentials for environments without StackSpot CLI:
 
 ```python
 from stkai import (
@@ -91,10 +111,10 @@ http_client = StandaloneHttpClient(auth_provider=auth_provider)
 Wraps another client with Token Bucket rate limiting:
 
 ```python
-from stkai import RateLimitedHttpClient, StkCLIHttpClient
+from stkai import RateLimitedHttpClient, EnvironmentAwareHttpClient
 
 http_client = RateLimitedHttpClient(
-    delegate=StkCLIHttpClient(),
+    delegate=EnvironmentAwareHttpClient(),
     max_requests=30,      # Requests per window
     time_window=60.0,     # Window in seconds
 )
@@ -107,10 +127,10 @@ See [Rate Limiting](rqc/rate-limiting.md) for details.
 Adds adaptive rate control with AIMD algorithm:
 
 ```python
-from stkai import AdaptiveRateLimitedHttpClient, StkCLIHttpClient
+from stkai import AdaptiveRateLimitedHttpClient, EnvironmentAwareHttpClient
 
 http_client = AdaptiveRateLimitedHttpClient(
-    delegate=StkCLIHttpClient(),
+    delegate=EnvironmentAwareHttpClient(),
     max_requests=100,
     time_window=60.0,
     min_rate_floor=0.1,      # Never below 10%
@@ -234,6 +254,7 @@ rqc = RemoteQuickCommand(
 
 All built-in HTTP clients are thread-safe:
 
+- `EnvironmentAwareHttpClient` - Delegates to thread-safe clients
 - `StkCLIHttpClient` - Stateless, safe
 - `StandaloneHttpClient` - Auth provider handles token caching
 - `RateLimitedHttpClient` - Uses `threading.Lock()`

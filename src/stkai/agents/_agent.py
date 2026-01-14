@@ -54,7 +54,7 @@ class Agent:
     Attributes:
         agent_id: The Agent ID (slug) to interact with.
         options: Configuration options for the client.
-        http_client: HTTP client for API calls (default: StkCLIHttpClient).
+        http_client: HTTP client for API calls (default: EnvironmentAwareHttpClient).
     """
 
     def __init__(
@@ -70,7 +70,7 @@ class Agent:
             agent_id: The Agent ID (slug) to interact with.
             options: Configuration options for the client.
             http_client: Custom HTTP client implementation for API calls.
-                If None, uses StkCLIHttpClient (requires StackSpot CLI).
+                If None, uses EnvironmentAwareHttpClient (auto-detects CLI or standalone).
 
         Raises:
             AssertionError: If agent_id is empty.
@@ -88,8 +88,8 @@ class Agent:
         self.options = options
 
         if not http_client:
-            from stkai._http import StkCLIHttpClient
-            http_client = StkCLIHttpClient()
+            from stkai._http import EnvironmentAwareHttpClient
+            http_client = EnvironmentAwareHttpClient()
         self.http_client: HttpClient = http_client
 
     def chat(self, request: ChatRequest) -> ChatResponse:

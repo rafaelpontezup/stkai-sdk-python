@@ -9,6 +9,7 @@ import requests
 from stkai import (
     AdaptiveRateLimitedHttpClient,
     AuthProvider,
+    EnvironmentAwareHttpClient,
     HttpClient,
     RateLimitedHttpClient,
     RateLimitTimeoutError,
@@ -791,3 +792,274 @@ class TestStandaloneHttpClientPost:
 
         with pytest.raises(AssertionError, match="Timeout must be greater than 0"):
             client.post("http://example.com", timeout=-1)
+
+
+# =============================================================================
+# EnvironmentAwareHttpClient Tests
+# =============================================================================
+
+
+class TestEnvironmentAwareHttpClientInit:
+    """Tests for EnvironmentAwareHttpClient initialization."""
+
+    def test_init_creates_instance_without_delegate(self):
+        client = EnvironmentAwareHttpClient()
+
+        assert client._delegate is None
+
+    def test_delegate_is_lazy_initialized(self):
+        client = EnvironmentAwareHttpClient()
+
+        # Delegate should not be created until first request
+        assert client._delegate is None
+
+
+class TestEnvironmentAwareHttpClientCLIDetection:
+    """Tests for CLI detection in EnvironmentAwareHttpClient."""
+
+    def test_uses_stk_cli_client_when_oscli_is_available(self):
+        client = EnvironmentAwareHttpClient()
+
+        # Mock oscli being available
+        mock_oscli = MagicMock()
+        with patch.dict("sys.modules", {"oscli": mock_oscli}):
+            assert client._is_cli_available() is True
+
+    def test_falls_back_when_oscli_import_fails(self):
+        client = EnvironmentAwareHttpClient()
+
+        # Ensure oscli is not available
+        with patch.dict("sys.modules", {"oscli": None}):
+            # Force ImportError by patching __import__
+            original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+            def mock_import(name, *args, **kwargs):
+                if name == "oscli":
+                    raise ImportError("No module named 'oscli'")
+                return original_import(name, *args, **kwargs)
+
+            with patch("builtins.__import__", side_effect=mock_import):
+                assert client._is_cli_available() is False
+
+
+class TestEnvironmentAwareHttpClientDelegateCreation:
+    """Tests for delegate creation in EnvironmentAwareHttpClient."""
+
+    def test_creates_stk_cli_client_when_oscli_available(self):
+        client = EnvironmentAwareHttpClient()
+
+        # Mock oscli being available
+        mock_oscli = MagicMock()
+        with patch.dict("sys.modules", {"oscli": mock_oscli, "oscli.core": mock_oscli.core, "oscli.core.http": mock_oscli.core.http}):
+            with patch.object(client, "_is_cli_available", return_value=True):
+                delegate = client._create_delegate()
+
+                assert isinstance(delegate, StkCLIHttpClient)
+
+    def test_creates_standalone_client_when_oscli_not_available_but_credentials_configured(self):
+        client = EnvironmentAwareHttpClient()
+
+        # Mock config with credentials
+        mock_auth_config = MagicMock()
+        mock_auth_config.has_credentials.return_value = True
+        mock_auth_config.client_id = "test-client-id"
+        mock_auth_config.client_secret = "test-client-secret"
+        mock_auth_config.token_url = "https://example.com/token"
+
+        mock_config = MagicMock()
+        mock_config.auth = mock_auth_config
+
+        with patch.object(client, "_is_cli_available", return_value=False):
+            with patch("stkai._config.STKAI_CONFIG", mock_config):
+                with patch("stkai._auth.create_standalone_auth") as mock_create_auth:
+                    mock_auth_provider = MagicMock(spec=AuthProvider)
+                    mock_create_auth.return_value = mock_auth_provider
+
+                    delegate = client._create_delegate()
+
+                    assert isinstance(delegate, StandaloneHttpClient)
+                    mock_create_auth.assert_called_once()
+
+    def test_raises_value_error_when_no_authentication_available(self):
+        client = EnvironmentAwareHttpClient()
+
+        # Mock config without credentials
+        mock_auth_config = MagicMock()
+        mock_auth_config.has_credentials.return_value = False
+
+        mock_config = MagicMock()
+        mock_config.auth = mock_auth_config
+
+        with patch.object(client, "_is_cli_available", return_value=False):
+            with patch("stkai._config.STKAI_CONFIG", mock_config):
+                with pytest.raises(ValueError, match="No authentication method available"):
+                    client._create_delegate()
+
+    def test_error_message_contains_helpful_instructions(self):
+        client = EnvironmentAwareHttpClient()
+
+        mock_auth_config = MagicMock()
+        mock_auth_config.has_credentials.return_value = False
+
+        mock_config = MagicMock()
+        mock_config.auth = mock_auth_config
+
+        with patch.object(client, "_is_cli_available", return_value=False):
+            with patch("stkai._config.STKAI_CONFIG", mock_config):
+                with pytest.raises(ValueError) as exc_info:
+                    client._create_delegate()
+
+                error_message = str(exc_info.value)
+                assert "stk login" in error_message
+                assert "STKAI_AUTH_CLIENT_ID" in error_message
+                assert "STKAI_AUTH_CLIENT_SECRET" in error_message
+                assert "configure_stkai" in error_message
+
+
+class TestEnvironmentAwareHttpClientGet:
+    """Tests for GET requests in EnvironmentAwareHttpClient."""
+
+    def test_get_delegates_to_underlying_client(self):
+        client = EnvironmentAwareHttpClient()
+        mock_delegate = MockHttpClient()
+        client._delegate = mock_delegate
+
+        client.get("http://example.com/api")
+
+        assert len(mock_delegate.get_calls) == 1
+        assert mock_delegate.get_calls[0]["url"] == "http://example.com/api"
+
+    def test_get_passes_headers_to_delegate(self):
+        client = EnvironmentAwareHttpClient()
+        mock_delegate = MockHttpClient()
+        client._delegate = mock_delegate
+
+        client.get("http://example.com/api", headers={"X-Custom": "value"})
+
+        assert mock_delegate.get_calls[0]["headers"] == {"X-Custom": "value"}
+
+    def test_get_passes_timeout_to_delegate(self):
+        client = EnvironmentAwareHttpClient()
+        mock_delegate = MockHttpClient()
+        client._delegate = mock_delegate
+
+        client.get("http://example.com/api", timeout=60)
+
+        assert mock_delegate.get_calls[0]["timeout"] == 60
+
+    def test_get_creates_delegate_on_first_call(self):
+        client = EnvironmentAwareHttpClient()
+
+        mock_delegate = MockHttpClient()
+        with patch.object(client, "_create_delegate", return_value=mock_delegate) as mock_create:
+            client.get("http://example.com/api")
+
+            mock_create.assert_called_once()
+            assert client._delegate is mock_delegate
+
+
+class TestEnvironmentAwareHttpClientPost:
+    """Tests for POST requests in EnvironmentAwareHttpClient."""
+
+    def test_post_delegates_to_underlying_client(self):
+        client = EnvironmentAwareHttpClient()
+        mock_delegate = MockHttpClient()
+        client._delegate = mock_delegate
+
+        client.post("http://example.com/api", data={"key": "value"})
+
+        assert len(mock_delegate.post_calls) == 1
+        assert mock_delegate.post_calls[0]["url"] == "http://example.com/api"
+        assert mock_delegate.post_calls[0]["data"] == {"key": "value"}
+
+    def test_post_passes_headers_to_delegate(self):
+        client = EnvironmentAwareHttpClient()
+        mock_delegate = MockHttpClient()
+        client._delegate = mock_delegate
+
+        client.post("http://example.com/api", headers={"X-Custom": "value"})
+
+        assert mock_delegate.post_calls[0]["headers"] == {"X-Custom": "value"}
+
+    def test_post_passes_timeout_to_delegate(self):
+        client = EnvironmentAwareHttpClient()
+        mock_delegate = MockHttpClient()
+        client._delegate = mock_delegate
+
+        client.post("http://example.com/api", timeout=60)
+
+        assert mock_delegate.post_calls[0]["timeout"] == 60
+
+    def test_post_creates_delegate_on_first_call(self):
+        client = EnvironmentAwareHttpClient()
+
+        mock_delegate = MockHttpClient()
+        with patch.object(client, "_create_delegate", return_value=mock_delegate) as mock_create:
+            client.post("http://example.com/api")
+
+            mock_create.assert_called_once()
+            assert client._delegate is mock_delegate
+
+
+class TestEnvironmentAwareHttpClientLazyInitialization:
+    """Tests for lazy initialization behavior."""
+
+    def test_delegate_is_cached_after_first_request(self):
+        client = EnvironmentAwareHttpClient()
+        mock_delegate = MockHttpClient()
+
+        with patch.object(client, "_create_delegate", return_value=mock_delegate) as mock_create:
+            # First call
+            client.get("http://example.com/api")
+            # Second call
+            client.get("http://example.com/api")
+
+            # Should only create delegate once
+            mock_create.assert_called_once()
+
+    def test_allows_configure_stkai_after_import(self):
+        """Test that lazy initialization allows configure_stkai() to be called after import."""
+        client = EnvironmentAwareHttpClient()
+
+        # At this point, no delegate is created
+        assert client._delegate is None
+
+        mock_delegate = MockHttpClient()
+
+        # First request triggers delegate creation with the current config
+        with patch.object(client, "_create_delegate", return_value=mock_delegate):
+            client.get("http://example.com/api")
+
+        # Delegate was created
+        assert client._delegate is not None
+
+    def test_thread_safe_delegate_creation(self):
+        """Test that delegate is created only once even with concurrent access."""
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        client = EnvironmentAwareHttpClient()
+        creation_count = 0
+        creation_lock = threading.Lock()
+
+        def counting_create_delegate():
+            nonlocal creation_count
+            with creation_lock:
+                creation_count += 1
+            time.sleep(0.01)  # Simulate slow creation to increase race condition window
+            return MockHttpClient()
+
+        with patch.object(client, "_create_delegate", side_effect=counting_create_delegate):
+            # Launch multiple threads simultaneously
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [
+                    executor.submit(client.get, "http://example.com/api")
+                    for _ in range(10)
+                ]
+                # Wait for all to complete
+                for f in futures:
+                    f.result()
+
+        # Delegate should be created exactly once
+        assert creation_count == 1
+        assert client._delegate is not None
