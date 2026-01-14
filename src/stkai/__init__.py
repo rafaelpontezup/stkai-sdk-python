@@ -63,7 +63,9 @@ HTTP Client:
     - RateLimitTimeoutError: Exception raised when rate limiter exceeds max_wait_time.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import version as _get_version
+
+__version__ = _get_version("stkai")
 
 from stkai._auth import (
     AuthenticationError,
