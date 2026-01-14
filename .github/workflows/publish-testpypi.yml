@@ -57,6 +57,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install build
 
+      - name: Add rc suffix to version (unique for each run)
+        run: |
+          TIMESTAMP=$(date +%s)
+          sed -i "s/version = \"\(.*\)\"/version = \"\1.rc${TIMESTAMP}\"/" pyproject.toml
+          echo "Version: $(grep 'version = ' pyproject.toml)"
+
       - name: Build package
         run: python -m build
 
