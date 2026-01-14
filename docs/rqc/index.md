@@ -2,7 +2,7 @@
 
 Remote Quick Commands (RQC) are AI-powered commands that run on StackSpot AI's infrastructure. They can analyze, transform, and generate code based on your inputs.
 
-## Overview
+## RQC Phases
 
 The RQC system works in two phases:
 

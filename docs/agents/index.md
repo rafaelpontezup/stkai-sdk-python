@@ -2,7 +2,7 @@
 
 StackSpot AI Agents are interactive AI assistants that can chat with users, maintain conversation context, and leverage knowledge sources to provide enriched responses.
 
-## Overview
+## Simple API
 
 The Agent client provides a simple interface for chatting with AI agents:
 
