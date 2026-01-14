@@ -42,7 +42,7 @@ Main Classes:
 
 Configuration:
     - STKAI: Global SDK singleton for configuration.
-    - StkAiConfig: Root configuration dataclass.
+    - STKAIConfig: Root configuration dataclass.
     - AuthConfig: Authentication configuration.
     - RqcConfig: RemoteQuickCommand configuration.
     - AgentConfig: Agent configuration.
@@ -78,7 +78,7 @@ from stkai._config import (
     AgentConfig,
     AuthConfig,
     RqcConfig,
-    StkAiConfig,
+    STKAIConfig,
 )
 from stkai._http import (
     AdaptiveRateLimitedHttpClient,
@@ -106,7 +106,7 @@ __all__ = [
     "__version__",
     # Configuration
     "STKAI",
-    "StkAiConfig",
+    "STKAIConfig",
     "AuthConfig",
     "RqcConfig",
     "AgentConfig",

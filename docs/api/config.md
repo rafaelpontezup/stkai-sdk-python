@@ -10,7 +10,7 @@ Complete API reference for SDK configuration.
 
 ## Configuration Classes
 
-::: stkai.StkAiConfig
+::: stkai.STKAIConfig
     options:
       show_root_heading: true
 

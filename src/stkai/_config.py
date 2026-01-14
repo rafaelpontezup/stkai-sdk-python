@@ -205,7 +205,7 @@ class AgentConfig(OverridableConfig):
 
 
 @dataclass(frozen=True)
-class StkAiConfig:
+class STKAIConfig:
     """
     Global configuration for the stkai SDK.
 
@@ -229,7 +229,7 @@ class StkAiConfig:
     rqc: RqcConfig = field(default_factory=RqcConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
 
-    def with_env_vars(self) -> StkAiConfig:
+    def with_env_vars(self) -> STKAIConfig:
         """
         Return a new config with environment variables applied on top.
 
@@ -237,15 +237,15 @@ class StkAiConfig:
         current configuration values.
 
         Returns:
-            New StkAiConfig instance with env vars applied.
+            New STKAIConfig instance with env vars applied.
 
         Example:
-            >>> config = StkAiConfig().with_env_vars()
+            >>> config = STKAIConfig().with_env_vars()
             >>> # Or apply on top of custom config
-            >>> custom = StkAiConfig(rqc=RqcConfig(request_timeout=60))
+            >>> custom = STKAIConfig(rqc=RqcConfig(request_timeout=60))
             >>> final = custom.with_env_vars()
         """
-        return StkAiConfig(
+        return STKAIConfig(
             auth=self.auth.with_overrides(_get_auth_from_env()),
             rqc=self.rqc.with_overrides(_get_rqc_from_env()),
             agent=self.agent.with_overrides(_get_agent_from_env()),
@@ -324,7 +324,7 @@ class _STKAI:
 
     def __init__(self) -> None:
         """Initialize with defaults and apply environment variables."""
-        self._config: StkAiConfig = StkAiConfig().with_env_vars()
+        self._config: STKAIConfig = STKAIConfig().with_env_vars()
 
     def configure(
         self,
@@ -333,7 +333,7 @@ class _STKAI:
         rqc: dict[str, Any] | None = None,
         agent: dict[str, Any] | None = None,
         allow_env_override: bool = True,
-    ) -> StkAiConfig:
+    ) -> STKAIConfig:
         """
         Configure SDK settings.
 
@@ -348,7 +348,7 @@ class _STKAI:
                 over provided values. If False, ignores env vars entirely.
 
         Returns:
-            The configured StkAiConfig instance.
+            The configured STKAIConfig instance.
 
         Raises:
             ValueError: If any dict contains unknown field names.
@@ -367,7 +367,7 @@ class _STKAI:
             ... )
         """
         # Start with defaults and apply user overrides
-        self._config = StkAiConfig(
+        self._config = STKAIConfig(
             auth=AuthConfig().with_overrides(auth or {}),
             rqc=RqcConfig().with_overrides(rqc or {}),
             agent=AgentConfig().with_overrides(agent or {}),
@@ -380,12 +380,12 @@ class _STKAI:
         return self._config
 
     @property
-    def config(self) -> StkAiConfig:
+    def config(self) -> STKAIConfig:
         """
         Access current configuration (read-only).
 
         Returns:
-            The current StkAiConfig instance.
+            The current STKAIConfig instance.
 
         Example:
             >>> from stkai import STKAI
@@ -394,20 +394,20 @@ class _STKAI:
         """
         return self._config
 
-    def reset(self) -> StkAiConfig:
+    def reset(self) -> STKAIConfig:
         """
         Reset configuration to defaults + env vars.
 
         Useful for testing to ensure clean state between tests.
 
         Returns:
-            The reset StkAiConfig instance.
+            The reset STKAIConfig instance.
 
         Example:
             >>> from stkai import STKAI
             >>> STKAI.reset()
         """
-        self._config = StkAiConfig().with_env_vars()
+        self._config = STKAIConfig().with_env_vars()
         return self._config
 
     def __repr__(self) -> str:

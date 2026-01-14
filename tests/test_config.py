@@ -9,7 +9,7 @@ from stkai._config import (
     AgentConfig,
     AuthConfig,
     RqcConfig,
-    StkAiConfig,
+    STKAIConfig,
 )
 
 
@@ -85,9 +85,9 @@ class TestSTKAIConfigure(unittest.TestCase):
         self.assertFalse(STKAI.config.auth.has_credentials())  # Need both
 
     def test_configure_returns_instance(self):
-        """Should return the configured StkAiConfig instance."""
+        """Should return the configured STKAIConfig instance."""
         result = STKAI.configure(rqc={"request_timeout": 60})
-        self.assertIsInstance(result, StkAiConfig)
+        self.assertIsInstance(result, STKAIConfig)
         self.assertEqual(result.rqc.request_timeout, 60)
         # STKAI.config should return same values
         self.assertEqual(STKAI.config.rqc.request_timeout, 60)
@@ -183,7 +183,7 @@ class TestSTKAIReset(unittest.TestCase):
     def test_reset_returns_instance(self):
         """STKAI.reset() should return the reset instance."""
         result = STKAI.reset()
-        self.assertIsInstance(result, StkAiConfig)
+        self.assertIsInstance(result, STKAIConfig)
         # STKAI.config should return same values
         self.assertEqual(result.rqc.request_timeout, STKAI.config.rqc.request_timeout)
 
