@@ -78,7 +78,9 @@ mypy src
 
 ## Architecture Notes
 
-### Key Classes
+### Remote Quick Commands
+
+**Key Classes:**
 
 1. **RemoteQuickCommand**: Main client class for executing quick commands
    - `execute()`: Single request execution (blocking)
@@ -103,19 +105,51 @@ mypy src
    - `on_after_execute()`: After completion (success or failure)
    - `FileLoggingListener`: Built-in implementation that saves request/response to JSON files
 
-### Configuration Classes
+**Configuration options:** `CreateExecutionOptions`, `GetResultOptions`
 
-- **CreateExecutionOptions**: `max_retries`, `backoff_factor`, `request_timeout`
-- **GetResultOptions**: `poll_interval`, `poll_max_duration`, `overload_timeout`, `request_timeout`
-- **RateLimitConfig**: `enabled`, `strategy`, `max_requests`, `time_window`, `max_wait_time`, etc.
+**Rate Limiting:** RQC uses `EnvironmentAwareHttpClient` which supports automatic rate limiting. See [HTTP Client > Rate Limiting](#rate-limiting) for details.
 
-### Rate Limiting
+**Execution Flow:**
+1. Create execution via POST to StackSpot AI API
+2. Poll for status via GET until terminal state
+3. Process result through handler pipeline
+4. Notify event listeners throughout lifecycle
+
+### Agents
+
+**Key Classes:**
+
+1. **Agent**: Main client class for chatting with AI agents
+   - `chat()`: Send a chat request (blocking)
+
+2. **ChatRequest**: Request data model with `user_prompt`, `conversation_id`, etc.
+
+3. **ChatResponse**: Response data model with `status`, `message`, `token_usage`
+   - Status: `SUCCESS`, `ERROR`, `TIMEOUT`
+   - Helper methods: `is_success()`, `is_error()`, `is_timeout()`
+
+**Configuration options:** `AgentOptions`
+
+**Rate Limiting:** Agent uses `EnvironmentAwareHttpClient` which supports automatic rate limiting. See [HTTP Client > Rate Limiting](#rate-limiting) for details.
+
+### HTTP Client
+
+**Available implementations:**
+- `EnvironmentAwareHttpClient`: Auto-detects environment (CLI or standalone). **Default.**
+- `StkCLIHttpClient`: Uses StackSpot CLI (oscli) for authentication.
+- `StandaloneHttpClient`: Uses `AuthProvider` for standalone authentication.
+- `RateLimitedHttpClient`: Decorator with Token Bucket rate limiting.
+- `AdaptiveRateLimitedHttpClient`: Decorator with adaptive AIMD rate limiting.
+
+#### Rate Limiting
 
 The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, `EnvironmentAwareHttpClient` automatically wraps HTTP requests with rate limiting.
 
 **Available strategies:**
-- `token_bucket`: Simple Token Bucket algorithm. Limits requests to `max_requests` per `time_window`.
-- `adaptive`: Adaptive rate limiting with AIMD (Additive Increase, Multiplicative Decrease). Automatically adjusts rate based on HTTP 429 responses.
+| Strategy | Algorithm | Use Case |
+|----------|-----------|----------|
+| `token_bucket` | Token Bucket | Simple, predictable rate limiting |
+| `adaptive` | AIMD (Additive Increase, Multiplicative Decrease) | Dynamic environments with shared quotas, handles HTTP 429 |
 
 **Configuration via code:**
 ```python
@@ -158,12 +192,44 @@ STKAI_RATE_LIMIT_PENALTY_FACTOR=0.2
 STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 ```
 
-### Execution Flow
+**RateLimitConfig fields:**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `False` | Enable rate limiting |
+| `strategy` | `"token_bucket"` \| `"adaptive"` | `"token_bucket"` | Rate limiting algorithm |
+| `max_requests` | `int` | `100` | Max requests per time window |
+| `time_window` | `float` | `60.0` | Time window in seconds |
+| `max_wait_time` | `float \| None` | `60.0` | Max wait for token (None = unlimited) |
+| `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
+| `max_retries_on_429` | `int` | `3` | (adaptive) Retries on HTTP 429 |
+| `penalty_factor` | `float` | `0.2` | (adaptive) Rate reduction on 429 |
+| `recovery_factor` | `float` | `0.01` | (adaptive) Rate increase on success |
 
-1. Create execution via POST to StackSpot AI API
-2. Poll for status via GET until terminal state
-3. Process result through handler pipeline
-4. Notify event listeners throughout lifecycle
+### Configuration
+
+**Global configuration singleton:** `STKAI`
+
+```python
+from stkai import STKAI
+
+STKAI.configure(
+    auth={"client_id": "...", "client_secret": "..."},
+    rqc={"request_timeout": 60},
+    agent={"request_timeout": 120},
+    rate_limit={"enabled": True, "strategy": "token_bucket"},
+)
+```
+
+**Configuration classes:**
+- `AuthConfig`: `client_id`, `client_secret`, `token_url`
+- `RqcConfig`: `request_timeout`, `max_retries`, `poll_interval`, `poll_max_duration`, etc.
+- `AgentConfig`: `request_timeout`, `base_url`
+- `RateLimitConfig`: `enabled`, `strategy`, `max_requests`, etc. (see [HTTP Client > Rate Limiting](#rate-limiting))
+
+**Precedence (highest to lowest):**
+1. Environment variables (`STKAI_*`)
+2. Values set via `STKAI.configure()`
+3. Hardcoded defaults
 
 ### Code Conventions
 

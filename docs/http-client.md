@@ -120,8 +120,6 @@ http_client = RateLimitedHttpClient(
 )
 ```
 
-See [Rate Limiting](rqc/rate-limiting.md) for details.
-
 ### AdaptiveRateLimitedHttpClient
 
 Adds adaptive rate control with AIMD algorithm:
@@ -140,7 +138,233 @@ http_client = AdaptiveRateLimitedHttpClient(
 )
 ```
 
-See [Adaptive Rate Limiting](rqc/rate-limiting.md#adaptive-rate-limiting) for details.
+## Rate Limiting
+
+The SDK supports automatic rate limiting that applies to all HTTP requests (both RQC and Agents).
+
+### Global Configuration (Recommended)
+
+The easiest way to enable rate limiting is via `STKAI.configure()`. When enabled, `EnvironmentAwareHttpClient` automatically wraps requests with rate limiting:
+
+```python
+from stkai import STKAI, RemoteQuickCommand, Agent
+
+# Enable rate limiting globally
+STKAI.configure(
+    rate_limit={
+        "enabled": True,
+        "strategy": "token_bucket",
+        "max_requests": 30,
+        "time_window": 60.0,
+    }
+)
+
+# All clients now use rate limiting automatically
+rqc = RemoteQuickCommand(slug_name="my-command")
+agent = Agent(agent_id="my-agent")
+```
+
+### Available Strategies
+
+| Strategy | Algorithm | Best For |
+|----------|-----------|----------|
+| `token_bucket` | Fixed Token Bucket | Known, stable rate limits |
+| `adaptive` | AIMD + 429 handling | Shared quotas, unpredictable limits |
+
+### Configuration via Code
+
+```python
+from stkai import STKAI
+
+# Token Bucket (simple, predictable)
+STKAI.configure(
+    rate_limit={
+        "enabled": True,
+        "strategy": "token_bucket",
+        "max_requests": 30,
+        "time_window": 60.0,
+        "max_wait_time": 60.0,  # Timeout after 60s waiting
+    }
+)
+
+# Adaptive (dynamic, handles 429)
+STKAI.configure(
+    rate_limit={
+        "enabled": True,
+        "strategy": "adaptive",
+        "max_requests": 100,
+        "time_window": 60.0,
+        "min_rate_floor": 0.1,       # Never below 10%
+        "max_retries_on_429": 3,
+        "penalty_factor": 0.2,       # Reduce by 20% on 429
+        "recovery_factor": 0.01,     # Increase by 1% on success
+    }
+)
+
+# Unlimited wait time (wait indefinitely for token)
+STKAI.configure(rate_limit={"max_wait_time": None})  # or "unlimited"
+```
+
+### Configuration via Environment Variables
+
+```bash
+STKAI_RATE_LIMIT_ENABLED=true
+STKAI_RATE_LIMIT_STRATEGY=adaptive
+STKAI_RATE_LIMIT_MAX_REQUESTS=50
+STKAI_RATE_LIMIT_TIME_WINDOW=60.0
+STKAI_RATE_LIMIT_MAX_WAIT_TIME=unlimited  # or "none", "null"
+STKAI_RATE_LIMIT_MIN_RATE_FLOOR=0.1
+STKAI_RATE_LIMIT_MAX_RETRIES_ON_429=3
+STKAI_RATE_LIMIT_PENALTY_FACTOR=0.2
+STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
+```
+
+### RateLimitConfig Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `False` | Enable rate limiting |
+| `strategy` | `"token_bucket"` \| `"adaptive"` | `"token_bucket"` | Rate limiting algorithm |
+| `max_requests` | `int` | `100` | Max requests per time window |
+| `time_window` | `float` | `60.0` | Time window in seconds |
+| `max_wait_time` | `float \| None` | `60.0` | Max wait for token (None = unlimited) |
+| `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
+| `max_retries_on_429` | `int` | `3` | (adaptive) Retries on HTTP 429 |
+| `penalty_factor` | `float` | `0.2` | (adaptive) Rate reduction on 429 |
+| `recovery_factor` | `float` | `0.01` | (adaptive) Rate increase on success |
+
+### Manual Configuration
+
+For more control, you can manually create rate-limited clients:
+
+```python
+from stkai import RateLimitedHttpClient, EnvironmentAwareHttpClient, RemoteQuickCommand
+
+# Create rate-limited client manually
+http_client = RateLimitedHttpClient(
+    delegate=EnvironmentAwareHttpClient(),
+    max_requests=30,
+    time_window=60.0,
+)
+
+# Use with specific client
+rqc = RemoteQuickCommand(
+    slug_name="my-command",
+    http_client=http_client,
+)
+```
+
+### How Token Bucket Works
+
+The `token_bucket` strategy uses a simple Token Bucket algorithm:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      Token Bucket Algorithm                       │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│   Bucket: [●●●●●○○○○○]  (5 tokens available, 5 used)             │
+│                                                                   │
+│   • Tokens refill over time at: max_requests / time_window       │
+│   • Each POST request consumes 1 token                           │
+│   • When empty, requests wait until tokens available             │
+│   • If waiting exceeds max_wait_time → RateLimitTimeoutError     │
+│   • GET requests (polling) pass through without consuming tokens │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### How Adaptive (AIMD) Works
+
+The `adaptive` strategy uses **Additive Increase, Multiplicative Decrease** (AIMD):
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         AIMD Algorithm                            │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│   On SUCCESS:                                                     │
+│     effective_rate += max_requests × recovery_factor              │
+│     (gradual increase)                                            │
+│                                                                   │
+│   On HTTP 429:                                                    │
+│     effective_rate *= (1 - penalty_factor)                        │
+│     (aggressive decrease)                                         │
+│                                                                   │
+│   Constraints:                                                    │
+│     • Floor: effective_rate ≥ max_requests × min_rate_floor      │
+│     • Ceiling: effective_rate ≤ max_requests                     │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**429 Handling:** When the server returns HTTP 429 (Too Many Requests):
+
+1. **Check `Retry-After` header** - If present, wait the specified time
+2. **Apply penalty** - Reduce effective rate by `penalty_factor`
+3. **Retry the request** - Up to `max_retries_on_429` times
+4. **Fail if exhausted** - Return error after max retries
+
+### Timeout Handling
+
+Both strategies raise `RateLimitTimeoutError` when a thread waits too long for a token:
+
+```python
+from stkai import RateLimitedHttpClient, RateLimitTimeoutError, StkCLIHttpClient
+
+http_client = RateLimitedHttpClient(
+    delegate=StkCLIHttpClient(),
+    max_requests=10,
+    time_window=60.0,
+    max_wait_time=30.0,  # Give up after 30 seconds
+)
+
+try:
+    response = http_client.post(url, data=payload)
+except RateLimitTimeoutError as e:
+    print(f"Timeout after {e.waited:.1f}s (max: {e.max_wait_time}s)")
+    # Handle timeout: retry later, skip request, or fail gracefully
+```
+
+| Value | Behavior |
+|-------|----------|
+| `60.0` (default) | Wait up to 60 seconds for a token |
+| `None` or `"unlimited"` | Wait indefinitely (no timeout) |
+| `0.1` | Fail-fast mode (almost immediate timeout) |
+
+!!! tip "Choosing max_wait_time"
+    A good rule of thumb is to set `max_wait_time` equal to `time_window`. This ensures at least one full rate limit cycle can complete before timing out.
+
+### When to Use Which Strategy
+
+| Scenario | Recommended Strategy |
+|----------|---------------------|
+| Single client, known API limit | `token_bucket` |
+| Multiple clients sharing quota | `adaptive` |
+| API returns 429 frequently | `adaptive` |
+| Predictable, stable workload | `token_bucket` |
+| CI/CD with variable load | `adaptive` |
+
+### Thread Safety
+
+Both rate-limiting strategies are **thread-safe** and work correctly with:
+
+- `execute_many()` concurrent workers
+- Multi-threaded applications
+- Shared client instances
+
+```python
+from stkai import STKAI, RemoteQuickCommand
+
+STKAI.configure(
+    rate_limit={"enabled": True, "max_requests": 30}
+)
+
+rqc = RemoteQuickCommand(
+    slug_name="my-command",
+    max_workers=16,  # 16 concurrent workers, still rate-limited
+)
+```
 
 ## Custom HTTP Client
 
@@ -277,6 +501,6 @@ responses = rqc.execute_many(requests)
 
 ## Next Steps
 
-- [Rate Limiting](rqc/rate-limiting.md) - Detailed rate limiting guide
+- [RQC Rate Limiting](rqc/rate-limiting.md) - Detailed rate limiting examples for RQC
 - [Configuration](configuration.md) - Global SDK configuration
 - [Getting Started](getting-started.md) - Quick setup guide

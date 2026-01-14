@@ -88,6 +88,7 @@ nav:
   - Agents:
     - Overview: agents/index.md
     - Usage Guide: agents/usage.md
+    - Rate Limiting: agents/rate-limiting.md
   - Configuration: configuration.md
   - HTTP Client: http-client.md
   - API Reference:

@@ -95,6 +95,6 @@ else:
 ## Next Steps
 
 - [Usage Guide](usage.md) - Detailed usage examples
+- [Rate Limiting](rate-limiting.md) - Rate limiting for Agents
 - [Configuration](../configuration.md) - Configure Agent options
-- [Rate Limiting](../rqc/rate-limiting.md) - Rate limiting for Agents
 - [API Reference](../api/agents.md) - Complete API documentation

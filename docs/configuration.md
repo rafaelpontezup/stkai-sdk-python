@@ -145,6 +145,38 @@ Settings for `Agent` clients:
 | `request_timeout` | `STKAI_AGENT_REQUEST_TIMEOUT` | 60 | HTTP timeout (seconds) |
 | `base_url` | `STKAI_AGENT_BASE_URL` | StackSpot API URL | API base URL |
 
+### RateLimitConfig
+
+Settings for automatic rate limiting of HTTP requests. When enabled, `EnvironmentAwareHttpClient` automatically wraps requests with rate limiting.
+
+| Field | Env Var | Default | Description |
+|-------|---------|---------|-------------|
+| `enabled` | `STKAI_RATE_LIMIT_ENABLED` | `False` | Enable rate limiting |
+| `strategy` | `STKAI_RATE_LIMIT_STRATEGY` | `"token_bucket"` | Algorithm: `"token_bucket"` or `"adaptive"` |
+| `max_requests` | `STKAI_RATE_LIMIT_MAX_REQUESTS` | 100 | Max requests per time window |
+| `time_window` | `STKAI_RATE_LIMIT_TIME_WINDOW` | 60.0 | Time window in seconds |
+| `max_wait_time` | `STKAI_RATE_LIMIT_MAX_WAIT_TIME` | 60.0 | Max wait for token (None = unlimited) |
+| `min_rate_floor` | `STKAI_RATE_LIMIT_MIN_RATE_FLOOR` | 0.1 | (adaptive) Min rate as fraction |
+| `max_retries_on_429` | `STKAI_RATE_LIMIT_MAX_RETRIES_ON_429` | 3 | (adaptive) Retries on HTTP 429 |
+| `penalty_factor` | `STKAI_RATE_LIMIT_PENALTY_FACTOR` | 0.2 | (adaptive) Rate reduction on 429 |
+| `recovery_factor` | `STKAI_RATE_LIMIT_RECOVERY_FACTOR` | 0.01 | (adaptive) Rate increase on success |
+
+```python
+from stkai import STKAI
+
+STKAI.configure(
+    rate_limit={
+        "enabled": True,
+        "strategy": "token_bucket",
+        "max_requests": 30,
+        "time_window": 60.0,
+    }
+)
+```
+
+!!! tip "Detailed Guide"
+    See [HTTP Client > Rate Limiting](http-client.md#rate-limiting) for strategies comparison, use cases, and advanced configuration.
+
 ## Example Configurations
 
 ### Production with Environment Variables
