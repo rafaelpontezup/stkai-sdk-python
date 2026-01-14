@@ -229,6 +229,28 @@ class StkAiConfig:
     rqc: RqcConfig = field(default_factory=RqcConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
 
+    def with_env_vars(self) -> StkAiConfig:
+        """
+        Return a new config with environment variables applied on top.
+
+        Reads STKAI_* environment variables and applies them over the
+        current configuration values.
+
+        Returns:
+            New StkAiConfig instance with env vars applied.
+
+        Example:
+            >>> config = StkAiConfig().with_env_vars()
+            >>> # Or apply on top of custom config
+            >>> custom = StkAiConfig(rqc=RqcConfig(request_timeout=60))
+            >>> final = custom.with_env_vars()
+        """
+        return StkAiConfig(
+            auth=self.auth.with_overrides(_get_auth_from_env()),
+            rqc=self.rqc.with_overrides(_get_rqc_from_env()),
+            agent=self.agent.with_overrides(_get_agent_from_env()),
+        )
+
 
 # =============================================================================
 # Environment Variable Helpers
@@ -302,20 +324,7 @@ class _STKAI:
 
     def __init__(self) -> None:
         """Initialize with defaults and apply environment variables."""
-        self._config: StkAiConfig = StkAiConfig()
-        self._apply_env_vars()
-
-    def _apply_env_vars(self) -> None:
-        """Apply environment variables on top of current config."""
-        auth_overrides = _get_auth_from_env()
-        rqc_overrides = _get_rqc_from_env()
-        agent_overrides = _get_agent_from_env()
-
-        self._config = StkAiConfig(
-            auth=self._config.auth.with_overrides(auth_overrides),
-            rqc=self._config.rqc.with_overrides(rqc_overrides),
-            agent=self._config.agent.with_overrides(agent_overrides),
-        )
+        self._config: StkAiConfig = StkAiConfig().with_env_vars()
 
     def configure(
         self,
@@ -357,27 +366,16 @@ class _STKAI:
             ...     rqc={"request_timeout": 60},
             ... )
         """
-        # Start with defaults
-        auth_config = AuthConfig()
-        rqc_config = RqcConfig()
-        agent_config = AgentConfig()
-
-        # Apply user overrides
-        auth_config = auth_config.with_overrides(auth or {})
-        rqc_config = rqc_config.with_overrides(rqc or {})
-        agent_config = agent_config.with_overrides(agent or {})
+        # Start with defaults and apply user overrides
+        self._config = StkAiConfig(
+            auth=AuthConfig().with_overrides(auth or {}),
+            rqc=RqcConfig().with_overrides(rqc or {}),
+            agent=AgentConfig().with_overrides(agent or {}),
+        )
 
         # Apply env vars on top (if enabled) - env vars have highest priority
         if allow_env_override:
-            auth_config = auth_config.with_overrides(_get_auth_from_env())
-            rqc_config = rqc_config.with_overrides(_get_rqc_from_env())
-            agent_config = agent_config.with_overrides(_get_agent_from_env())
-
-        self._config = StkAiConfig(
-            auth=auth_config,
-            rqc=rqc_config,
-            agent=agent_config,
-        )
+            self._config = self._config.with_env_vars()
 
         return self._config
 
@@ -409,8 +407,7 @@ class _STKAI:
             >>> from stkai import STKAI
             >>> STKAI.reset()
         """
-        self._config = StkAiConfig()
-        self._apply_env_vars()
+        self._config = StkAiConfig().with_env_vars()
         return self._config
 
     def __repr__(self) -> str:
