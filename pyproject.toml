@@ -46,7 +46,7 @@ docs = [
 
 [project.urls]
 Homepage = "https://github.com/rafaelpontezup/stkai-sdk-python"
-Documentation = "https://github.com/rafaelpontezup/stkai-sdk-python#readme"
+Documentation = "https://rafaelpontezup.github.io/stkai-sdk-python/"
 Repository = "https://github.com/rafaelpontezup/stkai-sdk-python"
 Issues = "https://github.com/rafaelpontezup/stkai-sdk-python/issues"
 
