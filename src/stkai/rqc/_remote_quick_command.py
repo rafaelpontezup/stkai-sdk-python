@@ -14,6 +14,7 @@ from typing import Any
 
 import requests
 
+from stkai import STKAI
 from stkai._http import HttpClient
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
@@ -256,8 +257,9 @@ class RemoteQuickCommand:
             f"{'RQC-Batch-Execution'[:26]:<26} | RQC | "
             f"🛜 Starting batch execution of {len(request_list)} requests."
         )
-        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ max_concurrent={self.max_workers}")
-        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
+        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ base_url={STKAI.config.rqc.base_url}")
+        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ slug_name='{self.slug_name}'")
+        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ max_concurrent={self.max_workers}")
 
         # Use thread-pool for parallel calls to `_execute_workflow`
         future_to_index = {
@@ -333,6 +335,7 @@ class RemoteQuickCommand:
             RqcResponse: The final response object, always returned even if an error occurs.
         """
         logger.info(f"{request.id[:26]:<26} | RQC | 🛜 Starting execution of a single request.")
+        logger.info(f"{request.id[:26]:<26} | RQC |    ├ base_url={STKAI.config.rqc.base_url}")
         logger.info(f"{request.id[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
 
         response = self._execute_workflow(
