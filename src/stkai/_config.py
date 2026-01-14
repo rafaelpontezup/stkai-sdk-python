@@ -511,8 +511,8 @@ class _STKAI:
             rqc: RemoteQuickCommand config overrides (timeouts, retries, polling).
             agent: Agent config overrides (timeout, base_url).
             rate_limit: Rate limiting config overrides (enabled, strategy, max_requests, etc.).
-            allow_env_override: If True (default), env vars take precedence
-                over provided values. If False, ignores env vars entirely.
+            allow_env_override: If True (default), env vars are used as fallback
+                for fields NOT provided. If False, ignores env vars entirely.
 
         Returns:
             The configured STKAIConfig instance.
@@ -521,7 +521,7 @@ class _STKAI:
             ValueError: If any dict contains unknown field names.
 
         Precedence (allow_env_override=True):
-            ENV vars > STKAI.configure() > defaults
+            STKAI.configure() > ENV vars > defaults
 
         Precedence (allow_env_override=False):
             STKAI.configure() > defaults
@@ -534,17 +534,18 @@ class _STKAI:
             ...     rate_limit={"enabled": True, "max_requests": 10},
             ... )
         """
-        # Start with defaults and apply user overrides
-        self._config = STKAIConfig(
-            auth=AuthConfig().with_overrides(auth or {}),
-            rqc=RqcConfig().with_overrides(rqc or {}),
-            agent=AgentConfig().with_overrides(agent or {}),
-            rate_limit=RateLimitConfig().with_overrides(rate_limit or {}),
-        )
-
-        # Apply env vars on top (if enabled) - env vars have highest priority
+        # Start with defaults, apply env vars as base layer (if enabled)
+        base = STKAIConfig()  # only defaults
         if allow_env_override:
-            self._config = self._config.with_env_vars()
+            base = base.with_env_vars()  # defaults + env vars
+
+        # Apply user overrides on top - configure() always wins
+        self._config = STKAIConfig(
+            auth=base.auth.with_overrides(auth or {}),
+            rqc=base.rqc.with_overrides(rqc or {}),
+            agent=base.agent.with_overrides(agent or {}),
+            rate_limit=base.rate_limit.with_overrides(rate_limit or {}),
+        )
 
         return self._config
 

@@ -7,8 +7,8 @@ The SDK provides a flexible configuration system with sensible defaults that can
 Settings are resolved in this order (highest precedence first):
 
 1. **Options passed to client constructors** (e.g., `AgentOptions`)
-2. **Environment variables** (`STKAI_*`)
-3. **Values set via `STKAI.configure()`**
+2. **Values set via `STKAI.configure()`**
+3. **Environment variables** (`STKAI_*`)
 4. **Hardcoded defaults**
 
 ## Quick Configuration

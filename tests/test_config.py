@@ -148,10 +148,17 @@ class TestEnvVars(unittest.TestCase):
         self.assertTrue(STKAI.config.auth.has_credentials())
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
-    def test_env_vars_override_configure(self):
-        """env vars should take precedence over STKAI.configure() when allow_env_override=True."""
+    def test_configure_overrides_env_vars(self):
+        """configure() values should take precedence over env vars."""
         STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=True)
-        self.assertEqual(STKAI.config.rqc.request_timeout, 45)  # env var wins
+        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # configure wins
+
+    @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45", "STKAI_RQC_MAX_RETRIES": "7"})
+    def test_env_vars_used_as_fallback(self):
+        """Env vars should be used for fields NOT provided in configure()."""
+        STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=True)
+        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # configure wins
+        self.assertEqual(STKAI.config.rqc.max_retries, 7)  # env var fallback
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
     def test_configure_without_env_override(self):
@@ -547,10 +554,17 @@ class TestRateLimitEnvVars(unittest.TestCase):
         self.assertEqual(rl.recovery_factor, 0.05)
 
     @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true"})
-    def test_env_vars_override_configure(self):
-        """Env vars should take precedence over configure() when allow_env_override=True."""
+    def test_configure_overrides_env_vars(self):
+        """configure() values should take precedence over env vars."""
         STKAI.configure(rate_limit={"enabled": False}, allow_env_override=True)
-        self.assertTrue(STKAI.config.rate_limit.enabled)
+        self.assertFalse(STKAI.config.rate_limit.enabled)  # configure wins
+
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true", "STKAI_RATE_LIMIT_MAX_REQUESTS": "50"})
+    def test_env_vars_used_as_fallback(self):
+        """Env vars should be used for fields NOT provided in configure()."""
+        STKAI.configure(rate_limit={"enabled": False}, allow_env_override=True)
+        self.assertFalse(STKAI.config.rate_limit.enabled)  # configure wins
+        self.assertEqual(STKAI.config.rate_limit.max_requests, 50)  # env var fallback
 
     @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true"})
     def test_configure_without_env_override(self):

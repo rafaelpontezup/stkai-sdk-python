@@ -227,8 +227,8 @@ STKAI.configure(
 - `RateLimitConfig`: `enabled`, `strategy`, `max_requests`, etc. (see [HTTP Client > Rate Limiting](#rate-limiting))
 
 **Precedence (highest to lowest):**
-1. Environment variables (`STKAI_*`)
-2. Values set via `STKAI.configure()`
+1. Values set via `STKAI.configure()`
+2. Environment variables (`STKAI_*`)
 3. Hardcoded defaults
 
 ### Code Conventions
