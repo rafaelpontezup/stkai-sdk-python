@@ -29,6 +29,8 @@ from typing import Any, override
 
 from stkai.rqc._models import RqcRequest
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class RqcResultContext:
@@ -214,7 +216,7 @@ class JsonResultHandler(RqcResultHandler):
         except json.JSONDecodeError:
             # Log contextual warning with a short preview of the raw text
             preview = result.strip().splitlines(keepends=True)[:3]
-            logging.warning(
+            logger.warning(
                 f"{context.execution_id} | RQC | ⚠️ Response result not in JSON format. Treating it as plain text. "
                 f"Preview:\n | {' | '.join(preview)}"
             )

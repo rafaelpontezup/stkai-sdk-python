@@ -38,6 +38,8 @@ from typing import TYPE_CHECKING, Any, override
 
 import requests
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from stkai._auth import AuthProvider
 
@@ -446,6 +448,10 @@ class EnvironmentAwareHttpClient(HttpClient):
         """
         # 1. Try CLI first (has priority)
         if self._is_cli_available():
+            logger.debug(
+                "EnvironmentAwareHttpClient: StackSpot CLI (oscli) detected. "
+                "Using StkCLIHttpClient."
+            )
             return StkCLIHttpClient()
 
         # 2. Try standalone with credentials
@@ -453,10 +459,18 @@ class EnvironmentAwareHttpClient(HttpClient):
         from stkai._config import STKAI_CONFIG
 
         if STKAI_CONFIG.auth.has_credentials():
+            logger.debug(
+                "EnvironmentAwareHttpClient: Client credentials detected. "
+                "Using StandaloneHttpClient."
+            )
             auth = create_standalone_auth()
             return StandaloneHttpClient(auth_provider=auth)
 
         # 3. No valid configuration
+        logger.debug(
+            "EnvironmentAwareHttpClient: No authentication method available. "
+            "Neither oscli nor client credentials found."
+        )
         raise ValueError(
             "No authentication method available. Either:\n"
             "  1. Install and login to StackSpot CLI: pip install oscli && stk login\n"
@@ -861,7 +875,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
                 self._min_effective,
                 self._effective_max * (1 - self.penalty_factor)
             )
-            logging.warning(
+            logger.warning(
                 f"Rate limit adapted: effective_max reduced from {old_max:.1f} to {self._effective_max:.1f}"
             )
 
@@ -943,7 +957,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             else:
                 wait_time = self.time_window / self._effective_max
 
-            logging.warning(
+            logger.warning(
                 f"Rate limited (429). Attempt {attempt + 1}/{self.max_retries_on_429 + 1}. "
                 f"Waiting {wait_time:.1f}s before retry..."
             )

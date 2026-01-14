@@ -231,6 +231,88 @@ from stkai._config import reset_stkai_config
 reset_stkai_config()
 ```
 
+## Logging
+
+The SDK uses Python's standard `logging` module. By default, logs are not displayed unless you configure a handler.
+
+### Enable Logging
+
+```python
+import logging
+
+# Enable all logs (DEBUG and above)
+logging.basicConfig(level=logging.DEBUG)
+
+# Or enable only INFO and above
+logging.basicConfig(level=logging.INFO)
+```
+
+### Log Levels Used
+
+| Level | What's Logged |
+|-------|---------------|
+| `DEBUG` | HTTP client detection, internal decisions |
+| `INFO` | Request start/end, polling status, execution results |
+| `WARNING` | Retries, rate limiting, transient errors |
+| `ERROR` | Failed requests, timeouts, exceptions |
+
+### Filter Only SDK Logs
+
+To see only `stkai` logs (excluding other libraries):
+
+```python
+import logging
+
+# Create handler with formatting
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter(
+    "%(asctime)s | %(levelname)s | %(message)s"
+))
+
+# Configure only stkai logger
+stkai_logger = logging.getLogger("stkai")
+stkai_logger.setLevel(logging.DEBUG)
+stkai_logger.addHandler(handler)
+```
+
+The SDK uses namespaced loggers (`stkai._http`, `stkai.rqc._remote_quick_command`, etc.), which all propagate to the `stkai` parent logger by default.
+
+### Disable Logging
+
+To suppress all SDK logs:
+
+```python
+import logging
+
+# Option 1: Set level to suppress
+logging.getLogger().setLevel(logging.CRITICAL)
+
+# Option 2: Add a NullHandler (library best practice)
+logging.getLogger().addHandler(logging.NullHandler())
+```
+
+### Example Output
+
+With `INFO` level enabled:
+
+```
+a1b2c3d4-e5f6-7890-abcd | RQC | 🛜 Starting execution of a single request.
+a1b2c3d4-e5f6-7890-abcd | RQC |    └ slug_name='my-quick-command'
+a1b2c3d4-e5f6-7890-abcd | RQC | Sending request to create execution (attempt 1/4)...
+a1b2c3d4-e5f6-7890-abcd | RQC | ✅ Execution created successfully.
+exec-123456             | RQC | Starting polling loop...
+exec-123456             | RQC | Current status: EXECUTING
+exec-123456             | RQC | ✅ Execution finished with status: COMPLETED
+```
+
+With `DEBUG` level enabled (shows HTTP client detection):
+
+```
+EnvironmentAwareHttpClient: StackSpot CLI (oscli) detected. Using StkCLIHttpClient.
+a1b2c3d4-e5f6-7890-abcd | RQC | 🛜 Starting execution of a single request.
+...
+```
+
 ## Next Steps
 
 - [HTTP Client](http-client.md) - Custom HTTP client configuration

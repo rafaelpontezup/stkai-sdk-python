@@ -14,6 +14,8 @@ import requests
 from stkai._http import HttpClient
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus, ChatTokenUsage
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class AgentOptions:
@@ -126,7 +128,7 @@ class Agent:
             ...     )
             ... )
         """
-        logging.info(
+        logger.info(
             f"{request.id[:26]:<26} | Agent | "
             f"Sending message to agent '{self.agent_id}'..."
         )
@@ -147,7 +149,7 @@ class Agent:
             http_response.raise_for_status()
 
             response = self._parse_success_response(request, http_response.json())
-            logging.info(
+            logger.info(
                 f"{request.id[:26]:<26} | Agent | "
                 f"✅ Response received (tokens: {response.tokens.total if response.tokens else 'N/A'})"
             )
@@ -155,7 +157,7 @@ class Agent:
 
         except requests.Timeout as e:
             error_msg = f"Request timed out: {e}"
-            logging.error(
+            logger.error(
                 f"{request.id[:26]:<26} | Agent | "
                 f"⏱️ {error_msg}"
             )
@@ -167,7 +169,7 @@ class Agent:
 
         except requests.HTTPError as e:
             error_msg = f"HTTP error {e.response.status_code}: {e.response.text}"
-            logging.error(
+            logger.error(
                 f"{request.id[:26]:<26} | Agent | "
                 f"❌ {error_msg}"
             )
@@ -179,7 +181,7 @@ class Agent:
 
         except requests.RequestException as e:
             error_msg = f"Request failed: {e}"
-            logging.error(
+            logger.error(
                 f"{request.id[:26]:<26} | Agent | "
                 f"❌ {error_msg}"
             )

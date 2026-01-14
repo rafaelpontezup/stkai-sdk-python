@@ -20,6 +20,8 @@ from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
 from stkai.rqc._models import RqcExecutionStatus, RqcRequest, RqcResponse
 
+logger = logging.getLogger(__name__)
+
 # ======================
 # Options
 # ======================
@@ -250,12 +252,12 @@ class RemoteQuickCommand:
         if not request_list:
             return []
 
-        logging.info(
+        logger.info(
             f"{'RQC-Batch-Execution'[:26]:<26} | RQC | "
             f"🛜 Starting batch execution of {len(request_list)} requests."
         )
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ max_concurrent={self.max_workers}")
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
+        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ max_concurrent={self.max_workers}")
+        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
 
         # Use thread-pool for parallel calls to `_execute_workflow`
         future_to_index = {
@@ -297,17 +299,17 @@ class RemoteQuickCommand:
             "🌀 Sanity check | Unexpected mismatch: some responses do not reference their corresponding requests."
         )
 
-        logging.info(
+        logger.info(
             f"{'RQC-Batch-Execution'[:26]:<26} | RQC | 🛜 Batch execution finished."
         )
-        logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ total of responses = {len(responses)}")
+        logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    ├ total of responses = {len(responses)}")
 
         from collections import Counter
         totals_per_status = Counter(r.status for r in responses)
         items = totals_per_status.items()
         for idx, (status, total) in enumerate(items):
             icon = "└" if idx == (len(items) - 1) else "├"
-            logging.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    {icon} total of responses with status {status:<9} = {total}")
+            logger.info(f"{'RQC-Batch-Execution'[:26]:<26} | RQC |    {icon} total of responses with status {status:<9} = {total}")
 
         return responses
 
@@ -330,14 +332,14 @@ class RemoteQuickCommand:
         Returns:
             RqcResponse: The final response object, always returned even if an error occurs.
         """
-        logging.info(f"{request.id[:26]:<26} | RQC | 🛜 Starting execution of a single request.")
-        logging.info(f"{request.id[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
+        logger.info(f"{request.id[:26]:<26} | RQC | 🛜 Starting execution of a single request.")
+        logger.info(f"{request.id[:26]:<26} | RQC |    └ slug_name='{self.slug_name}'")
 
         response = self._execute_workflow(
             request=request, result_handler=result_handler
         )
 
-        logging.info(
+        logger.info(
             f"{request.id[:26]:<26} | RQC | 🛜 Execution finished with status: {response.status}"
         )
 
@@ -426,7 +428,7 @@ class RemoteQuickCommand:
                 request=request, handler=result_handler, context=event_context
             )
         except Exception as e:
-            logging.error(f"{execution_id} | RQC | ❌ Error during polling: {e}")
+            logger.error(f"{execution_id} | RQC | ❌ Error during polling: {e}")
             response = RqcResponse(
                 request=request,
                 status=RqcExecutionStatus.ERROR,
@@ -460,7 +462,7 @@ class RemoteQuickCommand:
 
         for attempt in range(max_attempts):
             try:
-                logging.info(f"{request_id[:26]:<26} | RQC | Sending request to create execution (attempt {attempt + 1}/{max_attempts})...")
+                logger.info(f"{request_id[:26]:<26} | RQC | Sending request to create execution (attempt {attempt + 1}/{max_attempts})...")
                 response = self.http_client.post(
                     url=url, data=input_data, timeout=options.request_timeout
                 )
@@ -474,7 +476,7 @@ class RemoteQuickCommand:
 
                 # Registers create execution response on its request
                 request.mark_as_submitted(execution_id=execution_id)
-                logging.info(
+                logger.info(
                     f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created ({execution_id})"
                 )
                 return execution_id
@@ -487,11 +489,11 @@ class RemoteQuickCommand:
                 # Retry up to max_retries
                 if attempt < options.max_retries:
                     sleep_time = options.backoff_factor * (2 ** attempt)
-                    logging.warning(f"{request_id[:26]:<26} | RQC | ⚠️ Failed to create execution: {e}")
-                    logging.warning(f"{request_id[:26]:<26} | RQC | 🔁️ Retrying to create execution in {sleep_time:.1f} seconds...")
+                    logger.warning(f"{request_id[:26]:<26} | RQC | ⚠️ Failed to create execution: {e}")
+                    logger.warning(f"{request_id[:26]:<26} | RQC | 🔁️ Retrying to create execution in {sleep_time:.1f} seconds...")
                     sleep_with_jitter(sleep_time)
                 else:
-                    logging.error(f"{request_id[:26]:<26} | RQC | ❌ Max retries exceeded while creating execution. Last error: {e}")
+                    logger.error(f"{request_id[:26]:<26} | RQC | ❌ Max retries exceeded while creating execution. Last error: {e}")
                     raise MaxRetriesExceededError(
                         message=f"Max retries exceeded while creating execution. Last error: {e}",
                         last_exception=e
@@ -535,7 +537,7 @@ class RemoteQuickCommand:
         last_status: RqcExecutionStatus = RqcExecutionStatus.CREATED  # Starts at CREATED since we notify PENDING → CREATED before polling
         created_since: float | None = None
 
-        logging.info(f"{execution_id} | RQC | Starting polling loop...")
+        logger.info(f"{execution_id} | RQC | Starting polling loop...")
 
         try:
             while True:
@@ -561,7 +563,7 @@ class RemoteQuickCommand:
                     if _response is not None and 400 <= _response.status_code < 500:
                         raise
                     # Sleeps a little bit before trying again
-                    logging.warning(
+                    logger.warning(
                         f"{execution_id} | RQC | ⚠️ Temporary polling failure: {e}"
                     )
                     sleep_with_jitter(options.poll_interval)
@@ -571,7 +573,7 @@ class RemoteQuickCommand:
                     response_data.get('progress', {}).get('status').upper()
                 )
                 if status != last_status:
-                    logging.info(f"{execution_id} | RQC | Current status: {status}")
+                    logger.info(f"{execution_id} | RQC | Current status: {status}")
                     # Notify listeners: status change
                     self._notify_listeners(
                         "on_status_change", request=request,
@@ -581,12 +583,12 @@ class RemoteQuickCommand:
 
                 if status == RqcExecutionStatus.COMPLETED:
                     try:
-                        logging.info(f"{execution_id} | RQC | Processing the execution result...")
+                        logger.info(f"{execution_id} | RQC | Processing the execution result...")
                         raw_result = response_data.get("result")
                         processed_result = handler.handle_result(
                             context=RqcResultContext(request, raw_result)
                         )
-                        logging.info(f"{execution_id} | RQC | ✅ Execution finished with status: {status}")
+                        logger.info(f"{execution_id} | RQC | ✅ Execution finished with status: {status}")
                         return RqcResponse(
                             request=request,
                             status=RqcExecutionStatus.COMPLETED,
@@ -595,7 +597,7 @@ class RemoteQuickCommand:
                         )
                     except Exception as e:
                         handler_name = handler.__class__.__name__
-                        logging.error(
+                        logger.error(
                             f"{execution_id} | RQC | ❌ It's not possible to handle the result (handler={handler_name}).",
                         )
                         raise RqcResultHandlerError(
@@ -605,7 +607,7 @@ class RemoteQuickCommand:
                         ) from e
 
                 elif status == RqcExecutionStatus.FAILURE:
-                    logging.error(
+                    logger.error(
                         f"{execution_id} | RQC | ❌ Execution failed on the server-side with the following response: "
                         f"\n{json.dumps(response_data, indent=2)}"
                     )
@@ -627,19 +629,19 @@ class RemoteQuickCommand:
                             f"The server may be overloaded (queue backpressure)."
                         )
 
-                    logging.warning(
+                    logger.warning(
                         f"{execution_id} | RQC | ⚠️ Execution is still in CREATED status "
                         f"({elapsed_in_created:.2f}s/{options.overload_timeout}s). Possible server overload..."
                     )
                     sleep_with_jitter(options.poll_interval)
                 else:
-                    logging.info(
+                    logger.info(
                         f"{execution_id} | RQC | Execution is still running. Retrying in {int(options.poll_interval)} seconds..."
                     )
                     sleep_with_jitter(options.poll_interval)
 
         except TimeoutError as e:
-            logging.error(f"{execution_id} | RQC | ❌ Polling timed out due to: {e}")
+            logger.error(f"{execution_id} | RQC | ❌ Polling timed out due to: {e}")
             # Notify status change: last_status → TIMEOUT
             self._notify_listeners(
                 "on_status_change",
@@ -684,6 +686,6 @@ class RemoteQuickCommand:
                     method(**kwargs)
             except Exception as e:
                 listener_name = listener.__class__.__name__
-                logging.warning(
+                logger.warning(
                     f"{tracking_id[:26]:<26} | RQC | Event listener `{listener_name}.{event}()` raised an exception: {e}"
                 )
