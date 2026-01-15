@@ -578,8 +578,6 @@ class RemoteQuickCommand:
         assert context is not None, "🌀 Sanity check | Event context not provided to polling phase."
         assert request.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
 
-        import random
-
         # Get options and assert for type narrowing
         opts = self.options.get_result
         assert opts is not None
@@ -590,14 +588,6 @@ class RemoteQuickCommand:
 
         start_time = time.time()
         execution_id = request.execution_id
-
-        # Build full URL using base_url
-        nocache_param = random.randint(0, 1000000)
-        url = f"{self.base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
-        no_cache_headers = {
-            "Cache-Control": "no-cache, no-store",
-            "Pragma": "no-cache",
-        }
 
         last_status: RqcExecutionStatus = RqcExecutionStatus.CREATED  # Starts at CREATED since we notify PENDING → CREATED before polling
         created_since: float | None = None
@@ -614,6 +604,15 @@ class RemoteQuickCommand:
                     )
 
                 try:
+                    # Build full URL using base_url and prevents client-side caching
+                    import uuid
+                    nocache_param = str(uuid.uuid4())
+                    url = f"{self.base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
+                    no_cache_headers = {
+                        "Cache-Control": "no-cache, no-store",
+                        "Pragma": "no-cache",
+                    }
+
                     response = self.http_client.get(
                         url=url, headers=no_cache_headers, timeout=opts.request_timeout
                     )
