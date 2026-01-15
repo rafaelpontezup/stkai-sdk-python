@@ -8,8 +8,12 @@ Settings are resolved in this order (highest precedence first):
 
 1. **Options passed to client constructors** (e.g., `RqcOptions`, `AgentOptions`)
 2. **Values set via `STKAI.configure()`**
-3. **Environment variables** (`STKAI_*`)
-4. **Hardcoded defaults**
+3. **StackSpot CLI values** (`oscli`) - if CLI is available
+4. **Environment variables** (`STKAI_*`)
+5. **Hardcoded defaults**
+
+!!! info "CLI Mode"
+    When running with StackSpot CLI (`oscli`), the SDK automatically detects CLI mode and uses CLI-provided configuration values. For example, the RQC `base_url` is automatically obtained from the CLI. This ensures the SDK uses the correct endpoints for your environment.
 
 !!! note "Single Source of Truth"
     Options with `None` values automatically use defaults from `STKAI.config`. This follows the "Single Source of Truth" principle - all defaults come from the global config.
@@ -88,6 +92,27 @@ STKAI.configure()  # Reloads configuration with env vars
 # Now it works
 ```
 
+## CLI Detection
+
+The SDK automatically detects when running with StackSpot CLI (`oscli`) and uses CLI-provided configuration values. You can check CLI availability programmatically:
+
+```python
+from stkai._cli import StkCLI
+
+if StkCLI.is_available():
+    print("Running in CLI mode")
+    base_url = StkCLI.get_codebuddy_base_url()
+    print(f"CLI base_url: {base_url}")
+else:
+    print("Running in standalone mode")
+```
+
+!!! note "Automatic Detection"
+    You don't need to manually check for CLI mode. The SDK handles this automatically:
+
+    - **HTTP Client**: Uses `StkCLIHttpClient` when CLI is available
+    - **Configuration**: Uses CLI values with higher precedence than env vars
+
 ## Accessing Configuration
 
 Use `STKAI.config` to access current settings:
@@ -138,6 +163,9 @@ Settings for `RemoteQuickCommand` clients:
 | `overload_timeout` | `STKAI_RQC_OVERLOAD_TIMEOUT` | 60.0 | Max CREATED state duration |
 | `max_workers` | `STKAI_RQC_MAX_WORKERS` | 8 | Concurrent workers |
 | `base_url` | `STKAI_RQC_BASE_URL` | StackSpot API URL | API base URL |
+
+!!! tip "CLI Base URL"
+    In CLI mode, the `base_url` is automatically obtained from `oscli.__codebuddy_base_url__`. You can override it via `STKAI.configure()`, environment variable, or constructor parameter.
 
 ### AgentConfig
 
@@ -213,6 +241,25 @@ STKAI.configure(
         "poll_max_duration": 10,   # Short max wait
     },
     allow_env_override=False,      # Ignore env vars in tests
+    allow_cli_override=False,      # Ignore CLI values in tests
+)
+```
+
+### Disabling CLI Override
+
+Use `allow_cli_override=False` to ignore CLI-provided configuration:
+
+```python
+from stkai import STKAI
+
+# Use only env vars and defaults (ignore CLI)
+STKAI.configure(allow_cli_override=False)
+
+# Use only configure() values and defaults (ignore both CLI and env vars)
+STKAI.configure(
+    rqc={"base_url": "https://custom.api.com"},
+    allow_env_override=False,
+    allow_cli_override=False,
 )
 ```
 
@@ -287,7 +334,7 @@ For testing, reset to defaults:
 ```python
 from stkai import STKAI
 
-# Reset to defaults + env vars
+# Reset to defaults + env vars + CLI values
 STKAI.reset()
 ```
 

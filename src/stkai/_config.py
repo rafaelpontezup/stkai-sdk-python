@@ -7,9 +7,10 @@ If not called, sensible defaults are used.
 
 Hierarchy of precedence (highest to lowest):
 1. *Options passed to client constructors
-2. Environment variables (STKAI_*) - when allow_env_override=True
-3. Values set via STKAI.configure()
-4. Hardcoded defaults (in dataclass fields)
+2. Values set via STKAI.configure()
+3. StackSpot CLI values (oscli) - if CLI is available
+4. Environment variables (STKAI_*) - when allow_env_override=True
+5. Hardcoded defaults (in dataclass fields)
 
 Example:
     >>> from stkai import STKAI
@@ -382,6 +383,33 @@ class STKAIConfig:
             rate_limit=self.rate_limit.with_overrides(_get_rate_limit_from_env()),
         )
 
+    def with_cli_defaults(self) -> STKAIConfig:
+        """
+        Return a new config with CLI-provided values applied.
+
+        CLI values take precedence over env vars. When running in CLI mode,
+        the CLI knows the correct endpoints for the current environment.
+
+        Returns:
+            New STKAIConfig instance with CLI values applied.
+
+        Example:
+            >>> # Apply CLI defaults on top of env vars
+            >>> config = STKAIConfig().with_env_vars().with_cli_defaults()
+        """
+        from stkai._cli import StkCLI
+
+        cli_rqc_overrides: dict[str, Any] = {}
+        if cli_base_url := StkCLI.get_codebuddy_base_url():
+            cli_rqc_overrides["base_url"] = cli_base_url
+
+        return STKAIConfig(
+            auth=self.auth,
+            rqc=self.rqc.with_overrides(cli_rqc_overrides),
+            agent=self.agent,
+            rate_limit=self.rate_limit,
+        )
+
 
 # =============================================================================
 # Environment Variable Helpers
@@ -488,8 +516,8 @@ class _STKAI:
     """
 
     def __init__(self) -> None:
-        """Initialize with defaults and apply environment variables."""
-        self._config: STKAIConfig = STKAIConfig().with_env_vars()
+        """Initialize with defaults, environment variables, and CLI values."""
+        self._config: STKAIConfig = STKAIConfig().with_env_vars().with_cli_defaults()
 
     def configure(
         self,
@@ -499,6 +527,7 @@ class _STKAI:
         agent: dict[str, Any] | None = None,
         rate_limit: dict[str, Any] | None = None,
         allow_env_override: bool = True,
+        allow_cli_override: bool = True,
     ) -> STKAIConfig:
         """
         Configure SDK settings.
@@ -513,6 +542,8 @@ class _STKAI:
             rate_limit: Rate limiting config overrides (enabled, strategy, max_requests, etc.).
             allow_env_override: If True (default), env vars are used as fallback
                 for fields NOT provided. If False, ignores env vars entirely.
+            allow_cli_override: If True (default), CLI values (oscli) are used as fallback
+                for fields NOT provided. If False, ignores CLI values entirely.
 
         Returns:
             The configured STKAIConfig instance.
@@ -520,11 +551,14 @@ class _STKAI:
         Raises:
             ValueError: If any dict contains unknown field names.
 
-        Precedence (allow_env_override=True):
+        Precedence (both overrides True):
+            STKAI.configure() > CLI values > ENV vars > defaults
+
+        Precedence (allow_cli_override=False):
             STKAI.configure() > ENV vars > defaults
 
         Precedence (allow_env_override=False):
-            STKAI.configure() > defaults
+            STKAI.configure() > CLI values > defaults
 
         Example:
             >>> from stkai import STKAI
@@ -534,10 +568,12 @@ class _STKAI:
             ...     rate_limit={"enabled": True, "max_requests": 10},
             ... )
         """
-        # Start with defaults, apply env vars as base layer (if enabled)
+        # Start with defaults, apply env vars and CLI values as base layer
         base = STKAIConfig()  # only defaults
         if allow_env_override:
             base = base.with_env_vars()  # defaults + env vars
+        if allow_cli_override:
+            base = base.with_cli_defaults()  # CLI values take precedence over env vars
 
         # Apply user overrides on top - configure() always wins
         self._config = STKAIConfig(
@@ -566,7 +602,7 @@ class _STKAI:
 
     def reset(self) -> STKAIConfig:
         """
-        Reset configuration to defaults + env vars.
+        Reset configuration to defaults + env vars + CLI values.
 
         Useful for testing to ensure clean state between tests.
 
@@ -577,7 +613,7 @@ class _STKAI:
             >>> from stkai import STKAI
             >>> STKAI.reset()
         """
-        self._config = STKAIConfig().with_env_vars()
+        self._config = STKAIConfig().with_env_vars().with_cli_defaults()
         return self._config
 
     def __repr__(self) -> str:

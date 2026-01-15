@@ -556,12 +556,9 @@ class EnvironmentAwareHttpClient(HttpClient):
         Returns:
             True if oscli can be imported, False otherwise.
         """
-        try:
-            import oscli  # noqa: F401
+        from stkai._cli import StkCLI
 
-            return True
-        except ImportError:
-            return False
+        return StkCLI.is_available()
 
     @override
     def get(

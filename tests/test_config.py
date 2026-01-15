@@ -613,5 +613,109 @@ class TestRateLimitConfigReset(unittest.TestCase):
         self.assertEqual(STKAI.config.rate_limit.max_requests, 100)
 
 
+class TestCLIPrecedence(unittest.TestCase):
+    """Tests for CLI value precedence in configuration."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_cli_base_url_overrides_hardcoded_default(self, mock_cli):
+        """CLI base_url should override hardcoded default."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.base_url, "https://cli.example.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
+    def test_cli_base_url_overrides_env_var(self, mock_cli):
+        """CLI base_url should override env var."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.base_url, "https://cli.example.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
+    def test_configure_overrides_cli_base_url(self, mock_cli):
+        """STKAI.configure() should override CLI base_url."""
+        STKAI.configure(rqc={"base_url": "https://configure.example.com"})
+        self.assertEqual(STKAI.config.rqc.base_url, "https://configure.example.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_hardcoded_default_used_when_no_cli(self, mock_cli):
+        """Should use hardcoded default when CLI is not available."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
+    def test_env_var_used_when_no_cli(self, mock_cli):
+        """Should use env var when CLI is not available."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.base_url, "https://env.example.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_cli_preserves_other_rqc_defaults(self, mock_cli):
+        """CLI should only override base_url, not other RQC defaults."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.rqc.base_url, "https://cli.example.com")
+        self.assertEqual(STKAI.config.rqc.request_timeout, 30)  # Default preserved
+        self.assertEqual(STKAI.config.rqc.max_retries, 3)  # Default preserved
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_allow_cli_override_false_ignores_cli(self, mock_cli):
+        """allow_cli_override=False should ignore CLI values."""
+        STKAI.configure(allow_cli_override=False)
+        self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
+    def test_allow_cli_override_false_uses_env_var(self, mock_cli):
+        """allow_cli_override=False should use env var instead of CLI."""
+        STKAI.configure(allow_cli_override=False)
+        self.assertEqual(STKAI.config.rqc.base_url, "https://env.example.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
+    def test_both_overrides_false_uses_defaults(self, mock_cli):
+        """Both overrides False should use only defaults."""
+        STKAI.configure(allow_env_override=False, allow_cli_override=False)
+        self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
+
+
+class TestWithCliDefaults(unittest.TestCase):
+    """Tests for STKAIConfig.with_cli_defaults() method."""
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_applies_cli_base_url(self, mock_cli):
+        """Should apply CLI base_url to RQC config."""
+        config = STKAIConfig().with_cli_defaults()
+        self.assertEqual(config.rqc.base_url, "https://cli.example.com")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_preserves_other_defaults(self, mock_cli):
+        """Should preserve other RQC default values."""
+        config = STKAIConfig().with_cli_defaults()
+        self.assertEqual(config.rqc.request_timeout, 30)
+        self.assertEqual(config.rqc.max_retries, 3)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_no_op_when_cli_not_available(self, mock_cli):
+        """Should be a no-op when CLI is not available."""
+        original = STKAIConfig()
+        result = original.with_cli_defaults()
+        self.assertEqual(result.rqc.base_url, original.rqc.base_url)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_returns_new_instance(self, mock_cli):
+        """Should return a new instance, not modify original."""
+        original = STKAIConfig()
+        result = original.with_cli_defaults()
+        self.assertIsNot(original, result)
+        self.assertEqual(original.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
+        self.assertEqual(result.rqc.base_url, "https://cli.example.com")
+
+
 if __name__ == "__main__":
     unittest.main()
