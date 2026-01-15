@@ -103,6 +103,7 @@ from stkai.agents import (
 from stkai.rqc import (
     RemoteQuickCommand,
     RqcExecutionStatus,
+    RqcOptions,
     RqcRequest,
     RqcResponse,
 )
@@ -132,6 +133,7 @@ __all__ = [
     "RateLimitTimeoutError",
     # RQC
     "RemoteQuickCommand",
+    "RqcOptions",
     "RqcRequest",
     "RqcResponse",
     "RqcExecutionStatus",

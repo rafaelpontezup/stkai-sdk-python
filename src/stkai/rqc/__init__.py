@@ -56,6 +56,7 @@ from stkai.rqc._remote_quick_command import (
     MaxRetriesExceededError,
     # Main client
     RemoteQuickCommand,
+    RqcOptions,
     RqcResultHandlerError,
 )
 
@@ -63,6 +64,7 @@ __all__ = [
     # Options
     "CreateExecutionOptions",
     "GetResultOptions",
+    "RqcOptions",
     # Data models
     "RqcRequest",
     "RqcResponse",

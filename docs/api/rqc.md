@@ -27,6 +27,10 @@ Complete API reference for Remote Quick Commands.
 
 ## Configuration Options
 
+::: stkai.rqc.RqcOptions
+    options:
+      show_root_heading: true
+
 ::: stkai.rqc.CreateExecutionOptions
     options:
       show_root_heading: true

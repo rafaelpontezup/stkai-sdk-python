@@ -15,6 +15,7 @@ from stkai.rqc import (
     GetResultOptions,
     RemoteQuickCommand,
     RqcExecutionStatus,
+    RqcOptions,
     RqcRequest,
 )
 
@@ -51,13 +52,15 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Instance with small intervals to run fast
         self.rqc = RemoteQuickCommand(
             slug_name=self.slug_name,
-            create_execution_options=CreateExecutionOptions(
-                max_retries=3,
-                backoff_factor=0.1,
-            ),
-            get_result_options=GetResultOptions(
-                poll_interval=0.01,
-                poll_max_duration=0.1,
+            options=RqcOptions(
+                create_execution=CreateExecutionOptions(
+                    max_retries=3,
+                    backoff_factor=0.1,
+                ),
+                get_result=GetResultOptions(
+                    poll_interval=0.01,
+                    poll_max_duration=0.1,
+                ),
             ),
             http_client=self.http_client,
             listeners=[],  # Disable default FileLoggingListener
@@ -203,14 +206,16 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         # Use short overload_timeout to trigger overload detection before poll_max_duration
         rqc_for_created_test = RemoteQuickCommand(
             slug_name=self.slug_name,
-            create_execution_options=CreateExecutionOptions(
-                max_retries=3,
-                backoff_factor=0.1,
-            ),
-            get_result_options=GetResultOptions(
-                poll_interval=0.01,
-                poll_max_duration=1.0,
-                overload_timeout=0.05,  # Short timeout to trigger overload detection
+            options=RqcOptions(
+                create_execution=CreateExecutionOptions(
+                    max_retries=3,
+                    backoff_factor=0.1,
+                ),
+                get_result=GetResultOptions(
+                    poll_interval=0.01,
+                    poll_max_duration=1.0,
+                    overload_timeout=0.05,  # Short timeout to trigger overload detection
+                ),
             ),
             http_client=self.http_client,
             listeners=[],  # Disable default FileLoggingListener
@@ -312,7 +317,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             result.error
         )
         # Verify multiple attempts (depending on internal retry logic)
-        self.assertGreaterEqual(self.http_client.post.call_count, self.rqc.create_execution_options.max_retries)
+        self.assertGreaterEqual(self.http_client.post.call_count, self.rqc.options.create_execution.max_retries)
         # Should not perform polling
         self.http_client.get.assert_not_called()
 
@@ -479,7 +484,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
             if behavior == "TIMEOUT":
                 # Simulate long polling until poll_max_duration is reached
-                time.sleep(self.rqc.get_result_options.poll_max_duration + 0.1)
+                time.sleep(self.rqc.options.get_result.poll_max_duration + 0.1)
                 return make_response(json_data={"progress": {"status": "PENDING"}})
 
             elif behavior == "ERROR":
@@ -519,6 +524,119 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.assertEqual(sum(s == RqcExecutionStatus.FAILURE for s in statuses), 1)
         self.assertEqual(sum(s == RqcExecutionStatus.TIMEOUT for s in statuses), 1)
         self.assertEqual(sum(s == RqcExecutionStatus.ERROR for s in statuses), 1)
+
+
+class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
+    """Tests for RqcOptions.with_defaults_from() method."""
+
+    def test_with_defaults_from_fills_none_values(self):
+        """Should fill None values from config defaults."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.rqc
+
+        # Options with all None values
+        options = RqcOptions()
+        resolved = options.with_defaults_from(cfg)
+
+        # All values should be filled from config
+        self.assertEqual(resolved.max_workers, cfg.max_workers)
+
+        # create_execution should be filled
+        self.assertIsNotNone(resolved.create_execution)
+        self.assertEqual(resolved.create_execution.max_retries, cfg.max_retries)
+        self.assertEqual(resolved.create_execution.backoff_factor, cfg.backoff_factor)
+        self.assertEqual(resolved.create_execution.request_timeout, cfg.request_timeout)
+
+        # get_result should be filled
+        self.assertIsNotNone(resolved.get_result)
+        self.assertEqual(resolved.get_result.poll_interval, cfg.poll_interval)
+        self.assertEqual(resolved.get_result.poll_max_duration, cfg.poll_max_duration)
+        self.assertEqual(resolved.get_result.overload_timeout, cfg.overload_timeout)
+        self.assertEqual(resolved.get_result.request_timeout, cfg.request_timeout)
+
+    def test_with_defaults_from_preserves_user_values(self):
+        """Should preserve user-provided values and only fill None values."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.rqc
+
+        # Options with some user-provided values
+        options = RqcOptions(
+            create_execution=CreateExecutionOptions(
+                max_retries=99,  # User value
+                # backoff_factor and request_timeout are None -> use config
+            ),
+            get_result=GetResultOptions(
+                poll_interval=999.0,  # User value
+                poll_max_duration=888.0,  # User value
+                # overload_timeout and request_timeout are None -> use config
+            ),
+            max_workers=50,  # User value
+        )
+
+        resolved = options.with_defaults_from(cfg)
+
+        # User values should be preserved
+        self.assertEqual(resolved.max_workers, 50)
+        self.assertEqual(resolved.create_execution.max_retries, 99)
+        self.assertEqual(resolved.get_result.poll_interval, 999.0)
+        self.assertEqual(resolved.get_result.poll_max_duration, 888.0)
+
+        # None values should be filled from config
+        self.assertEqual(resolved.create_execution.backoff_factor, cfg.backoff_factor)
+        self.assertEqual(resolved.create_execution.request_timeout, cfg.request_timeout)
+        self.assertEqual(resolved.get_result.overload_timeout, cfg.overload_timeout)
+        self.assertEqual(resolved.get_result.request_timeout, cfg.request_timeout)
+
+
+class TestRemoteQuickCommandBaseUrl(unittest.TestCase):
+    """Tests for RemoteQuickCommand base_url parameter."""
+
+    def test_custom_base_url_is_used(self):
+        """Should use custom base_url when provided."""
+        http_client = Mock(spec=HttpClient)
+        http_client.post.return_value = make_response(json_data="exec-123")
+        http_client.get.return_value = make_response(
+            json_data={"progress": {"status": "COMPLETED"}, "result": "{}"}
+        )
+
+        rqc = RemoteQuickCommand(
+            slug_name="my-slug",
+            base_url="https://custom.api.com",
+            http_client=http_client,
+            listeners=[],
+        )
+
+        rqc.execute(RqcRequest(payload={"x": 1}))
+
+        # Verify POST was called with custom base_url
+        post_call_args = http_client.post.call_args
+        self.assertIn("https://custom.api.com", post_call_args.kwargs.get("url", ""))
+
+    def test_default_base_url_from_config(self):
+        """Should use config base_url when not provided."""
+        from stkai._config import STKAI
+
+        rqc = RemoteQuickCommand(
+            slug_name="my-slug",
+            http_client=Mock(spec=HttpClient),
+            listeners=[],
+        )
+
+        self.assertEqual(rqc.base_url, STKAI.config.rqc.base_url.rstrip("/"))
+
+    def test_base_url_attribute_is_set(self):
+        """Should set base_url as instance attribute (trailing slash stripped)."""
+        rqc = RemoteQuickCommand(
+            slug_name="my-slug",
+            base_url="https://custom.api.com/",
+            http_client=Mock(spec=HttpClient),
+            listeners=[],
+        )
+
+        # Should strip trailing slash
+        self.assertEqual(rqc.base_url, "https://custom.api.com")
 
 
 if __name__ == "__main__":

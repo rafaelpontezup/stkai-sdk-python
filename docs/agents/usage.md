@@ -178,7 +178,7 @@ print(f"Session total: {tracker.total} tokens")
 
 ## Configuration
 
-Customize agent behavior with `AgentOptions`:
+Customize agent behavior with `AgentOptions`. Fields set to `None` use defaults from global config (`STKAI.config.agent`):
 
 ```python
 from stkai import Agent, ChatRequest
@@ -186,8 +186,9 @@ from stkai.agents import AgentOptions
 
 agent = Agent(
     agent_id="my-assistant",
+    base_url="https://custom.api.com",  # Optional: override API URL
     options=AgentOptions(
-        request_timeout=120,  # HTTP timeout in seconds (default: 60)
+        request_timeout=120,  # Custom timeout (default from config)
     ),
 )
 

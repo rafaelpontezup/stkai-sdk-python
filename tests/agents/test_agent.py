@@ -243,11 +243,11 @@ class TestChatResponse(unittest.TestCase):
 class TestAgentOptions(unittest.TestCase):
     """Tests for AgentOptions data class."""
 
-    def test_default_values(self):
-        """Should have correct default values."""
+    def test_default_values_are_none(self):
+        """Should have None as default values (to be filled from config)."""
         options = AgentOptions()
 
-        self.assertEqual(options.request_timeout, 60)
+        self.assertIsNone(options.request_timeout)
 
     def test_custom_values(self):
         """Should accept custom values."""
@@ -261,6 +261,33 @@ class TestAgentOptions(unittest.TestCase):
 
         with self.assertRaises(AttributeError):
             options.request_timeout = 120  # type: ignore
+
+    def test_with_defaults_from_fills_none_values(self):
+        """Should fill None values from config defaults."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.agent
+
+        # Options with all None values
+        options = AgentOptions()
+        resolved = options.with_defaults_from(cfg)
+
+        # All values should be filled from config
+        self.assertEqual(resolved.request_timeout, cfg.request_timeout)
+
+    def test_with_defaults_from_preserves_user_values(self):
+        """Should preserve user-provided values and only fill None values."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.agent
+
+        # Options with user-provided value
+        options = AgentOptions(request_timeout=999)
+        resolved = options.with_defaults_from(cfg)
+
+        # User value should be preserved
+        self.assertEqual(resolved.request_timeout, 999)
+        self.assertNotEqual(resolved.request_timeout, cfg.request_timeout)
 
 
 class TestAgent(unittest.TestCase):
@@ -425,6 +452,43 @@ class TestAgent(unittest.TestCase):
 
         self.assertTrue(response.is_success())
         self.assertIsNone(response.tokens)
+
+
+class TestAgentBaseUrl(unittest.TestCase):
+    """Tests for Agent base_url parameter."""
+
+    def test_custom_base_url_is_used(self):
+        """Should use custom base_url when provided."""
+        mock_client = MockHttpClient(response_data={"message": "Response"})
+        agent = Agent(
+            agent_id="my-agent",
+            base_url="https://custom.api.com",
+            http_client=mock_client,
+        )
+
+        agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        url, _, _ = mock_client.calls[0]
+        self.assertIn("https://custom.api.com", url)
+
+    def test_default_base_url_from_config(self):
+        """Should use config base_url when not provided."""
+        from stkai._config import STKAI
+
+        agent = Agent(agent_id="my-agent")
+
+        self.assertEqual(agent.base_url, STKAI.config.agent.base_url.rstrip("/"))
+
+    def test_base_url_attribute_is_set(self):
+        """Should set base_url as instance attribute."""
+        agent = Agent(
+            agent_id="my-agent",
+            base_url="https://custom.api.com/",
+            http_client=MockHttpClient(),
+        )
+
+        # Should strip trailing slash
+        self.assertEqual(agent.base_url, "https://custom.api.com")
 
 
 if __name__ == "__main__":

@@ -6,10 +6,13 @@ The SDK provides a flexible configuration system with sensible defaults that can
 
 Settings are resolved in this order (highest precedence first):
 
-1. **Options passed to client constructors** (e.g., `AgentOptions`)
+1. **Options passed to client constructors** (e.g., `RqcOptions`, `AgentOptions`)
 2. **Values set via `STKAI.configure()`**
 3. **Environment variables** (`STKAI_*`)
 4. **Hardcoded defaults**
+
+!!! note "Single Source of Truth"
+    Options with `None` values automatically use defaults from `STKAI.config`. This follows the "Single Source of Truth" principle - all defaults come from the global config.
 
 ## Quick Configuration
 
@@ -225,30 +228,55 @@ env:
 
 ## Overriding at Client Level
 
-You can override global settings per-client:
+You can override global settings per-client using `RqcOptions` and `AgentOptions`. Fields set to `None` use defaults from `STKAI.config` (Single Source of Truth):
 
 ```python
-from stkai import RemoteQuickCommand, Agent
+from stkai import RemoteQuickCommand, RqcOptions, Agent
 from stkai.rqc import CreateExecutionOptions, GetResultOptions
 from stkai.agents import AgentOptions
 
-# Override RQC settings
+# Override RQC settings (only what you need - rest from STKAI.config)
 rqc = RemoteQuickCommand(
     slug_name="my-command",
-    create_execution_options=CreateExecutionOptions(
-        request_timeout=60,  # Override global
-    ),
-    get_result_options=GetResultOptions(
-        poll_interval=5.0,   # Override global
+    base_url="https://custom.api.com",  # Override API URL
+    options=RqcOptions(
+        create_execution=CreateExecutionOptions(
+            max_retries=10,      # Override global
+        ),
+        get_result=GetResultOptions(
+            poll_interval=5.0,   # Override global
+        ),
+        max_workers=16,          # Override global
     ),
 )
 
 # Override Agent settings
 agent = Agent(
     agent_id="my-agent",
+    base_url="https://custom.api.com",  # Override API URL
     options=AgentOptions(
         request_timeout=180,  # Override global
     ),
+)
+```
+
+### Partial Overrides
+
+You only need to specify the settings you want to override:
+
+```python
+# Only override max_retries - everything else from STKAI.config
+rqc = RemoteQuickCommand(
+    slug_name="my-command",
+    options=RqcOptions(
+        create_execution=CreateExecutionOptions(max_retries=10),
+    ),
+)
+
+# Only override request_timeout
+agent = Agent(
+    agent_id="my-agent",
+    options=AgentOptions(request_timeout=180),
 )
 ```
 

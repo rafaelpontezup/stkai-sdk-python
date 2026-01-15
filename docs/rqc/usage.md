@@ -52,7 +52,6 @@ all_responses = rqc.execute_many(
         RqcRequest(payload=f, id=f["file_name"])
         for f in source_files
     ],
-    max_workers=8,  # Optional: concurrent workers (default: 8)
 )
 
 # Process results after all complete
@@ -84,30 +83,57 @@ for resp in failed:
 
 ## Configuration Options
 
-Customize execution behavior with options:
+Customize execution behavior with `RqcOptions`. Fields set to `None` use defaults from global config (`STKAI.config.rqc`):
 
 ```python
-from stkai import RemoteQuickCommand
+from stkai import RemoteQuickCommand, RqcOptions
 from stkai.rqc import CreateExecutionOptions, GetResultOptions
 
+# Customize only what you need - rest uses STKAI.config defaults
 rqc = RemoteQuickCommand(
     slug_name="my-quick-command",
-    create_execution_options=CreateExecutionOptions(
-        max_retries=3,          # Retries for failed POST requests
-        backoff_factor=0.5,     # Exponential backoff factor
-        request_timeout=30,     # HTTP timeout in seconds
+    base_url="https://custom.api.com",  # Optional: override API URL
+    options=RqcOptions(
+        create_execution=CreateExecutionOptions(
+            max_retries=5,          # Custom retries (default from config)
+            backoff_factor=0.5,     # Custom backoff
+        ),
+        get_result=GetResultOptions(
+            poll_interval=5.0,      # Faster polling
+            poll_max_duration=300.0,# Shorter timeout (5 min)
+        ),
+        max_workers=16,             # More concurrent workers
     ),
-    get_result_options=GetResultOptions(
-        poll_interval=10.0,     # Seconds between status checks
-        poll_max_duration=600.0,# Max wait time (10 min)
-        overload_timeout=60.0,  # Max time in CREATED status
-        request_timeout=30,     # HTTP timeout for polling
+)
+```
+
+You can also customize just one aspect:
+
+```python
+# Only customize create-execution retries
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    options=RqcOptions(
+        create_execution=CreateExecutionOptions(max_retries=10),
     ),
-    max_workers=8,              # Concurrent workers for execute_many
+)
+
+# Only customize max_workers for batch execution
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    options=RqcOptions(max_workers=32),
 )
 ```
 
 ### Option Reference
+
+#### RqcOptions
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `create_execution` | `None` | Options for create-execution phase |
+| `get_result` | `None` | Options for polling phase |
+| `max_workers` | 8 | Concurrent workers for `execute_many()` |
 
 #### CreateExecutionOptions
 
@@ -125,6 +151,9 @@ rqc = RemoteQuickCommand(
 | `poll_max_duration` | 600.0 | Maximum polling duration (10 min) |
 | `overload_timeout` | 60.0 | Max seconds in CREATED status |
 | `request_timeout` | 30 | HTTP timeout for GET requests |
+
+!!! tip "Single Source of Truth"
+    All default values come from `STKAI.config.rqc`. You can customize them globally via `STKAI.configure()` or per-instance via `RqcOptions`.
 
 ## Error Handling
 

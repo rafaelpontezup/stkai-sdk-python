@@ -105,7 +105,11 @@ mypy src
    - `on_after_execute()`: After completion (success or failure)
    - `FileLoggingListener`: Built-in implementation that saves request/response to JSON files
 
-**Configuration options:** `CreateExecutionOptions`, `GetResultOptions`
+6. **RqcOptions**: Consolidated configuration with `with_defaults_from(cfg)` pattern
+   - `create_execution`: Options for the create-execution phase (`CreateExecutionOptions`)
+   - `get_result`: Options for the polling phase (`GetResultOptions`)
+   - `max_workers`: Max threads for batch execution
+   - Fields set to `None` use defaults from `STKAI.config.rqc` (Single Source of Truth)
 
 **Rate Limiting:** RQC uses `EnvironmentAwareHttpClient` which supports automatic rate limiting. See [HTTP Client > Rate Limiting](#rate-limiting) for details.
 
@@ -128,7 +132,9 @@ mypy src
    - Status: `SUCCESS`, `ERROR`, `TIMEOUT`
    - Helper methods: `is_success()`, `is_error()`, `is_timeout()`
 
-**Configuration options:** `AgentOptions`
+4. **AgentOptions**: Configuration with `with_defaults_from(cfg)` pattern
+   - `request_timeout`: HTTP timeout in seconds
+   - Fields set to `None` use defaults from `STKAI.config.agent` (Single Source of Truth)
 
 **Rate Limiting:** Agent uses `EnvironmentAwareHttpClient` which supports automatic rate limiting. See [HTTP Client > Rate Limiting](#rate-limiting) for details.
 
@@ -245,9 +251,9 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 
 | Location | What to Export | Example |
 |----------|----------------|---------|
-| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `ChatRequest`, `STKAI`, `RateLimitConfig`, `RateLimitStrategy`, `EnvironmentAwareHttpClient` |
-| `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener` |
-| `stkai.agents` | Agent-specific handlers, listeners, options | (future: `AgentEventListener`, etc.) |
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `RateLimitConfig`, `RateLimitStrategy`, `EnvironmentAwareHttpClient` |
+| `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener`, `CreateExecutionOptions`, `GetResultOptions` |
+| `stkai.agents` | Agent-specific handlers, listeners, options | `AgentOptions` (future: `AgentEventListener`, etc.) |
 
 **Rationale:**
 - 80% of users only need root imports (simple usage)
@@ -257,7 +263,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 **Import examples:**
 ```python
 # Common usage - root imports
-from stkai import RemoteQuickCommand, Agent, RqcRequest, ChatRequest, STKAI
+from stkai import RemoteQuickCommand, Agent, RqcRequest, RqcOptions, ChatRequest, STKAI
 
 # Configuration (with rate limiting)
 STKAI.configure(
@@ -267,6 +273,24 @@ STKAI.configure(
 print(STKAI.config.rqc.request_timeout)
 print(STKAI.config.rate_limit.enabled)  # True
 
-# Advanced usage - submodule imports
+# RQC with custom options (partial override - rest from STKAI.config)
+from stkai.rqc import CreateExecutionOptions
+rqc = RemoteQuickCommand(
+    slug_name="my-rqc",
+    base_url="https://custom.api.com",  # optional
+    options=RqcOptions(
+        create_execution=CreateExecutionOptions(max_retries=10),
+    ),
+)
+
+# Agent with custom options
+from stkai.agents import AgentOptions
+agent = Agent(
+    agent_id="my-agent",
+    base_url="https://custom.api.com",  # optional
+    options=AgentOptions(request_timeout=120),
+)
+
+# Advanced usage - submodule imports for handlers/listeners
 from stkai.rqc import JsonResultHandler, ChainedResultHandler, FileLoggingListener
 ```
