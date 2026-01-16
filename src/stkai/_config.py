@@ -127,7 +127,7 @@ class SdkConfig:
     cli_mode: bool
 
     @classmethod
-    def detect(cls) -> "SdkConfig":
+    def detect(cls) -> SdkConfig:
         """
         Detect SDK metadata from the runtime environment.
 
