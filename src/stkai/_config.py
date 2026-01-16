@@ -957,11 +957,15 @@ class _STKAI:
         output("STKAI Configuration:")
         output("=" * 80)
 
+        name_width = 25  # field name + dots
+        value_width = 50  # max value width (matches truncation)
+
         for section_name, entries in self._config.explain_data().items():
             output(f"[{section_name}]")
             for entry in entries:
-                padding = "." * (25 - len(entry.name))
-                output(f"  {entry.name} {padding} {entry.formatted_value} ({entry.source})")
+                dots = "." * (name_width - len(entry.name))
+                value_padded = entry.formatted_value.ljust(value_width)
+                output(f"  {entry.name} {dots} {value_padded} ({entry.source})")
 
         output("=" * 80)
 

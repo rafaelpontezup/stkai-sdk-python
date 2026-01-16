@@ -895,6 +895,31 @@ class TestExplain(unittest.TestCase):
         self.assertTrue(any("STKAI Configuration:" in line for line in lines))
         self.assertTrue(any("[rqc]" in line for line in lines))
 
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10", "STKAI_AGENT_REQUEST_TIMEOUT": "90"})
+    def test_explain_shows_mixed_sources(self, mock_cli):
+        """explain() should show mix of default, env, CLI, and configure sources."""
+        STKAI.configure(
+            rqc={"request_timeout": 99},  # configure overrides default
+            # max_retries comes from env (10)
+            # base_url comes from CLI (https://cli.example.com)
+            # poll_interval stays default
+        )
+        output = self._capture_explain()
+
+        # Verify all source types are present
+        self.assertIn("(default)", output)
+        self.assertIn("(env:STKAI_RQC_MAX_RETRIES)", output)
+        self.assertIn("(env:STKAI_AGENT_REQUEST_TIMEOUT)", output)
+        self.assertIn("(CLI)", output)
+        self.assertIn("(configure)", output)
+
+        # Verify specific values
+        self.assertIn("99", output)  # request_timeout from configure
+        self.assertIn("10", output)  # max_retries from env
+        self.assertIn("https://cli.example.com", output)  # base_url from CLI
+        self.assertIn("10.0", output)  # poll_interval from default
+
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     def test_explain_with_logger(self, mock_cli):
         """explain() should work with logging."""
