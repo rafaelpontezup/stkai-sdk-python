@@ -333,6 +333,121 @@ class RateLimitConfig(OverridableConfig):
 
 
 @dataclass(frozen=True)
+class STKAIConfigTracker:
+    """
+    Tracks the source of config field values.
+
+    An immutable tracker that records where each configuration value came from
+    (default, env var, CLI, or configure()). Used internally by STKAIConfig
+    for debugging via STKAI.explain().
+
+    Attributes:
+        sources: Dict tracking source of each field value.
+            Structure: {"section": {"field": "source"}}
+            Source values: "default", "env:VAR_NAME", "CLI", "configure"
+
+    Example:
+        >>> tracker = STKAIConfigTracker()
+        >>> tracker = tracker.with_changes_tracked(old_cfg, new_cfg, "env")
+        >>> tracker.sources.get("rqc", {}).get("request_timeout")
+        'env:STKAI_RQC_REQUEST_TIMEOUT'
+    """
+
+    sources: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    def with_changes_tracked(
+        self,
+        old_config: STKAIConfig,
+        new_config: STKAIConfig,
+        source_type: str,
+    ) -> STKAIConfigTracker:
+        """
+        Return new tracker with changes between configs tracked.
+
+        Compares old and new configs, detects changed fields, and returns
+        a new tracker with those changes recorded.
+
+        Args:
+            old_config: The config before changes.
+            new_config: The config after changes.
+            source_type: Source label ("env", "CLI", or "configure").
+
+        Returns:
+            New STKAIConfigTracker with detected changes tracked.
+        """
+        changes = self._detect_changes(old_config, new_config)
+        newsources = self._mergesources(changes, source_type)
+        return STKAIConfigTracker(sources=newsources)
+
+    def _detect_changes(
+        self,
+        old_config: STKAIConfig,
+        new_config: STKAIConfig,
+    ) -> dict[str, list[str]]:
+        """
+        Detect which fields changed between two configs.
+
+        Args:
+            old_config: The config before changes.
+            new_config: The config after changes.
+
+        Returns:
+            Dict mapping section names to lists of changed field names.
+            Example: {"rqc": ["request_timeout", "base_url"]}
+        """
+        changes: dict[str, list[str]] = {}
+
+        for section_name in ("auth", "rqc", "agent", "rate_limit"):
+            old_section = getattr(old_config, section_name)
+            new_section = getattr(new_config, section_name)
+
+            changed_fields = []
+            for f in fields(old_section):
+                old_val = getattr(old_section, f.name)
+                new_val = getattr(new_section, f.name)
+                if old_val != new_val:
+                    changed_fields.append(f.name)
+
+            if changed_fields:
+                changes[section_name] = changed_fields
+
+        return changes
+
+    def _mergesources(
+        self,
+        changes: dict[str, list[str]],
+        source_type: str,
+    ) -> dict[str, dict[str, str]]:
+        """
+        Merge detected changes into existing sources.
+
+        Args:
+            changes: Dict of section -> list of changed field names.
+            source_type: Source label ("env", "CLI", or "configure").
+
+        Returns:
+            New sources dict with changes merged in.
+        """
+        newsources = self._copysources()
+
+        for section, field_names in changes.items():
+            section_sources = newsources.setdefault(section, {})
+            for field_name in field_names:
+                if source_type == "env":
+                    # Generate env var name based on convention
+                    env_var = f"STKAI_{section.upper()}_{field_name.upper()}"
+                    section_sources[field_name] = f"env:{env_var}"
+                else:
+                    section_sources[field_name] = source_type
+
+        return newsources
+
+    def _copysources(self) -> dict[str, dict[str, str]]:
+        """Create a deep copy of current sources."""
+        return {section: dict(flds) for section, flds in self.sources.items()}
+
+
+@dataclass(frozen=True)
 class STKAIConfig:
     """
     Global configuration for the stkai SDK.
@@ -360,6 +475,7 @@ class STKAIConfig:
     rqc: RqcConfig = field(default_factory=RqcConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
+    _tracker: STKAIConfigTracker = field(default_factory=STKAIConfigTracker, repr=False)
 
     def with_env_vars(self) -> STKAIConfig:
         """
@@ -377,12 +493,14 @@ class STKAIConfig:
             >>> custom = STKAIConfig(rqc=RqcConfig(request_timeout=60))
             >>> final = custom.with_env_vars()
         """
-        return STKAIConfig(
+        new_config = STKAIConfig(
             auth=self.auth.with_overrides(_get_auth_from_env()),
             rqc=self.rqc.with_overrides(_get_rqc_from_env()),
             agent=self.agent.with_overrides(_get_agent_from_env()),
             rate_limit=self.rate_limit.with_overrides(_get_rate_limit_from_env()),
         )
+        new_tracker = self._tracker.with_changes_tracked(self, new_config, "env")
+        return replace(new_config, _tracker=new_tracker)
 
     def with_cli_defaults(self) -> STKAIConfig:
         """
@@ -404,12 +522,14 @@ class STKAIConfig:
         if cli_base_url := StkCLI.get_codebuddy_base_url():
             cli_rqc_overrides["base_url"] = cli_base_url
 
-        return STKAIConfig(
+        new_config = STKAIConfig(
             auth=self.auth,
             rqc=self.rqc.with_overrides(cli_rqc_overrides),
             agent=self.agent,
             rate_limit=self.rate_limit,
         )
+        new_tracker = self._tracker.with_changes_tracked(self, new_config, "CLI")
+        return replace(new_config, _tracker=new_tracker)
 
     def with_section_overrides(
         self,
@@ -441,180 +561,14 @@ class STKAIConfig:
             ...     agent={"request_timeout": 120},
             ... )
         """
-        return STKAIConfig(
+        new_config = STKAIConfig(
             auth=self.auth.with_overrides(auth or {}),
             rqc=self.rqc.with_overrides(rqc or {}),
             agent=self.agent.with_overrides(agent or {}),
             rate_limit=self.rate_limit.with_overrides(rate_limit or {}),
         )
-
-
-@dataclass
-class TrackableSTKAIConfig:
-    """
-    Decorator that adds transparent source tracking to STKAIConfig.
-
-    Wraps an STKAIConfig instance and tracks where each field value came from
-    (default, env var, CLI, or configure()). Uses diff-based detection to
-    automatically identify changes without modifying STKAIConfig.
-
-    Attributes:
-        _config: The wrapped STKAIConfig instance.
-        _sources: Dict tracking source of each field value.
-            Structure: {"section": {"field": "source"}}
-            Source values: "default", "env:VAR_NAME", "CLI", "configure"
-
-    Example:
-        >>> trackable = TrackableSTKAIConfig(STKAIConfig())
-        >>> trackable = trackable.with_env_vars()
-        >>> trackable.rqc.request_timeout  # Delegated to wrapped config
-        30
-        >>> trackable._sources.get("rqc", {}).get("request_timeout")
-        'env:STKAI_RQC_REQUEST_TIMEOUT'  # If set via env var
-    """
-
-    _config: STKAIConfig
-    _sources: dict[str, dict[str, str]] = field(default_factory=dict)
-
-    def __getattr__(self, name: str) -> Any:
-        """Delegate attribute access to wrapped config."""
-        return getattr(self._config, name)
-
-    def with_env_vars(self) -> TrackableSTKAIConfig:
-        """
-        Apply environment variables and track changes via diff.
-
-        Returns:
-            New TrackableSTKAIConfig with env vars applied and sources tracked.
-        """
-        new_config = self._config.with_env_vars()
-        new_sources = self._track_changes(new_config, source_type="env")
-
-        return TrackableSTKAIConfig(_config=new_config, _sources=new_sources)
-
-    def with_cli_defaults(self) -> TrackableSTKAIConfig:
-        """
-        Apply CLI defaults and track changes via diff.
-
-        Returns:
-            New TrackableSTKAIConfig with CLI values applied and sources tracked.
-        """
-        new_config = self._config.with_cli_defaults()
-        new_sources = self._track_changes(new_config, source_type="CLI")
-
-        return TrackableSTKAIConfig(_config=new_config, _sources=new_sources)
-
-    def with_section_overrides(
-        self,
-        *,
-        auth: dict[str, Any] | None = None,
-        rqc: dict[str, Any] | None = None,
-        agent: dict[str, Any] | None = None,
-        rate_limit: dict[str, Any] | None = None,
-    ) -> TrackableSTKAIConfig:
-        """
-        Apply user overrides and track changes via diff.
-
-        Overrides STKAIConfig.with_section_overrides() to add source tracking.
-
-        Args:
-            auth: Authentication config overrides.
-            rqc: RemoteQuickCommand config overrides.
-            agent: Agent config overrides.
-            rate_limit: Rate limiting config overrides.
-
-        Returns:
-            New TrackableSTKAIConfig with overrides applied and sources tracked.
-        """
-        new_config = self._config.with_section_overrides(
-            auth=auth,
-            rqc=rqc,
-            agent=agent,
-            rate_limit=rate_limit,
-        )
-        new_sources = self._track_changes(new_config, source_type="configure")
-
-        return TrackableSTKAIConfig(_config=new_config, _sources=new_sources)
-
-    def _detect_changes(self, new_config: STKAIConfig) -> dict[str, list[str]]:
-        """
-        Detect which fields changed between current and new config.
-
-        Args:
-            new_config: The new config to compare against.
-
-        Returns:
-            Dict mapping section names to lists of changed field names.
-            Example: {"rqc": ["request_timeout", "base_url"]}
-        """
-        changes: dict[str, list[str]] = {}
-
-        for section_name in ("auth", "rqc", "agent", "rate_limit"):
-            old_section = getattr(self._config, section_name)
-            new_section = getattr(new_config, section_name)
-
-            changed_fields = []
-            for f in fields(old_section):
-                old_val = getattr(old_section, f.name)
-                new_val = getattr(new_section, f.name)
-                if old_val != new_val:
-                    changed_fields.append(f.name)
-
-            if changed_fields:
-                changes[section_name] = changed_fields
-
-        return changes
-
-    def _merge_sources(
-        self,
-        changes: dict[str, list[str]],
-        source_type: str,
-    ) -> dict[str, dict[str, str]]:
-        """
-        Merge detected changes into existing sources.
-
-        Args:
-            changes: Dict of section -> list of changed field names.
-            source_type: Source label ("env", "CLI", or "configure").
-
-        Returns:
-            New sources dict with changes merged in.
-        """
-        new_sources = self._copy_sources()
-
-        for section, field_names in changes.items():
-            section_sources = new_sources.setdefault(section, {})
-            for field_name in field_names:
-                if source_type == "env":
-                    # Generate env var name based on convention
-                    env_var = f"STKAI_{section.upper()}_{field_name.upper()}"
-                    section_sources[field_name] = f"env:{env_var}"
-                else:
-                    section_sources[field_name] = source_type
-
-        return new_sources
-
-    def _track_changes(
-        self,
-        new_config: STKAIConfig,
-        source_type: str,
-    ) -> dict[str, dict[str, str]]:
-        """
-        Detect changes between current and new config, and track their source.
-
-        Args:
-            new_config: The new config after changes.
-            source_type: Source label ("env", "CLI", or "configure").
-
-        Returns:
-            New sources dict with detected changes tracked.
-        """
-        changes = self._detect_changes(new_config)
-        return self._merge_sources(changes, source_type)
-
-    def _copy_sources(self) -> dict[str, dict[str, str]]:
-        """Create a deep copy of current sources."""
-        return {section: dict(flds) for section, flds in self._sources.items()}
+        new_tracker = self._tracker.with_changes_tracked(self, new_config, "configure")
+        return replace(new_config, _tracker=new_tracker)
 
 
 # =============================================================================
@@ -749,9 +703,7 @@ class _STKAI:
 
     def __init__(self) -> None:
         """Initialize with defaults, environment variables, and CLI values."""
-        self._trackable: TrackableSTKAIConfig = (
-            TrackableSTKAIConfig(STKAIConfig()).with_env_vars().with_cli_defaults()
-        )
+        self._config: STKAIConfig = STKAIConfig().with_env_vars().with_cli_defaults()
 
     def configure(
         self,
@@ -803,21 +755,21 @@ class _STKAI:
             ... )
         """
         # Start with defaults, apply env vars and CLI values as base layer
-        base = TrackableSTKAIConfig(STKAIConfig())
+        base = STKAIConfig()
         if allow_env_override:
             base = base.with_env_vars()  # defaults + env vars
         if allow_cli_override:
             base = base.with_cli_defaults()  # CLI values take precedence over env vars
 
         # Apply user overrides on top - configure() always wins
-        self._trackable = base.with_section_overrides(
+        self._config = base.with_section_overrides(
             auth=auth,
             rqc=rqc,
             agent=agent,
             rate_limit=rate_limit,
         )
 
-        return self._trackable._config
+        return self._config
 
     @property
     def config(self) -> STKAIConfig:
@@ -832,7 +784,7 @@ class _STKAI:
             >>> STKAI.config.rqc.request_timeout
             30
         """
-        return self._trackable._config
+        return self._config
 
     def reset(self) -> STKAIConfig:
         """
@@ -847,10 +799,8 @@ class _STKAI:
             >>> from stkai import STKAI
             >>> STKAI.reset()
         """
-        self._trackable = (
-            TrackableSTKAIConfig(STKAIConfig()).with_env_vars().with_cli_defaults()
-        )
-        return self._trackable._config
+        self._config = STKAIConfig().with_env_vars().with_cli_defaults()
+        return self._config
 
     def explain(
         self,
@@ -885,8 +835,8 @@ class _STKAI:
             >>> import logging
             >>> STKAI.explain(logging.info)
         """
-        config = self._trackable._config
-        sources = self._trackable._sources
+        config = self._config
+        sources = self._config._tracker.sources
 
         # Get all sections and their fields
         sections = [
@@ -919,7 +869,7 @@ class _STKAI:
         output("\n" + "=" * 80)
 
     def __repr__(self) -> str:
-        return f"STKAI(config={self._trackable._config!r})"
+        return f"STKAI(config={self._config!r})"
 
 
 # Global singleton instance - always reflects current configuration

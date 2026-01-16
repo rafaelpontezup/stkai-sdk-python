@@ -11,7 +11,6 @@ from stkai._config import (
     RateLimitConfig,
     RqcConfig,
     STKAIConfig,
-    TrackableSTKAIConfig,
 )
 
 
@@ -719,7 +718,7 @@ class TestWithCliDefaults(unittest.TestCase):
 
 
 class TestSourceTracking(unittest.TestCase):
-    """Tests for _sources tracking in TrackableSTKAIConfig."""
+    """Tests for _tracker.sources tracking in STKAIConfig."""
 
     def setUp(self):
         STKAI.reset()
@@ -727,56 +726,56 @@ class TestSourceTracking(unittest.TestCase):
     def tearDown(self):
         STKAI.reset()
 
-    def test_defaults_have_empty_sources(self):
-        """Default trackable config should have empty _sources."""
-        trackable = TrackableSTKAIConfig(STKAIConfig())
-        self.assertEqual(trackable._sources, {})
+    def test_defaults_have_emptysources(self):
+        """Default config should have empty _tracker.sources."""
+        config = STKAIConfig()
+        self.assertEqual(config._tracker.sources, {})
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "99"})
-    def test_env_vars_tracked_in_sources(self):
-        """Env vars should be tracked in _sources."""
-        trackable = TrackableSTKAIConfig(STKAIConfig()).with_env_vars()
-        self.assertIn("rqc", trackable._sources)
-        self.assertEqual(trackable._sources["rqc"]["request_timeout"], "env:STKAI_RQC_REQUEST_TIMEOUT")
+    def test_env_vars_tracked_insources(self):
+        """Env vars should be tracked in _tracker.sources."""
+        config = STKAIConfig().with_env_vars()
+        self.assertIn("rqc", config._tracker.sources)
+        self.assertEqual(config._tracker.sources["rqc"]["request_timeout"], "env:STKAI_RQC_REQUEST_TIMEOUT")
 
     @patch.dict(os.environ, {"STKAI_AUTH_CLIENT_SECRET": "secret123"})
-    def test_auth_env_vars_tracked_in_sources(self):
-        """Auth env vars should be tracked in _sources."""
-        trackable = TrackableSTKAIConfig(STKAIConfig()).with_env_vars()
-        self.assertIn("auth", trackable._sources)
-        self.assertEqual(trackable._sources["auth"]["client_secret"], "env:STKAI_AUTH_CLIENT_SECRET")
+    def test_auth_env_vars_tracked_insources(self):
+        """Auth env vars should be tracked in _tracker.sources."""
+        config = STKAIConfig().with_env_vars()
+        self.assertIn("auth", config._tracker.sources)
+        self.assertEqual(config._tracker.sources["auth"]["client_secret"], "env:STKAI_AUTH_CLIENT_SECRET")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_cli_values_tracked_in_sources(self, mock_cli):
-        """CLI values should be tracked in _sources."""
-        trackable = TrackableSTKAIConfig(STKAIConfig()).with_cli_defaults()
-        self.assertIn("rqc", trackable._sources)
-        self.assertEqual(trackable._sources["rqc"]["base_url"], "CLI")
+    def test_cli_values_tracked_insources(self, mock_cli):
+        """CLI values should be tracked in _tracker.sources."""
+        config = STKAIConfig().with_cli_defaults()
+        self.assertIn("rqc", config._tracker.sources)
+        self.assertEqual(config._tracker.sources["rqc"]["base_url"], "CLI")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_configure_values_tracked_in_sources(self, mock_cli):
-        """Configure values should be tracked in _sources."""
+    def test_configure_values_tracked_insources(self, mock_cli):
+        """Configure values should be tracked in _tracker.sources."""
         STKAI.configure(rqc={"request_timeout": 120}, allow_env_override=False)
-        # Access via internal _trackable
-        self.assertIn("rqc", STKAI._trackable._sources)
-        self.assertEqual(STKAI._trackable._sources["rqc"]["request_timeout"], "configure")
+        # Access via internal _config._tracker
+        self.assertIn("rqc", STKAI.config._tracker.sources)
+        self.assertEqual(STKAI.config._tracker.sources["rqc"]["request_timeout"], "configure")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "99"})
-    def test_configure_overrides_cli_and_env_in_sources(self, mock_cli):
-        """Configure values should override CLI and env in _sources."""
+    def test_configure_overrides_cli_and_env_insources(self, mock_cli):
+        """Configure values should override CLI and env in _tracker.sources."""
         STKAI.configure(rqc={"request_timeout": 120, "base_url": "https://custom.com"})
-        sources = STKAI._trackable._sources
+        sources = STKAI.config._tracker.sources
         # Configure should win for all fields it sets
         self.assertEqual(sources["rqc"]["request_timeout"], "configure")
         self.assertEqual(sources["rqc"]["base_url"], "configure")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10"})
-    def test_sources_from_multiple_origins(self, mock_cli):
+    def testsources_from_multiple_origins(self, mock_cli):
         """Sources should track multiple origins correctly."""
         STKAI.configure(rqc={"request_timeout": 120})
-        sources = STKAI._trackable._sources
+        sources = STKAI.config._tracker.sources
         # CLI provides base_url
         self.assertEqual(sources["rqc"]["base_url"], "CLI")
         # Env var provides max_retries
