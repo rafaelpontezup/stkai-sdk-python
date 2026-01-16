@@ -954,11 +954,16 @@ class _STKAI:
             >>> import logging
             >>> STKAI.explain(logging.info)
         """
-        output("STKAI Configuration:")
-        output("=" * 80)
-
         name_width = 25  # field name + dots
         value_width = 50  # max value width (matches truncation)
+        total_width = 2 + name_width + 2 + (value_width + 2) + 1 + 8  # matches separator
+
+        output("STKAI Configuration:")
+        output("=" * total_width)
+
+        # Header
+        output(f"  {'Field':<{name_width}} │ {'Value':<{value_width}} │ Source")
+        output(f"--{'-' * name_width}-+{'-' * (value_width + 2)}+--------")
 
         for section_name, entries in self._config.explain_data().items():
             output(f"[{section_name}]")
@@ -968,7 +973,7 @@ class _STKAI:
                 marker = "✎" if entry.source != "default" else " "
                 output(f"  {entry.name} {dots} {value_padded} {marker} {entry.source}")
 
-        output("=" * 80)
+        output("=" * total_width)
 
     def __repr__(self) -> str:
         return f"STKAI(config={self._config!r})"
