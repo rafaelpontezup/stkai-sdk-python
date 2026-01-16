@@ -417,6 +417,7 @@ class TestStkCLIHttpClientGet:
                 url="http://example.com/api",
                 timeout=60,
                 headers={"X-Custom": "value"},
+                use_cache=False,
             )
             assert response == mock_response
 
@@ -434,6 +435,7 @@ class TestStkCLIHttpClientGet:
                 url="http://example.com/api",
                 timeout=30,
                 headers=None,
+                use_cache=False,
             )
 
     def test_get_fails_when_url_is_empty(self):

@@ -209,6 +209,7 @@ class StkCLIHttpClient(HttpClient):
             url=url,
             timeout=timeout,
             headers=headers,
+            use_cache=False, # disables client-side caching
         )
         return response
 

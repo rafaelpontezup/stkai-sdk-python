@@ -608,13 +608,13 @@ class RemoteQuickCommand:
                     import uuid
                     nocache_param = str(uuid.uuid4())
                     url = f"{self.base_url}/v1/quick-commands/callback/{execution_id}?nocache={nocache_param}"
-                    no_cache_headers = {
+                    nocache_headers = {
                         "Cache-Control": "no-cache, no-store",
                         "Pragma": "no-cache",
                     }
 
                     response = self.http_client.get(
-                        url=url, headers=no_cache_headers, timeout=opts.request_timeout
+                        url=url, headers=nocache_headers, timeout=opts.request_timeout
                     )
                     assert isinstance(response, requests.Response), \
                         f"🌀 Sanity check | Object returned by `get` method is not an instance of `requests.Response`. ({response.__class__})"
