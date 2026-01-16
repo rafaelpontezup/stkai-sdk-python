@@ -606,6 +606,42 @@ class STKAIConfig:
             rate_limit=self.rate_limit.with_overrides(rate_limit or {}),
         )
 
+    def explain_data(self) -> dict[str, list[tuple[str, Any, str]]]:
+        """
+        Return config data structured for explain output.
+
+        Provides a structured representation of all config values and their
+        sources, useful for debugging, testing, or custom formatting.
+
+        Returns:
+            Dict mapping section names to list of (field_name, value, source) tuples.
+            Source values: "default", "env:VAR_NAME", "CLI", "configure"
+
+        Example:
+            >>> config = STKAIConfig().with_env_vars()
+            >>> config.explain_data()
+            {
+                "auth": [("client_id", None, "default"), ...],
+                "rqc": [("request_timeout", 60, "env:STKAI_RQC_REQUEST_TIMEOUT"), ...],
+                ...
+            }
+        """
+        result: dict[str, list[tuple[str, Any, str]]] = {}
+
+        for section_name in ("auth", "rqc", "agent", "rate_limit"):
+            section_config = getattr(self, section_name)
+            section_sources = self._tracker.sources.get(section_name, {})
+            result[section_name] = [
+                (
+                    f.name,
+                    getattr(section_config, f.name),
+                    section_sources.get(f.name, "default"),
+                )
+                for f in fields(section_config)
+            ]
+
+        return result
+
 
 # =============================================================================
 # Internal Helpers
@@ -871,34 +907,13 @@ class _STKAI:
             >>> import logging
             >>> STKAI.explain(logging.info)
         """
-        config = self._config
-        sources = self._config._tracker.sources
-
-        # Get all sections and their fields
-        sections = [
-            ("auth", config.auth),
-            ("rqc", config.rqc),
-            ("agent", config.agent),
-            ("rate_limit", config.rate_limit),
-        ]
-
         output("STKAI Configuration:")
         output("=" * 80)
 
-        for section_name, section_config in sections:
+        for section_name, fields_data in self._config.explain_data().items():
             output(f"\n[{section_name}]")
-            section_sources = sources.get(section_name, {})
-
-            # Get all fields from the dataclass
-            for f in fields(section_config):
-                field_name = f.name
-                value = getattr(section_config, field_name)
-                source = section_sources.get(field_name, "default")
-
-                # Format value (mask secrets, truncate long strings)
+            for field_name, value, source in fields_data:
                 formatted_value = _format_config_value(field_name, value)
-
-                # Pad field name with dots for alignment
                 padding = "." * (25 - len(field_name))
                 output(f"  {field_name} {padding} {formatted_value} ({source})")
 
