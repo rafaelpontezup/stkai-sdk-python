@@ -247,7 +247,7 @@ class ClientCredentialsAuthProvider(AuthProvider):
 
         except requests.HTTPError as e:
             raise AuthenticationError(
-                f"Failed to obtain access token: HTTP {e.response.status_code}",
+                f"Failed to obtain access token (HTTP {e.response.status_code}): {e}",
                 cause=e,
             ) from e
         except requests.RequestException as e:

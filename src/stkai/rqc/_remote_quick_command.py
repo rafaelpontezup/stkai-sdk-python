@@ -335,7 +335,11 @@ class RemoteQuickCommand:
             try:
                 responses_map[idx] = future.result()
             except Exception as e:
-                logging.exception(f"{correlated_request.id[:26]:<26} | RQC | ❌ Execution failed in batch(seq={idx}): {e}")
+                logger.error(
+                    f"{correlated_request.id[:26]:<26} | RQC | ❌ Execution failed in batch(seq={idx}): "
+                    f"{e.__class__.__name__}: {e}",
+                    exc_info=logger.isEnabledFor(logging.DEBUG)
+                )
                 responses_map[idx] = RqcResponse(
                     request=correlated_request,
                     status=RqcExecutionStatus.ERROR,
@@ -438,7 +442,11 @@ class RemoteQuickCommand:
         try:
             execution_id = self._create_execution(request=request)
         except Exception as e:
-            logging.exception(f"{request.id[:26]:<26} | RQC | ❌ Failed to create execution: {e}")
+            logger.error(
+                f"{request.id[:26]:<26} | RQC | ❌ Failed to create execution. "
+                f"{e.__class__.__name__}: {e}",
+                exc_info=logger.isEnabledFor(logging.DEBUG)
+            )
             # Determine status: TIMEOUT if caused by HTTP timeout, ERROR otherwise
             status = RqcExecutionStatus.ERROR
             if isinstance(e, MaxRetriesExceededError) and isinstance(e.last_exception, requests.exceptions.Timeout):
