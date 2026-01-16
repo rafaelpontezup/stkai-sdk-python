@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields, replace
+from functools import wraps
 from typing import Any, Literal, Self
 
 # Type alias for rate limit strategies
@@ -355,6 +356,44 @@ class STKAIConfigTracker:
 
     sources: dict[str, dict[str, str]] = field(default_factory=dict)
 
+    @staticmethod
+    def track_changes(
+        source_type: str,
+    ) -> Callable[[Callable[..., STKAIConfig]], Callable[..., STKAIConfig]]:
+        """
+        Decorator that tracks config changes made by the decorated method.
+
+        Wraps methods that return a new STKAIConfig, automatically detecting
+        changes between the original config (self) and the returned config,
+        then recording those changes in the tracker.
+
+        Args:
+            source_type: Source label for tracking ("env", "CLI", or "configure").
+
+        Returns:
+            Decorator function that wraps the method.
+
+        Example:
+            >>> @STKAIConfigTracker.track_changes("env")
+            ... def with_env_vars(self) -> STKAIConfig:
+            ...     return STKAIConfig(...)
+        """
+
+        def decorator(
+            method: Callable[..., STKAIConfig],
+        ) -> Callable[..., STKAIConfig]:
+            @wraps(method)
+            def wrapper(self: STKAIConfig, *args: Any, **kwargs: Any) -> STKAIConfig:
+                new_config = method(self, *args, **kwargs)
+                new_tracker = self._tracker.with_changes_tracked(
+                    self, new_config, source_type
+                )
+                return replace(new_config, _tracker=new_tracker)
+
+            return wrapper
+
+        return decorator
+
     def with_changes_tracked(
         self,
         old_config: STKAIConfig,
@@ -376,8 +415,8 @@ class STKAIConfigTracker:
             New STKAIConfigTracker with detected changes tracked.
         """
         changes = self._detect_changes(old_config, new_config)
-        newsources = self._mergesources(changes, source_type)
-        return STKAIConfigTracker(sources=newsources)
+        new_sources = self._merge_sources(changes, source_type)
+        return STKAIConfigTracker(sources=new_sources)
 
     def _detect_changes(
         self,
@@ -413,7 +452,7 @@ class STKAIConfigTracker:
 
         return changes
 
-    def _mergesources(
+    def _merge_sources(
         self,
         changes: dict[str, list[str]],
         source_type: str,
@@ -428,10 +467,10 @@ class STKAIConfigTracker:
         Returns:
             New sources dict with changes merged in.
         """
-        newsources = self._copysources()
+        new_sources = self._copy_sources()
 
         for section, field_names in changes.items():
-            section_sources = newsources.setdefault(section, {})
+            section_sources = new_sources.setdefault(section, {})
             for field_name in field_names:
                 if source_type == "env":
                     # Generate env var name based on convention
@@ -440,9 +479,9 @@ class STKAIConfigTracker:
                 else:
                     section_sources[field_name] = source_type
 
-        return newsources
+        return new_sources
 
-    def _copysources(self) -> dict[str, dict[str, str]]:
+    def _copy_sources(self) -> dict[str, dict[str, str]]:
         """Create a deep copy of current sources."""
         return {section: dict(flds) for section, flds in self.sources.items()}
 
@@ -477,6 +516,7 @@ class STKAIConfig:
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     _tracker: STKAIConfigTracker = field(default_factory=STKAIConfigTracker, repr=False)
 
+    @STKAIConfigTracker.track_changes("env")
     def with_env_vars(self) -> STKAIConfig:
         """
         Return a new config with environment variables applied on top.
@@ -493,15 +533,14 @@ class STKAIConfig:
             >>> custom = STKAIConfig(rqc=RqcConfig(request_timeout=60))
             >>> final = custom.with_env_vars()
         """
-        new_config = STKAIConfig(
+        return STKAIConfig(
             auth=self.auth.with_overrides(_get_auth_from_env()),
             rqc=self.rqc.with_overrides(_get_rqc_from_env()),
             agent=self.agent.with_overrides(_get_agent_from_env()),
             rate_limit=self.rate_limit.with_overrides(_get_rate_limit_from_env()),
         )
-        new_tracker = self._tracker.with_changes_tracked(self, new_config, "env")
-        return replace(new_config, _tracker=new_tracker)
 
+    @STKAIConfigTracker.track_changes("CLI")
     def with_cli_defaults(self) -> STKAIConfig:
         """
         Return a new config with CLI-provided values applied.
@@ -522,15 +561,14 @@ class STKAIConfig:
         if cli_base_url := StkCLI.get_codebuddy_base_url():
             cli_rqc_overrides["base_url"] = cli_base_url
 
-        new_config = STKAIConfig(
+        return STKAIConfig(
             auth=self.auth,
             rqc=self.rqc.with_overrides(cli_rqc_overrides),
             agent=self.agent,
             rate_limit=self.rate_limit,
         )
-        new_tracker = self._tracker.with_changes_tracked(self, new_config, "CLI")
-        return replace(new_config, _tracker=new_tracker)
 
+    @STKAIConfigTracker.track_changes("configure")
     def with_section_overrides(
         self,
         *,
@@ -561,14 +599,12 @@ class STKAIConfig:
             ...     agent={"request_timeout": 120},
             ... )
         """
-        new_config = STKAIConfig(
+        return STKAIConfig(
             auth=self.auth.with_overrides(auth or {}),
             rqc=self.rqc.with_overrides(rqc or {}),
             agent=self.agent.with_overrides(agent or {}),
             rate_limit=self.rate_limit.with_overrides(rate_limit or {}),
         )
-        new_tracker = self._tracker.with_changes_tracked(self, new_config, "configure")
-        return replace(new_config, _tracker=new_tracker)
 
 
 # =============================================================================
