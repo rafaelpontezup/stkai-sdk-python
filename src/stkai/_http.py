@@ -470,6 +470,14 @@ class EnvironmentAwareHttpClient(HttpClient):
                 "EnvironmentAwareHttpClient: StackSpot CLI (oscli) detected. "
                 "Using StkCLIHttpClient."
             )
+            # Warn if credentials are also configured (they will be ignored)
+            from stkai._config import STKAI
+
+            if STKAI.config.auth.has_credentials():
+                logger.warning(
+                    "⚠️ Auth credentials detected (via env vars or configure) but running in CLI mode. "
+                    "Authentication will be handled by oscli. Credentials will be ignored."
+                )
             return StkCLIHttpClient()
 
         # 2. Try standalone with credentials
