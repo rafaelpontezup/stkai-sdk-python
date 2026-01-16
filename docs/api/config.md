@@ -25,3 +25,13 @@ Complete API reference for SDK configuration.
 ::: stkai.AgentConfig
     options:
       show_root_heading: true
+
+::: stkai.RateLimitConfig
+    options:
+      show_root_heading: true
+
+## Helper Classes
+
+::: stkai.ConfigEntry
+    options:
+      show_root_heading: true

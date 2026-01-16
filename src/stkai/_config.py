@@ -694,10 +694,10 @@ class STKAIConfig:
         Example:
             >>> config = STKAIConfig().with_env_vars()
             >>> data = config.explain_data()
-            >>> data["rqc"][0].name
-            'request_timeout'
-            >>> data["rqc"][0].source
-            'env:STKAI_RQC_REQUEST_TIMEOUT'
+            >>> for entry in data["rqc"]:
+            ...     print(f"{entry.name}: {entry.value} ({entry.source})")
+            request_timeout: 30 (default)
+            ...
         """
         result: dict[str, list[ConfigEntry]] = {}
 

@@ -23,7 +23,7 @@ src/stkai/
 ├── __init__.py                    # Public API exports (root module)
 ├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
 ├── _cli.py                        # CLI abstraction: StkCLI (is_available, get_codebuddy_base_url)
-├── _config.py                     # Global config: STKAI singleton (configure, config, reset)
+├── _config.py                     # Global config: STKAI singleton (configure, config, reset, explain)
 ├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, RateLimitedHttpClient, AdaptiveRateLimitedHttpClient
 ├── _utils.py                      # Internal utilities
 ├── agents/                        # AI Agents module
@@ -233,12 +233,27 @@ STKAI.configure(
 - `RqcConfig`: `request_timeout`, `max_retries`, `poll_interval`, `poll_max_duration`, etc.
 - `AgentConfig`: `request_timeout`, `base_url`
 - `RateLimitConfig`: `enabled`, `strategy`, `max_requests`, etc. (see [HTTP Client > Rate Limiting](#rate-limiting))
+- `ConfigEntry`: Represents a config field with its value and source (used by `explain()`)
 
 **Precedence (highest to lowest):**
 1. Values set via `STKAI.configure()`
 2. StackSpot CLI values (`oscli`) - if CLI is available
 3. Environment variables (`STKAI_*`)
 4. Hardcoded defaults
+
+**Debugging Configuration:**
+Use `STKAI.explain()` to print current config with sources:
+```python
+STKAI.explain()  # or STKAI.explain(output=logging.info)
+```
+This shows each config field's value and where it came from (`default`, `env:VAR_NAME`, `CLI`, or `user`).
+
+**CLI vs Credentials:**
+When both CLI (`oscli`) and credentials are available, CLI takes precedence. A warning is logged:
+```
+⚠️ Auth credentials detected (via env vars or configure) but running in CLI mode.
+Authentication will be handled by oscli. Credentials will be ignored.
+```
 
 ### Code Conventions
 
@@ -254,7 +269,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 
 | Location | What to Export | Example |
 |----------|----------------|---------|
-| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `RateLimitConfig`, `RateLimitStrategy`, `EnvironmentAwareHttpClient` |
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient` |
 | `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener`, `CreateExecutionOptions`, `GetResultOptions` |
 | `stkai.agents` | Agent-specific handlers, listeners, options | `AgentOptions` (future: `AgentEventListener`, etc.) |
 
@@ -266,7 +281,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 **Import examples:**
 ```python
 # Common usage - root imports
-from stkai import RemoteQuickCommand, Agent, RqcRequest, RqcOptions, ChatRequest, STKAI
+from stkai import RemoteQuickCommand, Agent, RqcRequest, RqcOptions, ChatRequest, STKAI, ConfigEntry
 
 # Configuration (with rate limiting)
 STKAI.configure(
@@ -275,6 +290,9 @@ STKAI.configure(
 )
 print(STKAI.config.rqc.request_timeout)
 print(STKAI.config.rate_limit.enabled)  # True
+
+# Debug configuration
+STKAI.explain()  # prints all config values with their sources
 
 # RQC with custom options (partial override - rest from STKAI.config)
 from stkai.rqc import CreateExecutionOptions

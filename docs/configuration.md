@@ -113,6 +113,16 @@ else:
     - **HTTP Client**: Uses `StkCLIHttpClient` when CLI is available
     - **Configuration**: Uses CLI values with higher precedence than env vars
 
+!!! warning "Credentials Ignored in CLI Mode"
+    If you have both StackSpot CLI installed **and** credentials configured (via environment variables or `STKAI.configure()`), the SDK will use CLI mode and **ignore the credentials**. A warning will be logged:
+
+    ```
+    ⚠️ Auth credentials detected (via env vars or configure) but running in CLI mode.
+    Authentication will be handled by oscli. Credentials will be ignored.
+    ```
+
+    This is expected behavior - CLI takes precedence over standalone credentials.
+
 ## Accessing Configuration
 
 Use `STKAI.config` to access current settings:
@@ -148,41 +158,42 @@ Example output:
 
 ```
 STKAI Configuration:
-================================================================================
-
+==========================================================================================
+  Field                     │ Value                                              │ Source
+----------------------------+----------------------------------------------------+--------
 [auth]
-  client_id ................. None (default)
-  client_secret ............. ******** (env:STKAI_AUTH_CLIENT_SECRET)
-  token_url ................. https://idm.stackspot.com/stackspot-dev... (default)
-
+  client_id ................ None                                                 default
+  client_secret ............ supe********-key                                   ✎ env:STKAI_AUTH_CLIENT_SECRET
+  token_url ................ https://idm.stackspot.com/stackspot-dev...           default
 [rqc]
-  request_timeout ........... 60 (configure)
-  max_retries ............... 5 (env:STKAI_RQC_MAX_RETRIES)
-  backoff_factor ............ 0.5 (default)
-  poll_interval ............. 10.0 (default)
-  poll_max_duration ......... 600.0 (default)
-  overload_timeout .......... 60.0 (default)
-  max_workers ............... 8 (default)
-  base_url .................. https://cli.example.com (CLI)
-
+  request_timeout .......... 60                                                 ✎ user
+  max_retries .............. 5                                                  ✎ env:STKAI_RQC_MAX_RETRIES
+  backoff_factor ........... 0.5                                                  default
+  poll_interval ............ 10.0                                                 default
+  poll_max_duration ........ 600.0                                                default
+  overload_timeout ......... 60.0                                                 default
+  max_workers .............. 8                                                    default
+  base_url ................. https://cli.example.com                            ✎ CLI
 [agent]
-  request_timeout ........... 60 (default)
-  base_url .................. https://genai-inference-app.stackspot.com (default)
-
+  request_timeout .......... 60                                                   default
+  base_url ................. https://genai-inference-app.stackspot.com            default
 [rate_limit]
-  enabled ................... False (default)
-  strategy .................. token_bucket (default)
+  enabled .................. False                                                default
+  strategy ................. token_bucket                                         default
   ...
-
-================================================================================
+==========================================================================================
 ```
+
+As you have noticed, the changed fields are rendered with an edit mark (✎). 
 
 **Source values:**
 
 - `default`: Using hardcoded default value
 - `env:VAR_NAME`: Value from environment variable
 - `CLI`: Value from StackSpot CLI (oscli)
-- `configure`: Value set via `STKAI.configure()`
+- `user`: Value set via `STKAI.configure()`
+
+The `✎` marker indicates values that were explicitly set (not using defaults).
 
 !!! tip "Sensitive Values"
     The `client_secret` field is automatically masked in the output for security.
