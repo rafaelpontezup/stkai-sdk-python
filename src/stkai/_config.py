@@ -104,6 +104,46 @@ class OverridableConfig:
 
 
 @dataclass(frozen=True)
+class SdkConfig:
+    """
+    SDK metadata (read-only, not configurable).
+
+    Provides information about the SDK version and runtime environment.
+    These values are automatically detected and cannot be overridden.
+
+    Attributes:
+        version: The installed SDK version.
+        cli_mode: Whether StackSpot CLI (oscli) is available.
+
+    Example:
+        >>> from stkai import STKAI
+        >>> STKAI.config.sdk.version
+        '0.2.8'
+        >>> STKAI.config.sdk.cli_mode
+        True
+    """
+
+    version: str
+    cli_mode: bool
+
+    @classmethod
+    def detect(cls) -> "SdkConfig":
+        """
+        Detect SDK metadata from the runtime environment.
+
+        Returns:
+            SdkConfig with version and cli_mode auto-detected.
+        """
+        from stkai import __version__
+        from stkai._cli import StkCLI
+
+        return cls(
+            version=__version__,
+            cli_mode=StkCLI.is_available(),
+        )
+
+
+@dataclass(frozen=True)
 class AuthConfig(OverridableConfig):
     """
     Authentication configuration for StackSpot AI.
@@ -566,10 +606,11 @@ class STKAIConfig:
     """
     Global configuration for the stkai SDK.
 
-    Aggregates all configuration sections: auth, rqc, agent, and rate_limit.
+    Aggregates all configuration sections: sdk, auth, rqc, agent, and rate_limit.
     Access via the global `STKAI.config` property.
 
     Attributes:
+        sdk: SDK metadata (version, cli_mode). Read-only.
         auth: Authentication configuration.
         rqc: RemoteQuickCommand configuration.
         agent: Agent configuration.
@@ -577,6 +618,10 @@ class STKAIConfig:
 
     Example:
         >>> from stkai import STKAI
+        >>> STKAI.config.sdk.version
+        '0.2.8'
+        >>> STKAI.config.sdk.cli_mode
+        True
         >>> STKAI.config.rqc.request_timeout
         30
         >>> STKAI.config.auth.has_credentials()
@@ -585,6 +630,7 @@ class STKAIConfig:
         False
     """
 
+    sdk: SdkConfig = field(default_factory=SdkConfig.detect)
     auth: AuthConfig = field(default_factory=AuthConfig)
     rqc: RqcConfig = field(default_factory=RqcConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
@@ -609,6 +655,7 @@ class STKAIConfig:
             >>> final = custom.with_env_vars()
         """
         return STKAIConfig(
+            sdk=self.sdk,
             auth=self.auth.with_overrides(_get_auth_from_env()),
             rqc=self.rqc.with_overrides(_get_rqc_from_env()),
             agent=self.agent.with_overrides(_get_agent_from_env()),
@@ -637,6 +684,7 @@ class STKAIConfig:
             cli_rqc_overrides["base_url"] = cli_base_url
 
         return STKAIConfig(
+            sdk=self.sdk,
             auth=self.auth,
             rqc=self.rqc.with_overrides(cli_rqc_overrides),
             agent=self.agent,
@@ -675,6 +723,7 @@ class STKAIConfig:
             ... )
         """
         return STKAIConfig(
+            sdk=self.sdk,
             auth=self.auth.with_overrides(auth or {}),
             rqc=self.rqc.with_overrides(rqc or {}),
             agent=self.agent.with_overrides(agent or {}),
@@ -700,6 +749,12 @@ class STKAIConfig:
             ...
         """
         result: dict[str, list[ConfigEntry]] = {}
+
+        # SDK section (read-only, not tracked)
+        result["sdk"] = [
+            ConfigEntry(name=f.name, value=getattr(self.sdk, f.name), source="-")
+            for f in fields(self.sdk)
+        ]
 
         for section_name in ("auth", "rqc", "agent", "rate_limit"):
             section_config = getattr(self, section_name)
@@ -970,7 +1025,7 @@ class _STKAI:
             for entry in entries:
                 dots = "." * (name_width - len(entry.name))
                 value_padded = entry.formatted_value.ljust(value_width)
-                marker = "✎" if entry.source != "default" else " "
+                marker = "✎" if entry.source not in ("default", "-") else " "
                 output(f"  {entry.name} {dots} {value_padded} {marker} {entry.source}")
 
         output("=" * total_width)

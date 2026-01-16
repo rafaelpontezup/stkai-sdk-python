@@ -229,6 +229,7 @@ STKAI.configure(
 ```
 
 **Configuration classes:**
+- `SdkConfig`: `version`, `cli_mode` (read-only, auto-detected)
 - `AuthConfig`: `client_id`, `client_secret`, `token_url`
 - `RqcConfig`: `request_timeout`, `max_retries`, `poll_interval`, `poll_max_duration`, etc.
 - `AgentConfig`: `request_timeout`, `base_url`

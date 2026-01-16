@@ -14,6 +14,10 @@ Complete API reference for SDK configuration.
     options:
       show_root_heading: true
 
+::: stkai.SdkConfig
+    options:
+      show_root_heading: true
+
 ::: stkai.AuthConfig
     options:
       show_root_heading: true

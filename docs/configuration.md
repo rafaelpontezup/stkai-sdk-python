@@ -161,6 +161,9 @@ STKAI Configuration:
 ==========================================================================================
   Field                     │ Value                                              │ Source
 ----------------------------+----------------------------------------------------+--------
+[sdk]
+  version .................. 0.2.8                                                -
+  cli_mode ................. True                                                 -
 [auth]
   client_id ................ None                                                 default
   client_secret ............ supe********-key                                   ✎ env:STKAI_AUTH_CLIENT_SECRET
@@ -188,6 +191,7 @@ As you have noticed, the changed fields are rendered with an edit mark (✎).
 
 **Source values:**
 
+- `-`: SDK metadata (read-only, not configurable)
 - `default`: Using hardcoded default value
 - `env:VAR_NAME`: Value from environment variable
 - `CLI`: Value from StackSpot CLI (oscli)

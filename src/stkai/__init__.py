@@ -84,6 +84,7 @@ from stkai._config import (
     RateLimitConfig,
     RateLimitStrategy,
     RqcConfig,
+    SdkConfig,
     STKAIConfig,
 )
 from stkai._http import (
@@ -114,6 +115,7 @@ __all__ = [
     # Configuration
     "STKAI",
     "STKAIConfig",
+    "SdkConfig",
     "ConfigEntry",
     "AuthConfig",
     "RqcConfig",
