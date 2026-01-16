@@ -11,6 +11,7 @@ from stkai._config import (
     RateLimitConfig,
     RqcConfig,
     STKAIConfig,
+    TrackableSTKAIConfig,
 )
 
 
@@ -715,6 +716,209 @@ class TestWithCliDefaults(unittest.TestCase):
         self.assertIsNot(original, result)
         self.assertEqual(original.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
         self.assertEqual(result.rqc.base_url, "https://cli.example.com")
+
+
+class TestSourceTracking(unittest.TestCase):
+    """Tests for _sources tracking in TrackableSTKAIConfig."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    def test_defaults_have_empty_sources(self):
+        """Default trackable config should have empty _sources."""
+        trackable = TrackableSTKAIConfig(STKAIConfig())
+        self.assertEqual(trackable._sources, {})
+
+    @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "99"})
+    def test_env_vars_tracked_in_sources(self):
+        """Env vars should be tracked in _sources."""
+        trackable = TrackableSTKAIConfig(STKAIConfig()).with_env_vars()
+        self.assertIn("rqc", trackable._sources)
+        self.assertEqual(trackable._sources["rqc"]["request_timeout"], "env:STKAI_RQC_REQUEST_TIMEOUT")
+
+    @patch.dict(os.environ, {"STKAI_AUTH_CLIENT_SECRET": "secret123"})
+    def test_auth_env_vars_tracked_in_sources(self):
+        """Auth env vars should be tracked in _sources."""
+        trackable = TrackableSTKAIConfig(STKAIConfig()).with_env_vars()
+        self.assertIn("auth", trackable._sources)
+        self.assertEqual(trackable._sources["auth"]["client_secret"], "env:STKAI_AUTH_CLIENT_SECRET")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_cli_values_tracked_in_sources(self, mock_cli):
+        """CLI values should be tracked in _sources."""
+        trackable = TrackableSTKAIConfig(STKAIConfig()).with_cli_defaults()
+        self.assertIn("rqc", trackable._sources)
+        self.assertEqual(trackable._sources["rqc"]["base_url"], "CLI")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_configure_values_tracked_in_sources(self, mock_cli):
+        """Configure values should be tracked in _sources."""
+        STKAI.configure(rqc={"request_timeout": 120}, allow_env_override=False)
+        # Access via internal _trackable
+        self.assertIn("rqc", STKAI._trackable._sources)
+        self.assertEqual(STKAI._trackable._sources["rqc"]["request_timeout"], "configure")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "99"})
+    def test_configure_overrides_cli_and_env_in_sources(self, mock_cli):
+        """Configure values should override CLI and env in _sources."""
+        STKAI.configure(rqc={"request_timeout": 120, "base_url": "https://custom.com"})
+        sources = STKAI._trackable._sources
+        # Configure should win for all fields it sets
+        self.assertEqual(sources["rqc"]["request_timeout"], "configure")
+        self.assertEqual(sources["rqc"]["base_url"], "configure")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10"})
+    def test_sources_from_multiple_origins(self, mock_cli):
+        """Sources should track multiple origins correctly."""
+        STKAI.configure(rqc={"request_timeout": 120})
+        sources = STKAI._trackable._sources
+        # CLI provides base_url
+        self.assertEqual(sources["rqc"]["base_url"], "CLI")
+        # Env var provides max_retries
+        self.assertEqual(sources["rqc"]["max_retries"], "env:STKAI_RQC_MAX_RETRIES")
+        # Configure provides request_timeout
+        self.assertEqual(sources["rqc"]["request_timeout"], "configure")
+
+
+class TestExplain(unittest.TestCase):
+    """Tests for STKAI.explain() method."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    def _capture_explain(self) -> str:
+        """Capture explain() output and print it to console for debugging."""
+        import io
+        import sys
+
+        captured = io.StringIO()
+        sys.stdout = captured
+        try:
+            STKAI.explain()
+        finally:
+            sys.stdout = sys.__stdout__
+
+        output = captured.getvalue()
+        print(output)  # Print to console for visibility
+        return output
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_explain_prints_output(self, mock_cli):
+        """explain() should print configuration output."""
+        STKAI.configure(allow_env_override=False, allow_cli_override=False)
+        output = self._capture_explain()
+        self.assertIn("STKAI Configuration:", output)
+        self.assertIn("[auth]", output)
+        self.assertIn("[rqc]", output)
+        self.assertIn("[agent]", output)
+        self.assertIn("[rate_limit]", output)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_explain_shows_default_source(self, mock_cli):
+        """explain() should show 'default' for default values."""
+        STKAI.configure(allow_env_override=False, allow_cli_override=False)
+        output = self._capture_explain()
+        self.assertIn("(default)", output)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_explain_shows_configure_source(self, mock_cli):
+        """explain() should show 'configure' for configured values."""
+        STKAI.configure(
+            rqc={"request_timeout": 99},
+            allow_env_override=False,
+            allow_cli_override=False,
+        )
+        output = self._capture_explain()
+        self.assertIn("99", output)
+        self.assertIn("(configure)", output)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
+    def test_explain_shows_cli_source(self, mock_cli):
+        """explain() should show 'CLI' for CLI values."""
+        STKAI.reset()
+        output = self._capture_explain()
+        self.assertIn("https://cli.example.com", output)
+        self.assertIn("(CLI)", output)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "15"})
+    def test_explain_shows_env_source(self, mock_cli):
+        """explain() should show env var name for env values."""
+        STKAI.reset()
+        output = self._capture_explain()
+        self.assertIn("15", output)
+        self.assertIn("(env:STKAI_RQC_MAX_RETRIES)", output)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_explain_masks_client_secret(self, mock_cli):
+        """explain() should mask client_secret value."""
+        STKAI.configure(
+            auth={"client_secret": "super-secret-value"},
+            allow_env_override=False,
+            allow_cli_override=False,
+        )
+        output = self._capture_explain()
+        self.assertNotIn("super-secret-value", output)
+        self.assertIn("********", output)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_explain_shows_none_values(self, mock_cli):
+        """explain() should show 'None' for None values."""
+        STKAI.configure(allow_env_override=False, allow_cli_override=False)
+        output = self._capture_explain()
+        # client_id should be None by default
+        self.assertIn("client_id", output)
+        self.assertIn("None", output)
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_explain_with_custom_output_handler(self, mock_cli):
+        """explain() should accept custom output handler."""
+        STKAI.configure(allow_env_override=False, allow_cli_override=False)
+
+        # Capture output using a custom handler
+        lines: list[str] = []
+        STKAI.explain(output=lines.append)
+
+        # Print for visibility
+        for line in lines:
+            print(line)
+
+        # Verify output was captured
+        self.assertTrue(any("STKAI Configuration:" in line for line in lines))
+        self.assertTrue(any("[rqc]" in line for line in lines))
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_explain_with_logger(self, mock_cli):
+        """explain() should work with logging."""
+        import logging
+
+        STKAI.configure(allow_env_override=False, allow_cli_override=False)
+
+        # Capture log output
+        log_messages: list[str] = []
+        handler = logging.Handler()
+        handler.emit = lambda record: log_messages.append(record.getMessage())  # type: ignore
+
+        logger = logging.getLogger("test_explain")
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+
+        STKAI.explain(output=logger.info)
+
+        # Print for visibility
+        for msg in log_messages:
+            print(msg)
+
+        # Verify log messages were captured
+        self.assertTrue(any("STKAI Configuration:" in msg for msg in log_messages))
 
 
 if __name__ == "__main__":

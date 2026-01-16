@@ -129,6 +129,64 @@ if STKAI.config.auth.has_credentials():
     print("Standalone auth available")
 ```
 
+## Debugging Configuration
+
+Use `STKAI.explain()` to troubleshoot configuration issues. It prints the current configuration with the exact source of each value:
+
+```python
+from stkai import STKAI
+
+STKAI.explain()
+
+# Or use with logging
+import logging
+logging.basicConfig(level=logging.INFO)
+STKAI.explain(output=logging.info)
+```
+
+Example output:
+
+```
+STKAI Configuration:
+================================================================================
+
+[auth]
+  client_id ................. None (default)
+  client_secret ............. ******** (env:STKAI_AUTH_CLIENT_SECRET)
+  token_url ................. https://idm.stackspot.com/stackspot-dev... (default)
+
+[rqc]
+  request_timeout ........... 60 (configure)
+  max_retries ............... 5 (env:STKAI_RQC_MAX_RETRIES)
+  backoff_factor ............ 0.5 (default)
+  poll_interval ............. 10.0 (default)
+  poll_max_duration ......... 600.0 (default)
+  overload_timeout .......... 60.0 (default)
+  max_workers ............... 8 (default)
+  base_url .................. https://cli.example.com (CLI)
+
+[agent]
+  request_timeout ........... 60 (default)
+  base_url .................. https://genai-inference-app.stackspot.com (default)
+
+[rate_limit]
+  enabled ................... False (default)
+  strategy .................. token_bucket (default)
+  ...
+
+================================================================================
+```
+
+**Source values:**
+
+- `default`: Using hardcoded default value
+- `env:VAR_NAME`: Value from environment variable
+- `CLI`: Value from StackSpot CLI (oscli)
+- `configure`: Value set via `STKAI.configure()`
+
+!!! tip "Sensitive Values"
+    The `client_secret` field is automatically masked in the output for security.
+
 ## Configuration Sections
 
 ### AuthConfig
