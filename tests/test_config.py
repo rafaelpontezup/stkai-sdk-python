@@ -41,12 +41,12 @@ class TestDefaults(unittest.TestCase):
         self.assertEqual(STKAI.config.agent.request_timeout, 60)
 
     def test_auth_defaults(self):
-        """Should return None for auth credentials when not configured."""
+        """Should return None for auth credentials when not userd."""
         self.assertIsNone(STKAI.config.auth.client_id)
         self.assertIsNone(STKAI.config.auth.client_secret)
 
     def test_has_credentials_false_by_default(self):
-        """Should return False when no credentials configured."""
+        """Should return False when no credentials userd."""
         self.assertFalse(STKAI.config.auth.has_credentials())
 
 
@@ -59,7 +59,7 @@ class TestSTKAIConfigure(unittest.TestCase):
     def tearDown(self):
         STKAI.reset()
 
-    def test_configure_rqc_values(self):
+    def test_user_rqc_values(self):
         """Should override RQC defaults with STKAI.configure()."""
         STKAI.configure(rqc={"request_timeout": 60, "max_retries": 10})
         self.assertEqual(STKAI.config.rqc.request_timeout, 60)
@@ -67,34 +67,34 @@ class TestSTKAIConfigure(unittest.TestCase):
         # Other values should remain default
         self.assertEqual(STKAI.config.rqc.poll_interval, 10.0)
 
-    def test_configure_agent_values(self):
+    def test_user_agent_values(self):
         """Should override Agent defaults with STKAI.configure()."""
         STKAI.configure(agent={"request_timeout": 120})
         self.assertEqual(STKAI.config.agent.request_timeout, 120)
         # Base URL should remain default
         self.assertEqual(STKAI.config.agent.base_url, "https://genai-inference-app.stackspot.com")
 
-    def test_configure_auth_values(self):
+    def test_user_auth_values(self):
         """Should set auth credentials via STKAI.configure()."""
         STKAI.configure(auth={"client_id": "my-id", "client_secret": "my-secret"})
         self.assertEqual(STKAI.config.auth.client_id, "my-id")
         self.assertEqual(STKAI.config.auth.client_secret, "my-secret")
         self.assertTrue(STKAI.config.auth.has_credentials())
 
-    def test_configure_partial_auth(self):
+    def test_user_partial_auth(self):
         """Should handle partial auth credentials."""
         STKAI.configure(auth={"client_id": "my-id"})
         self.assertFalse(STKAI.config.auth.has_credentials())  # Need both
 
-    def test_configure_returns_instance(self):
-        """Should return the configured STKAIConfig instance."""
+    def test_user_returns_instance(self):
+        """Should return the userd STKAIConfig instance."""
         result = STKAI.configure(rqc={"request_timeout": 60})
         self.assertIsInstance(result, STKAIConfig)
         self.assertEqual(result.rqc.request_timeout, 60)
         # STKAI.config should return same values
         self.assertEqual(STKAI.config.rqc.request_timeout, 60)
 
-    def test_configure_isolation_between_rqc_and_agent(self):
+    def test_user_isolation_between_rqc_and_agent(self):
         """RQC config should not affect Agent config and vice versa."""
         STKAI.configure(rqc={"request_timeout": 30}, agent={"request_timeout": 120})
         self.assertEqual(STKAI.config.rqc.request_timeout, 30)
@@ -149,23 +149,23 @@ class TestEnvVars(unittest.TestCase):
         self.assertTrue(STKAI.config.auth.has_credentials())
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
-    def test_configure_overrides_env_vars(self):
-        """configure() values should take precedence over env vars."""
+    def test_user_overrides_env_vars(self):
+        """user() values should take precedence over env vars."""
         STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=True)
-        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # configure wins
+        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # user wins
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45", "STKAI_RQC_MAX_RETRIES": "7"})
     def test_env_vars_used_as_fallback(self):
-        """Env vars should be used for fields NOT provided in configure()."""
+        """Env vars should be used for fields NOT provided in user()."""
         STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=True)
-        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # configure wins
+        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # user wins
         self.assertEqual(STKAI.config.rqc.max_retries, 7)  # env var fallback
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
-    def test_configure_without_env_override(self):
+    def test_user_without_env_override(self):
         """STKAI.configure() values should win when allow_env_override=False."""
         STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=False)
-        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # configure wins
+        self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # user wins
 
 
 class TestSTKAIReset(unittest.TestCase):
@@ -395,18 +395,18 @@ class TestRateLimitConfigure(unittest.TestCase):
     def tearDown(self):
         STKAI.reset()
 
-    def test_configure_rate_limit_enabled(self):
-        """Should enable rate limiting via configure()."""
+    def test_user_rate_limit_enabled(self):
+        """Should enable rate limiting via user()."""
         STKAI.configure(rate_limit={"enabled": True})
         self.assertTrue(STKAI.config.rate_limit.enabled)
 
-    def test_configure_rate_limit_strategy(self):
-        """Should set strategy via configure()."""
+    def test_user_rate_limit_strategy(self):
+        """Should set strategy via user()."""
         STKAI.configure(rate_limit={"strategy": "adaptive"})
         self.assertEqual(STKAI.config.rate_limit.strategy, "adaptive")
 
-    def test_configure_rate_limit_token_bucket(self):
-        """Should configure token_bucket strategy."""
+    def test_user_rate_limit_token_bucket(self):
+        """Should user token_bucket strategy."""
         STKAI.configure(
             rate_limit={
                 "enabled": True,
@@ -421,8 +421,8 @@ class TestRateLimitConfigure(unittest.TestCase):
         self.assertEqual(rl.max_requests, 10)
         self.assertEqual(rl.time_window, 30.0)
 
-    def test_configure_rate_limit_adaptive(self):
-        """Should configure adaptive strategy with all parameters."""
+    def test_user_rate_limit_adaptive(self):
+        """Should user adaptive strategy with all parameters."""
         STKAI.configure(
             rate_limit={
                 "enabled": True,
@@ -447,12 +447,12 @@ class TestRateLimitConfigure(unittest.TestCase):
         self.assertEqual(rl.penalty_factor, 0.3)
         self.assertEqual(rl.recovery_factor, 0.02)
 
-    def test_configure_rate_limit_max_wait_time_none(self):
+    def test_user_rate_limit_max_wait_time_none(self):
         """Should allow None for max_wait_time (unlimited wait)."""
         STKAI.configure(rate_limit={"max_wait_time": None})
         self.assertIsNone(STKAI.config.rate_limit.max_wait_time)
 
-    def test_configure_rate_limit_invalid_field_raises_error(self):
+    def test_user_rate_limit_invalid_field_raises_error(self):
         """Should raise ValueError for unknown fields."""
         with self.assertRaises(ValueError) as context:
             STKAI.configure(rate_limit={"invalid_field": True})
@@ -555,20 +555,20 @@ class TestRateLimitEnvVars(unittest.TestCase):
         self.assertEqual(rl.recovery_factor, 0.05)
 
     @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true"})
-    def test_configure_overrides_env_vars(self):
-        """configure() values should take precedence over env vars."""
+    def test_user_overrides_env_vars(self):
+        """user() values should take precedence over env vars."""
         STKAI.configure(rate_limit={"enabled": False}, allow_env_override=True)
-        self.assertFalse(STKAI.config.rate_limit.enabled)  # configure wins
+        self.assertFalse(STKAI.config.rate_limit.enabled)  # user wins
 
     @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true", "STKAI_RATE_LIMIT_MAX_REQUESTS": "50"})
     def test_env_vars_used_as_fallback(self):
-        """Env vars should be used for fields NOT provided in configure()."""
+        """Env vars should be used for fields NOT provided in user()."""
         STKAI.configure(rate_limit={"enabled": False}, allow_env_override=True)
-        self.assertFalse(STKAI.config.rate_limit.enabled)  # configure wins
+        self.assertFalse(STKAI.config.rate_limit.enabled)  # user wins
         self.assertEqual(STKAI.config.rate_limit.max_requests, 50)  # env var fallback
 
     @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "true"})
-    def test_configure_without_env_override(self):
+    def test_user_without_env_override(self):
         """Configure values should win when allow_env_override=False."""
         STKAI.configure(rate_limit={"enabled": False}, allow_env_override=False)
         self.assertFalse(STKAI.config.rate_limit.enabled)
@@ -638,10 +638,10 @@ class TestCLIPrecedence(unittest.TestCase):
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
-    def test_configure_overrides_cli_base_url(self, mock_cli):
+    def test_user_overrides_cli_base_url(self, mock_cli):
         """STKAI.configure() should override CLI base_url."""
-        STKAI.configure(rqc={"base_url": "https://configure.example.com"})
-        self.assertEqual(STKAI.config.rqc.base_url, "https://configure.example.com")
+        STKAI.configure(rqc={"base_url": "https://user.example.com"})
+        self.assertEqual(STKAI.config.rqc.base_url, "https://user.example.com")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     def test_hardcoded_default_used_when_no_cli(self, mock_cli):
@@ -754,22 +754,22 @@ class TestSourceTracking(unittest.TestCase):
         self.assertEqual(config._tracker.sources["rqc"]["base_url"], "CLI")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_configure_values_tracked_insources(self, mock_cli):
+    def test_user_values_tracked_insources(self, mock_cli):
         """Configure values should be tracked in _tracker.sources."""
         STKAI.configure(rqc={"request_timeout": 120}, allow_env_override=False)
         # Access via internal _config._tracker
         self.assertIn("rqc", STKAI.config._tracker.sources)
-        self.assertEqual(STKAI.config._tracker.sources["rqc"]["request_timeout"], "configure")
+        self.assertEqual(STKAI.config._tracker.sources["rqc"]["request_timeout"], "user")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "99"})
-    def test_configure_overrides_cli_and_env_insources(self, mock_cli):
+    def test_user_overrides_cli_and_env_insources(self, mock_cli):
         """Configure values should override CLI and env in _tracker.sources."""
         STKAI.configure(rqc={"request_timeout": 120, "base_url": "https://custom.com"})
         sources = STKAI.config._tracker.sources
         # Configure should win for all fields it sets
-        self.assertEqual(sources["rqc"]["request_timeout"], "configure")
-        self.assertEqual(sources["rqc"]["base_url"], "configure")
+        self.assertEqual(sources["rqc"]["request_timeout"], "user")
+        self.assertEqual(sources["rqc"]["base_url"], "user")
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10"})
@@ -782,7 +782,7 @@ class TestSourceTracking(unittest.TestCase):
         # Env var provides max_retries
         self.assertEqual(sources["rqc"]["max_retries"], "env:STKAI_RQC_MAX_RETRIES")
         # Configure provides request_timeout
-        self.assertEqual(sources["rqc"]["request_timeout"], "configure")
+        self.assertEqual(sources["rqc"]["request_timeout"], "user")
 
 
 class TestExplain(unittest.TestCase):
@@ -823,14 +823,14 @@ class TestExplain(unittest.TestCase):
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     def test_explain_shows_default_source(self, mock_cli):
-        """explain() should show 'default' for default values."""
+        """explain() should show 'default' for default values (without marker)."""
         STKAI.configure(allow_env_override=False, allow_cli_override=False)
         output = self._capture_explain()
-        self.assertIn("(default)", output)
+        self.assertIn("  default", output)  # space before default (no ✎ marker)
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_shows_configure_source(self, mock_cli):
-        """explain() should show 'configure' for configured values."""
+    def test_explain_shows_user_source(self, mock_cli):
+        """explain() should show '✎ user' for userd values."""
         STKAI.configure(
             rqc={"request_timeout": 99},
             allow_env_override=False,
@@ -838,24 +838,24 @@ class TestExplain(unittest.TestCase):
         )
         output = self._capture_explain()
         self.assertIn("99", output)
-        self.assertIn("(configure)", output)
+        self.assertIn("✎ user", output)
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     def test_explain_shows_cli_source(self, mock_cli):
-        """explain() should show 'CLI' for CLI values."""
+        """explain() should show '✎ CLI' for CLI values."""
         STKAI.reset()
         output = self._capture_explain()
         self.assertIn("https://cli.example.com", output)
-        self.assertIn("(CLI)", output)
+        self.assertIn("✎ CLI", output)
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "15"})
     def test_explain_shows_env_source(self, mock_cli):
-        """explain() should show env var name for env values."""
+        """explain() should show '✎ env:VAR_NAME' for env values."""
         STKAI.reset()
         output = self._capture_explain()
         self.assertIn("15", output)
-        self.assertIn("(env:STKAI_RQC_MAX_RETRIES)", output)
+        self.assertIn("✎ env:STKAI_RQC_MAX_RETRIES", output)
 
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     def test_explain_masks_client_secret(self, mock_cli):
@@ -898,24 +898,24 @@ class TestExplain(unittest.TestCase):
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10", "STKAI_AGENT_REQUEST_TIMEOUT": "90"})
     def test_explain_shows_mixed_sources(self, mock_cli):
-        """explain() should show mix of default, env, CLI, and configure sources."""
+        """explain() should show mix of default, env, CLI, and user sources."""
         STKAI.configure(
-            rqc={"request_timeout": 99},  # configure overrides default
+            rqc={"request_timeout": 99},  # user overrides default
             # max_retries comes from env (10)
             # base_url comes from CLI (https://cli.example.com)
             # poll_interval stays default
         )
         output = self._capture_explain()
 
-        # Verify all source types are present
-        self.assertIn("(default)", output)
-        self.assertIn("(env:STKAI_RQC_MAX_RETRIES)", output)
-        self.assertIn("(env:STKAI_AGENT_REQUEST_TIMEOUT)", output)
-        self.assertIn("(CLI)", output)
-        self.assertIn("(configure)", output)
+        # Verify all source types are present (✎ marker for non-default)
+        self.assertIn("  default", output)  # no marker for default
+        self.assertIn("✎ env:STKAI_RQC_MAX_RETRIES", output)
+        self.assertIn("✎ env:STKAI_AGENT_REQUEST_TIMEOUT", output)
+        self.assertIn("✎ CLI", output)
+        self.assertIn("✎ user", output)
 
         # Verify specific values
-        self.assertIn("99", output)  # request_timeout from configure
+        self.assertIn("99", output)  # request_timeout from user
         self.assertIn("10", output)  # max_retries from env
         self.assertIn("https://cli.example.com", output)  # base_url from CLI
         self.assertIn("10.0", output)  # poll_interval from default
@@ -955,17 +955,17 @@ class TestConfigEntryFormattedValue(unittest.TestCase):
 
     def test_long_secret_shows_first_and_last_four_chars(self):
         """Long secrets (>=12 chars) should show first 4 and last 4 chars."""
-        entry = ConfigEntry("client_secret", "super-secret-value", "configure")
+        entry = ConfigEntry("client_secret", "super-secret-value", "user")
         self.assertEqual(entry.formatted_value, "supe********alue")
 
     def test_secret_exactly_12_chars_shows_first_and_last_four(self):
         """Secret with exactly 12 chars should show first 4 and last 4."""
-        entry = ConfigEntry("client_secret", "123456789012", "configure")
+        entry = ConfigEntry("client_secret", "123456789012", "user")
         self.assertEqual(entry.formatted_value, "1234********9012")
 
     def test_long_secret_with_special_chars(self):
         """Long secrets with special characters should be masked correctly."""
-        entry = ConfigEntry("client_secret", "abc!@#$%^&*()xyz", "configure")
+        entry = ConfigEntry("client_secret", "abc!@#$%^&*()xyz", "user")
         self.assertEqual(entry.formatted_value, "abc!********)xyz")
 
     # -------------------------------------------------------------------------
@@ -974,27 +974,27 @@ class TestConfigEntryFormattedValue(unittest.TestCase):
 
     def test_short_secret_11_chars_shows_last_third(self):
         """11-char secret should show last 3 chars (11//3=3)."""
-        entry = ConfigEntry("client_secret", "12345678901", "configure")
+        entry = ConfigEntry("client_secret", "12345678901", "user")
         self.assertEqual(entry.formatted_value, "********901")
 
     def test_short_secret_9_chars_shows_last_third(self):
         """9-char secret should show last 3 chars (9//3=3)."""
-        entry = ConfigEntry("client_secret", "123456789", "configure")
+        entry = ConfigEntry("client_secret", "123456789", "user")
         self.assertEqual(entry.formatted_value, "********789")
 
     def test_short_secret_6_chars_shows_last_third(self):
         """6-char secret should show last 2 chars (6//3=2)."""
-        entry = ConfigEntry("client_secret", "123456", "configure")
+        entry = ConfigEntry("client_secret", "123456", "user")
         self.assertEqual(entry.formatted_value, "********56")
 
     def test_short_secret_5_chars_shows_last_one(self):
         """5-char secret should show last 1 char (5//3=1)."""
-        entry = ConfigEntry("client_secret", "12345", "configure")
+        entry = ConfigEntry("client_secret", "12345", "user")
         self.assertEqual(entry.formatted_value, "********5")
 
     def test_short_secret_3_chars_shows_last_one(self):
         """3-char secret should show last 1 char (3//3=1)."""
-        entry = ConfigEntry("client_secret", "abc", "configure")
+        entry = ConfigEntry("client_secret", "abc", "user")
         self.assertEqual(entry.formatted_value, "********c")
 
     # -------------------------------------------------------------------------
@@ -1003,17 +1003,17 @@ class TestConfigEntryFormattedValue(unittest.TestCase):
 
     def test_very_short_secret_2_chars_fully_masked(self):
         """2-char secret should be fully masked."""
-        entry = ConfigEntry("client_secret", "ab", "configure")
+        entry = ConfigEntry("client_secret", "ab", "user")
         self.assertEqual(entry.formatted_value, "********")
 
     def test_very_short_secret_1_char_fully_masked(self):
         """1-char secret should be fully masked."""
-        entry = ConfigEntry("client_secret", "a", "configure")
+        entry = ConfigEntry("client_secret", "a", "user")
         self.assertEqual(entry.formatted_value, "********")
 
     def test_empty_secret_fully_masked(self):
         """Empty secret should be fully masked."""
-        entry = ConfigEntry("client_secret", "", "configure")
+        entry = ConfigEntry("client_secret", "", "user")
         self.assertEqual(entry.formatted_value, "********")
 
     # -------------------------------------------------------------------------
@@ -1022,7 +1022,7 @@ class TestConfigEntryFormattedValue(unittest.TestCase):
 
     def test_secret_none_value_shows_none(self):
         """None secret should show 'None', not masked."""
-        entry = ConfigEntry("client_secret", None, "configure")
+        entry = ConfigEntry("client_secret", None, "user")
         self.assertEqual(entry.formatted_value, "None")
 
     # -------------------------------------------------------------------------
@@ -1085,7 +1085,7 @@ class TestConfigEntryFormattedValue(unittest.TestCase):
 
     def test_boolean_true_value(self):
         """Boolean True should be converted to string."""
-        entry = ConfigEntry("enabled", True, "configure")
+        entry = ConfigEntry("enabled", True, "user")
         self.assertEqual(entry.formatted_value, "True")
 
     def test_boolean_false_value(self):
@@ -1104,12 +1104,12 @@ class TestConfigEntryFormattedValue(unittest.TestCase):
 
     def test_non_secret_field_not_masked(self):
         """Non-secret fields should not be masked even if they look like secrets."""
-        entry = ConfigEntry("client_id", "super-secret-looking-value", "configure")
+        entry = ConfigEntry("client_id", "super-secret-looking-value", "user")
         self.assertEqual(entry.formatted_value, "super-secret-looking-value")
 
     def test_secret_with_numeric_value(self):
         """Secret with numeric value should be masked."""
-        entry = ConfigEntry("client_secret", 123456789012, "configure")
+        entry = ConfigEntry("client_secret", 123456789012, "user")
         self.assertEqual(entry.formatted_value, "1234********9012")
 
 

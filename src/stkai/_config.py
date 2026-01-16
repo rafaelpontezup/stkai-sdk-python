@@ -643,7 +643,7 @@ class STKAIConfig:
             rate_limit=self.rate_limit,
         )
 
-    @STKAIConfigTracker.track_changes("configure")
+    @STKAIConfigTracker.track_changes("user")
     def with_section_overrides(
         self,
         *,
@@ -965,7 +965,8 @@ class _STKAI:
             for entry in entries:
                 dots = "." * (name_width - len(entry.name))
                 value_padded = entry.formatted_value.ljust(value_width)
-                output(f"  {entry.name} {dots} {value_padded} ({entry.source})")
+                marker = "✎" if entry.source != "default" else " "
+                output(f"  {entry.name} {dots} {value_padded} {marker} {entry.source}")
 
         output("=" * 80)
 
