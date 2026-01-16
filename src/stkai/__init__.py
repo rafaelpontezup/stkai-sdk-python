@@ -80,6 +80,7 @@ from stkai._config import (
     STKAI,
     AgentConfig,
     AuthConfig,
+    ConfigEntry,
     RateLimitConfig,
     RateLimitStrategy,
     RqcConfig,
@@ -113,6 +114,7 @@ __all__ = [
     # Configuration
     "STKAI",
     "STKAIConfig",
+    "ConfigEntry",
     "AuthConfig",
     "RqcConfig",
     "AgentConfig",

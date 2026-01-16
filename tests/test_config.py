@@ -8,6 +8,7 @@ from stkai._config import (
     STKAI,
     AgentConfig,
     AuthConfig,
+    ConfigEntry,
     RateLimitConfig,
     RqcConfig,
     STKAIConfig,
@@ -918,6 +919,173 @@ class TestExplain(unittest.TestCase):
 
         # Verify log messages were captured
         self.assertTrue(any("STKAI Configuration:" in msg for msg in log_messages))
+
+
+class TestConfigEntryFormattedValue(unittest.TestCase):
+    """Tests for ConfigEntry.formatted_value property."""
+
+    # -------------------------------------------------------------------------
+    # Secret masking: long secrets (>=12 chars) - show first 4 and last 4
+    # -------------------------------------------------------------------------
+
+    def test_long_secret_shows_first_and_last_four_chars(self):
+        """Long secrets (>=12 chars) should show first 4 and last 4 chars."""
+        entry = ConfigEntry("client_secret", "super-secret-value", "configure")
+        self.assertEqual(entry.formatted_value, "supe********alue")
+
+    def test_secret_exactly_12_chars_shows_first_and_last_four(self):
+        """Secret with exactly 12 chars should show first 4 and last 4."""
+        entry = ConfigEntry("client_secret", "123456789012", "configure")
+        self.assertEqual(entry.formatted_value, "1234********9012")
+
+    def test_long_secret_with_special_chars(self):
+        """Long secrets with special characters should be masked correctly."""
+        entry = ConfigEntry("client_secret", "abc!@#$%^&*()xyz", "configure")
+        self.assertEqual(entry.formatted_value, "abc!********)xyz")
+
+    # -------------------------------------------------------------------------
+    # Secret masking: short secrets (3-11 chars) - show last 1/3
+    # -------------------------------------------------------------------------
+
+    def test_short_secret_11_chars_shows_last_third(self):
+        """11-char secret should show last 3 chars (11//3=3)."""
+        entry = ConfigEntry("client_secret", "12345678901", "configure")
+        self.assertEqual(entry.formatted_value, "********901")
+
+    def test_short_secret_9_chars_shows_last_third(self):
+        """9-char secret should show last 3 chars (9//3=3)."""
+        entry = ConfigEntry("client_secret", "123456789", "configure")
+        self.assertEqual(entry.formatted_value, "********789")
+
+    def test_short_secret_6_chars_shows_last_third(self):
+        """6-char secret should show last 2 chars (6//3=2)."""
+        entry = ConfigEntry("client_secret", "123456", "configure")
+        self.assertEqual(entry.formatted_value, "********56")
+
+    def test_short_secret_5_chars_shows_last_one(self):
+        """5-char secret should show last 1 char (5//3=1)."""
+        entry = ConfigEntry("client_secret", "12345", "configure")
+        self.assertEqual(entry.formatted_value, "********5")
+
+    def test_short_secret_3_chars_shows_last_one(self):
+        """3-char secret should show last 1 char (3//3=1)."""
+        entry = ConfigEntry("client_secret", "abc", "configure")
+        self.assertEqual(entry.formatted_value, "********c")
+
+    # -------------------------------------------------------------------------
+    # Secret masking: very short secrets (<3 chars) - fully masked
+    # -------------------------------------------------------------------------
+
+    def test_very_short_secret_2_chars_fully_masked(self):
+        """2-char secret should be fully masked."""
+        entry = ConfigEntry("client_secret", "ab", "configure")
+        self.assertEqual(entry.formatted_value, "********")
+
+    def test_very_short_secret_1_char_fully_masked(self):
+        """1-char secret should be fully masked."""
+        entry = ConfigEntry("client_secret", "a", "configure")
+        self.assertEqual(entry.formatted_value, "********")
+
+    def test_empty_secret_fully_masked(self):
+        """Empty secret should be fully masked."""
+        entry = ConfigEntry("client_secret", "", "configure")
+        self.assertEqual(entry.formatted_value, "********")
+
+    # -------------------------------------------------------------------------
+    # Secret masking: None value
+    # -------------------------------------------------------------------------
+
+    def test_secret_none_value_shows_none(self):
+        """None secret should show 'None', not masked."""
+        entry = ConfigEntry("client_secret", None, "configure")
+        self.assertEqual(entry.formatted_value, "None")
+
+    # -------------------------------------------------------------------------
+    # None handling for non-secret fields
+    # -------------------------------------------------------------------------
+
+    def test_none_value_returns_none_string(self):
+        """None values should return 'None' string."""
+        entry = ConfigEntry("client_id", None, "default")
+        self.assertEqual(entry.formatted_value, "None")
+
+    def test_none_value_for_any_field(self):
+        """None should return 'None' for any field."""
+        entry = ConfigEntry("base_url", None, "default")
+        self.assertEqual(entry.formatted_value, "None")
+
+    # -------------------------------------------------------------------------
+    # String truncation (>50 chars)
+    # -------------------------------------------------------------------------
+
+    def test_long_string_truncated_with_ellipsis(self):
+        """Strings longer than 50 chars should be truncated with '...'."""
+        long_url = "https://example.com/very/long/path/that/exceeds/fifty/characters/limit"
+        entry = ConfigEntry("base_url", long_url, "default")
+        self.assertEqual(len(entry.formatted_value), 50)
+        self.assertTrue(entry.formatted_value.endswith("..."))
+        self.assertEqual(entry.formatted_value, long_url[:47] + "...")
+
+    def test_string_exactly_50_chars_not_truncated(self):
+        """Strings with exactly 50 chars should not be truncated."""
+        exact_50 = "a" * 50
+        entry = ConfigEntry("base_url", exact_50, "default")
+        self.assertEqual(entry.formatted_value, exact_50)
+        self.assertFalse(entry.formatted_value.endswith("..."))
+
+    def test_string_51_chars_truncated(self):
+        """Strings with 51 chars should be truncated."""
+        string_51 = "a" * 51
+        entry = ConfigEntry("base_url", string_51, "default")
+        self.assertEqual(entry.formatted_value, "a" * 47 + "...")
+
+    def test_short_string_not_truncated(self):
+        """Short strings should not be truncated."""
+        entry = ConfigEntry("base_url", "https://example.com", "default")
+        self.assertEqual(entry.formatted_value, "https://example.com")
+
+    # -------------------------------------------------------------------------
+    # Normal values (no masking, no truncation)
+    # -------------------------------------------------------------------------
+
+    def test_integer_value(self):
+        """Integer values should be converted to string."""
+        entry = ConfigEntry("request_timeout", 30, "default")
+        self.assertEqual(entry.formatted_value, "30")
+
+    def test_float_value(self):
+        """Float values should be converted to string."""
+        entry = ConfigEntry("poll_interval", 10.5, "default")
+        self.assertEqual(entry.formatted_value, "10.5")
+
+    def test_boolean_true_value(self):
+        """Boolean True should be converted to string."""
+        entry = ConfigEntry("enabled", True, "configure")
+        self.assertEqual(entry.formatted_value, "True")
+
+    def test_boolean_false_value(self):
+        """Boolean False should be converted to string."""
+        entry = ConfigEntry("enabled", False, "default")
+        self.assertEqual(entry.formatted_value, "False")
+
+    def test_regular_string_value(self):
+        """Regular string values should be returned as-is."""
+        entry = ConfigEntry("strategy", "token_bucket", "default")
+        self.assertEqual(entry.formatted_value, "token_bucket")
+
+    # -------------------------------------------------------------------------
+    # Edge cases
+    # -------------------------------------------------------------------------
+
+    def test_non_secret_field_not_masked(self):
+        """Non-secret fields should not be masked even if they look like secrets."""
+        entry = ConfigEntry("client_id", "super-secret-looking-value", "configure")
+        self.assertEqual(entry.formatted_value, "super-secret-looking-value")
+
+    def test_secret_with_numeric_value(self):
+        """Secret with numeric value should be masked."""
+        entry = ConfigEntry("client_secret", 123456789012, "configure")
+        self.assertEqual(entry.formatted_value, "1234********9012")
 
 
 if __name__ == "__main__":

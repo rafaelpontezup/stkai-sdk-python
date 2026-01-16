@@ -334,6 +334,81 @@ class RateLimitConfig(OverridableConfig):
 
 
 @dataclass(frozen=True)
+class ConfigEntry:
+    """
+    A configuration field with its resolved value and source.
+
+    Represents a single configuration entry with metadata about where
+    the value came from. Used by explain_data() for structured output.
+
+    Attributes:
+        name: The field name (e.g., "request_timeout").
+        value: The resolved value.
+        source: Where the value came from:
+            - "default": Hardcoded default value
+            - "env:VAR_NAME": Environment variable
+            - "CLI": StackSpot CLI (oscli)
+            - "configure": Set via STKAI.configure()
+
+    Example:
+        >>> entry = ConfigEntry("request_timeout", 60, "configure")
+        >>> entry.name
+        'request_timeout'
+        >>> entry.value
+        60
+        >>> entry.source
+        'configure'
+        >>> entry.formatted_value
+        '60'
+    """
+
+    name: str
+    value: Any
+    source: str
+
+    @property
+    def formatted_value(self) -> str:
+        """
+        Return value formatted for display.
+
+        Masks sensitive fields (e.g., client_secret) showing only
+        first and last 4 characters, and truncates long strings.
+
+        Returns:
+            Formatted string representation of the value.
+
+        Examples:
+            >>> ConfigEntry("client_secret", "super-secret-key", "configure").formatted_value
+            'supe********-key'
+            >>> ConfigEntry("client_secret", "short", "configure").formatted_value
+            '********t'
+        """
+        # Mask sensitive fields
+        if self.name in ("client_secret",) and self.value is not None:
+            secret = str(self.value)
+            # Long secrets: show first 4 and last 4 chars
+            if len(secret) >= 12:
+                return f"{secret[:4]}********{secret[-4:]}"
+            # Short secrets: show last 1/3 of chars
+            if len(secret) >= 3:
+                visible = max(1, len(secret) // 3)
+                return f"********{secret[-visible:]}"
+            return "********"
+
+        # Handle None
+        if self.value is None:
+            return "None"
+
+        # Convert to string and truncate if needed
+        str_value = str(self.value)
+        max_length = 50
+        if len(str_value) > max_length:
+            return str_value[: max_length - 3] + "..."
+
+        return str_value
+
+
+@dataclass(frozen=True)
 class STKAIConfigTracker:
     """
     Tracks the source of config field values.
@@ -606,7 +681,7 @@ class STKAIConfig:
             rate_limit=self.rate_limit.with_overrides(rate_limit or {}),
         )
 
-    def explain_data(self) -> dict[str, list[tuple[str, Any, str]]]:
+    def explain_data(self) -> dict[str, list[ConfigEntry]]:
         """
         Return config data structured for explain output.
 
@@ -614,59 +689,31 @@ class STKAIConfig:
         sources, useful for debugging, testing, or custom formatting.
 
         Returns:
-            Dict mapping section names to list of (field_name, value, source) tuples.
-            Source values: "default", "env:VAR_NAME", "CLI", "configure"
+            Dict mapping section names to list of ConfigEntry objects.
 
         Example:
             >>> config = STKAIConfig().with_env_vars()
-            >>> config.explain_data()
-            {
-                "auth": [("client_id", None, "default"), ...],
-                "rqc": [("request_timeout", 60, "env:STKAI_RQC_REQUEST_TIMEOUT"), ...],
-                ...
-            }
+            >>> data = config.explain_data()
+            >>> data["rqc"][0].name
+            'request_timeout'
+            >>> data["rqc"][0].source
+            'env:STKAI_RQC_REQUEST_TIMEOUT'
         """
-        result: dict[str, list[tuple[str, Any, str]]] = {}
+        result: dict[str, list[ConfigEntry]] = {}
 
         for section_name in ("auth", "rqc", "agent", "rate_limit"):
             section_config = getattr(self, section_name)
             section_sources = self._tracker.sources.get(section_name, {})
             result[section_name] = [
-                (
-                    f.name,
-                    getattr(section_config, f.name),
-                    section_sources.get(f.name, "default"),
+                ConfigEntry(
+                    name=f.name,
+                    value=getattr(section_config, f.name),
+                    source=section_sources.get(f.name, "default"),
                 )
                 for f in fields(section_config)
             ]
 
         return result
-
-
-# =============================================================================
-# Internal Helpers
-# =============================================================================
-
-
-def _format_config_value(field_name: str, value: Any) -> str:
-    """Format a config value for display, masking secrets and truncating long strings."""
-    # Mask sensitive fields
-    if field_name in ("client_secret",) and value is not None:
-        return "********"
-
-    # Handle None
-    if value is None:
-        return "None"
-
-    # Convert to string
-    str_value = str(value)
-
-    # Truncate long strings (URLs, etc.)
-    max_length = 50
-    if len(str_value) > max_length:
-        return str_value[: max_length - 3] + "..."
-
-    return str_value
 
 
 # =============================================================================
@@ -910,14 +957,13 @@ class _STKAI:
         output("STKAI Configuration:")
         output("=" * 80)
 
-        for section_name, fields_data in self._config.explain_data().items():
-            output(f"\n[{section_name}]")
-            for field_name, value, source in fields_data:
-                formatted_value = _format_config_value(field_name, value)
-                padding = "." * (25 - len(field_name))
-                output(f"  {field_name} {padding} {formatted_value} ({source})")
+        for section_name, entries in self._config.explain_data().items():
+            output(f"[{section_name}]")
+            for entry in entries:
+                padding = "." * (25 - len(entry.name))
+                output(f"  {entry.name} {padding} {entry.formatted_value} ({entry.source})")
 
-        output("\n" + "=" * 80)
+        output("=" * 80)
 
     def __repr__(self) -> str:
         return f"STKAI(config={self._config!r})"
