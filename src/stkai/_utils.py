@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
 
 def sleep_with_jitter(seconds: float, jitter_factor: float = 0.1) -> None:
     """
@@ -58,7 +59,8 @@ def save_json_file(data: dict[str, Any], file_path: Path) -> None:
                 indent=4, ensure_ascii=False, default=str
             )
     except Exception as e:
-        logging.exception(
-            f"❌ It's not possible to save JSON file in the disk ({file_path.name}: {e}"
+        logger.error(
+            f"❌ Error while writing JSON file to disk ({file_path.name}): {e}",
+            exc_info=logger.isEnabledFor(logging.DEBUG)
         )
-        raise RuntimeError(f"It's not possible to save JSON file in the disk ({file_path.name}: {e}") from e
+        raise RuntimeError(f"It's not possible to save JSON file in the disk ({file_path.name}): {e}") from e
