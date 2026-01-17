@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 import requests
 
-from stkai._http import HttpClient
+from stkai._http import HttpClient, RateLimitTimeoutError
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
@@ -445,8 +445,10 @@ class RemoteQuickCommand:
                 f"{request.id[:26]:<26} | RQC | ❌ Failed to create execution. {e}",
                 exc_info=logger.isEnabledFor(logging.DEBUG)
             )
-            # Determine status: TIMEOUT if caused by HTTP timeout, ERROR otherwise
+            # Determine status: TIMEOUT if caused by HTTP timeout or rate limit timeout, ERROR otherwise
             status = RqcExecutionStatus.ERROR
+            if isinstance(e, RateLimitTimeoutError):
+                status = RqcExecutionStatus.TIMEOUT
             if isinstance(e, MaxRetriesExceededError) and isinstance(e.last_exception, requests.exceptions.Timeout):
                 status = RqcExecutionStatus.TIMEOUT
             # Notify status change: PENDING → ERROR or TIMEOUT
