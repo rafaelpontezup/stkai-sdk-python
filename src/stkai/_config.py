@@ -656,10 +656,10 @@ class STKAIConfig:
         """
         return STKAIConfig(
             sdk=self.sdk,
-            auth=self.auth.with_overrides(_get_auth_from_env()),
-            rqc=self.rqc.with_overrides(_get_rqc_from_env()),
-            agent=self.agent.with_overrides(_get_agent_from_env()),
-            rate_limit=self.rate_limit.with_overrides(_get_rate_limit_from_env()),
+            auth=self.auth.with_overrides(STKAIEnvVars.auth()),
+            rqc=self.rqc.with_overrides(STKAIEnvVars.rqc()),
+            agent=self.agent.with_overrides(STKAIEnvVars.agent()),
+            rate_limit=self.rate_limit.with_overrides(STKAIEnvVars.rate_limit()),
         )
 
     @STKAIConfigTracker.track_changes("CLI")
@@ -772,88 +772,112 @@ class STKAIConfig:
 
 
 # =============================================================================
-# Environment Variable Helpers
+# Environment Variable Reader
 # =============================================================================
 
 
-def _get_auth_from_env() -> dict[str, Any]:
-    """Read AuthConfig values from environment variables."""
-    result: dict[str, Any] = {}
-    env_mapping: list[tuple[str, str, type]] = [
-        ("client_id", "STKAI_AUTH_CLIENT_ID", str),
-        ("client_secret", "STKAI_AUTH_CLIENT_SECRET", str),
-        ("token_url", "STKAI_AUTH_TOKEN_URL", str),
-    ]
-    for key, env_var, type_fn in env_mapping:
-        if value := os.environ.get(env_var):
-            result[key] = type_fn(value)
-    return result
+class STKAIEnvVars:
+    """
+    Reads STKAI configuration values from environment variables.
 
+    Provides class methods to read configuration for each section (auth, rqc,
+    agent, rate_limit) from environment variables following the naming convention
+    STKAI_{SECTION}_{FIELD}.
 
-def _get_rqc_from_env() -> dict[str, Any]:
-    """Read RqcConfig values from environment variables."""
-    result: dict[str, Any] = {}
-    env_mapping: list[tuple[str, str, type]] = [
-        ("base_url", "STKAI_RQC_BASE_URL", str),
-        ("request_timeout", "STKAI_RQC_REQUEST_TIMEOUT", int),
-        ("max_retries", "STKAI_RQC_MAX_RETRIES", int),
-        ("backoff_factor", "STKAI_RQC_BACKOFF_FACTOR", float),
-        ("poll_interval", "STKAI_RQC_POLL_INTERVAL", float),
-        ("poll_max_duration", "STKAI_RQC_POLL_MAX_DURATION", float),
-        ("overload_timeout", "STKAI_RQC_OVERLOAD_TIMEOUT", float),
-        ("max_workers", "STKAI_RQC_MAX_WORKERS", int),
-    ]
-    for key, env_var, type_fn in env_mapping:
-        if value := os.environ.get(env_var):
-            result[key] = type_fn(value)
-    return result
+    Example:
+        >>> STKAIEnvVars.auth()
+        {'client_id': 'my-client-id', 'client_secret': 'my-secret'}
+        >>> STKAIEnvVars.rqc()
+        {'request_timeout': 60, 'max_retries': 5}
+    """
 
+    _PREFIX = "STKAI"
 
-def _get_agent_from_env() -> dict[str, Any]:
-    """Read AgentConfig values from environment variables."""
-    result: dict[str, Any] = {}
-    env_mapping: list[tuple[str, str, type]] = [
-        ("base_url", "STKAI_AGENT_BASE_URL", str),
-        ("request_timeout", "STKAI_AGENT_REQUEST_TIMEOUT", int),
-    ]
-    for key, env_var, type_fn in env_mapping:
-        if value := os.environ.get(env_var):
-            result[key] = type_fn(value)
-    return result
+    @classmethod
+    def auth(cls) -> dict[str, Any]:
+        """Read AuthConfig values from environment variables."""
+        return cls._read_fields("AUTH", [
+            ("client_id", str),
+            ("client_secret", str),
+            ("token_url", str),
+        ])
 
+    @classmethod
+    def rqc(cls) -> dict[str, Any]:
+        """Read RqcConfig values from environment variables."""
+        return cls._read_fields("RQC", [
+            ("base_url", str),
+            ("request_timeout", int),
+            ("max_retries", int),
+            ("backoff_factor", float),
+            ("poll_interval", float),
+            ("poll_max_duration", float),
+            ("overload_timeout", float),
+            ("max_workers", int),
+        ])
 
-def _get_rate_limit_from_env() -> dict[str, Any]:
-    """Read RateLimitConfig values from environment variables."""
-    result: dict[str, Any] = {}
+    @classmethod
+    def agent(cls) -> dict[str, Any]:
+        """Read AgentConfig values from environment variables."""
+        return cls._read_fields("AGENT", [
+            ("base_url", str),
+            ("request_timeout", int),
+        ])
 
-    # Handle boolean 'enabled' field specially
-    if enabled_str := os.environ.get("STKAI_RATE_LIMIT_ENABLED"):
-        result["enabled"] = enabled_str.lower() in ("true", "1", "yes")
+    @classmethod
+    def rate_limit(cls) -> dict[str, Any]:
+        """Read RateLimitConfig values from environment variables."""
+        result: dict[str, Any] = {}
 
-    # Handle strategy (string, but validated by dataclass)
-    if strategy := os.environ.get("STKAI_RATE_LIMIT_STRATEGY"):
-        result["strategy"] = strategy
+        # Handle boolean 'enabled' field specially
+        if enabled_str := os.environ.get(f"{cls._PREFIX}_RATE_LIMIT_ENABLED"):
+            result["enabled"] = enabled_str.lower() in ("true", "1", "yes")
 
-    # Handle max_wait_time specially (can be None for "unlimited")
-    if max_wait_str := os.environ.get("STKAI_RATE_LIMIT_MAX_WAIT_TIME"):
-        if max_wait_str.lower() in ("none", "null", "unlimited"):
-            result["max_wait_time"] = None
-        else:
-            result["max_wait_time"] = float(max_wait_str)
+        # Handle strategy (string, but validated by dataclass)
+        if strategy := os.environ.get(f"{cls._PREFIX}_RATE_LIMIT_STRATEGY"):
+            result["strategy"] = strategy
 
-    # Standard numeric fields
-    env_mapping: list[tuple[str, str, type]] = [
-        ("max_requests", "STKAI_RATE_LIMIT_MAX_REQUESTS", int),
-        ("time_window", "STKAI_RATE_LIMIT_TIME_WINDOW", float),
-        ("min_rate_floor", "STKAI_RATE_LIMIT_MIN_RATE_FLOOR", float),
-        ("max_retries_on_429", "STKAI_RATE_LIMIT_MAX_RETRIES_ON_429", int),
-        ("penalty_factor", "STKAI_RATE_LIMIT_PENALTY_FACTOR", float),
-        ("recovery_factor", "STKAI_RATE_LIMIT_RECOVERY_FACTOR", float),
-    ]
-    for key, env_var, type_fn in env_mapping:
-        if value := os.environ.get(env_var):
-            result[key] = type_fn(value)
-    return result
+        # Handle max_wait_time specially (can be None for "unlimited")
+        if max_wait_str := os.environ.get(f"{cls._PREFIX}_RATE_LIMIT_MAX_WAIT_TIME"):
+            if max_wait_str.lower() in ("none", "null", "unlimited"):
+                result["max_wait_time"] = None
+            else:
+                result["max_wait_time"] = float(max_wait_str)
+
+        # Standard numeric fields
+        result.update(cls._read_fields("RATE_LIMIT", [
+            ("max_requests", int),
+            ("time_window", float),
+            ("min_rate_floor", float),
+            ("max_retries_on_429", int),
+            ("penalty_factor", float),
+            ("recovery_factor", float),
+        ]))
+
+        return result
+
+    @classmethod
+    def _read_fields(
+        cls,
+        section: str,
+        fields: list[tuple[str, type]],
+    ) -> dict[str, Any]:
+        """
+        Read fields from environment variables for a given section.
+
+        Args:
+            section: The section name (e.g., "AUTH", "RQC").
+            fields: List of (field_name, type_converter) tuples.
+
+        Returns:
+            Dict with field values read from environment variables.
+        """
+        result: dict[str, Any] = {}
+        for field_name, type_fn in fields:
+            env_var = f"{cls._PREFIX}_{section}_{field_name.upper()}"
+            if value := os.environ.get(env_var):
+                result[field_name] = type_fn(value)
+        return result
 
 
 # =============================================================================
