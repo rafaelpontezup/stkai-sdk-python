@@ -36,6 +36,29 @@ from typing import Any, Literal, Self
 # Type alias for rate limit strategies
 RateLimitStrategy = Literal["token_bucket", "adaptive"]
 
+
+# =============================================================================
+# Exceptions
+# =============================================================================
+
+
+class ConfigEnvVarError(ValueError):
+    """Raised when an environment variable has an invalid value."""
+
+    def __init__(
+        self,
+        env_var: str,
+        value: str,
+        expected_type: str,
+        cause: Exception | None = None,
+    ):
+        self.env_var = env_var
+        self.value = value
+        self.expected_type = expected_type
+        super().__init__(f"Invalid value for {env_var}: '{value}' (expected {expected_type})")
+        self.__cause__ = cause
+
+
 # =============================================================================
 # Base Class
 # =============================================================================
@@ -96,6 +119,51 @@ class OverridableConfig:
         allow_none = allow_none_fields or set()
         filtered = {k: v for k, v in overrides.items() if v is not None or k in allow_none}
         return replace(self, **filtered) if filtered else self
+
+    def with_env_vars(self) -> Self:
+        """
+        Return new instance with environment variables applied.
+
+        Reads env vars declared in field metadata and applies them as overrides.
+        Fields with metadata={"skip": True} are ignored (for subclass handling).
+
+        Raises:
+            ConfigEnvVarError: If an env var has an invalid value.
+        """
+        overrides: dict[str, Any] = {}
+        for f in fields(self):
+            env_var = f.metadata.get("env")
+            skip = f.metadata.get("skip", False)
+            if env_var and not skip and (value := os.environ.get(env_var)):
+                converter = f.metadata.get("converter", self._infer_converter(f.type))
+                try:
+                    overrides[f.name] = converter(value)
+                except (ValueError, TypeError) as e:
+                    raise ConfigEnvVarError(
+                        env_var=env_var,
+                        value=value,
+                        expected_type=f.type.__name__ if hasattr(f.type, "__name__") else str(f.type),
+                        cause=e,
+                    ) from e
+        return self.with_overrides(overrides)
+
+    @staticmethod
+    def _infer_converter(type_hint: Any) -> Callable[[str], Any]:
+        """Infer converter function from type hint.
+
+        Handles both actual types and string annotations (PEP 563).
+        """
+        # Handle string annotations (from __future__ import annotations)
+        type_str = str(type_hint)
+
+        if type_hint is int or type_str == "int":
+            return int
+        if type_hint is float or type_str == "float":
+            return float
+        if type_hint is bool or type_str == "bool":
+            return lambda v: v.lower() in ("true", "1", "yes")
+        # str and other types: return as string
+        return str
 
 
 # =============================================================================
@@ -167,9 +235,9 @@ class AuthConfig(OverridableConfig):
         ...     print("Credentials configured")
     """
 
-    client_id: str | None = None
-    client_secret: str | None = None
-    token_url: str = "https://idm.stackspot.com/stackspot-dev/oidc/oauth/token"
+    client_id: str | None = field(default=None, metadata={"env": "STKAI_AUTH_CLIENT_ID"})
+    client_secret: str | None = field(default=None, metadata={"env": "STKAI_AUTH_CLIENT_SECRET"})
+    token_url: str = field(default="https://idm.stackspot.com/stackspot-dev/oidc/oauth/token", metadata={"env": "STKAI_AUTH_TOKEN_URL"})
 
     def has_credentials(self) -> bool:
         """Check if both client_id and client_secret are set."""
@@ -221,14 +289,14 @@ class RqcConfig(OverridableConfig):
         3
     """
 
-    request_timeout: int = 30
-    max_retries: int = 3
-    backoff_factor: float = 0.5
-    poll_interval: float = 10.0
-    poll_max_duration: float = 600.0
-    overload_timeout: float = 60.0
-    max_workers: int = 8
-    base_url: str = "https://genai-code-buddy-api.stackspot.com"
+    request_timeout: int = field(default=30, metadata={"env": "STKAI_RQC_REQUEST_TIMEOUT"})
+    max_retries: int = field(default=3, metadata={"env": "STKAI_RQC_MAX_RETRIES"})
+    backoff_factor: float = field(default=0.5, metadata={"env": "STKAI_RQC_BACKOFF_FACTOR"})
+    poll_interval: float = field(default=10.0, metadata={"env": "STKAI_RQC_POLL_INTERVAL"})
+    poll_max_duration: float = field(default=600.0, metadata={"env": "STKAI_RQC_POLL_MAX_DURATION"})
+    overload_timeout: float = field(default=60.0, metadata={"env": "STKAI_RQC_OVERLOAD_TIMEOUT"})
+    max_workers: int = field(default=8, metadata={"env": "STKAI_RQC_MAX_WORKERS"})
+    base_url: str = field(default="https://genai-code-buddy-api.stackspot.com", metadata={"env": "STKAI_RQC_BASE_URL"})
 
 
 @dataclass(frozen=True)
@@ -254,8 +322,8 @@ class AgentConfig(OverridableConfig):
         'https://genai-inference-app.stackspot.com'
     """
 
-    request_timeout: int = 60
-    base_url: str = "https://genai-inference-app.stackspot.com"
+    request_timeout: int = field(default=60, metadata={"env": "STKAI_AGENT_REQUEST_TIMEOUT"})
+    base_url: str = field(default="https://genai-inference-app.stackspot.com", metadata={"env": "STKAI_AGENT_BASE_URL"})
 
 
 @dataclass(frozen=True)
@@ -325,19 +393,22 @@ class RateLimitConfig(OverridableConfig):
         ... )
     """
 
-    enabled: bool = False
-    strategy: RateLimitStrategy = "token_bucket"
-
+    # Normal fields (processed automatically by with_env_vars)
+    enabled: bool = field(default=False, metadata={"env": "STKAI_RATE_LIMIT_ENABLED"})
+    strategy: RateLimitStrategy = field(default="token_bucket", metadata={"env": "STKAI_RATE_LIMIT_STRATEGY"})
     # Common parameters
-    max_requests: int = 100
-    time_window: float = 60.0
-    max_wait_time: float | None = 60.0
-
+    max_requests: int = field(default=100, metadata={"env": "STKAI_RATE_LIMIT_MAX_REQUESTS"})
+    time_window: float = field(default=60.0, metadata={"env": "STKAI_RATE_LIMIT_TIME_WINDOW"})
+    # Special field (processed manually - can be None for "unlimited")
+    max_wait_time: float | None = field(
+        default=60.0,
+        metadata={"env": "STKAI_RATE_LIMIT_MAX_WAIT_TIME", "skip": True},
+    )
     # Adaptive strategy parameters (ignored if strategy != "adaptive")
-    min_rate_floor: float = 0.1
-    max_retries_on_429: int = 3
-    penalty_factor: float = 0.2
-    recovery_factor: float = 0.01
+    min_rate_floor: float = field(default=0.1, metadata={"env": "STKAI_RATE_LIMIT_MIN_RATE_FLOOR"})
+    max_retries_on_429: int = field(default=3, metadata={"env": "STKAI_RATE_LIMIT_MAX_RETRIES_ON_429"})
+    penalty_factor: float = field(default=0.2, metadata={"env": "STKAI_RATE_LIMIT_PENALTY_FACTOR"})
+    recovery_factor: float = field(default=0.01, metadata={"env": "STKAI_RATE_LIMIT_RECOVERY_FACTOR"})
 
     def with_overrides(
         self,
@@ -371,6 +442,21 @@ class RateLimitConfig(OverridableConfig):
         # Always allow None for max_wait_time, plus any additional fields
         merged_allow_none = {"max_wait_time"} | (allow_none_fields or set())
         return super().with_overrides(processed, allow_none_fields=merged_allow_none)
+
+    def with_env_vars(self) -> Self:
+        """Override to handle max_wait_time (can be None for 'unlimited')."""
+        # Process normal fields via base class
+        result = super().with_env_vars()
+
+        # Process max_wait_time manually
+        overrides: dict[str, Any] = {}
+        if max_wait := os.environ.get("STKAI_RATE_LIMIT_MAX_WAIT_TIME"):
+            if max_wait.lower() in ("none", "null", "unlimited"):
+                overrides["max_wait_time"] = None
+            else:
+                overrides["max_wait_time"] = float(max_wait)
+
+        return result.with_overrides(overrides, allow_none_fields={"max_wait_time"})
 
 
 @dataclass(frozen=True)
@@ -656,10 +742,10 @@ class STKAIConfig:
         """
         return STKAIConfig(
             sdk=self.sdk,
-            auth=self.auth.with_overrides(STKAIEnvVars.auth()),
-            rqc=self.rqc.with_overrides(STKAIEnvVars.rqc()),
-            agent=self.agent.with_overrides(STKAIEnvVars.agent()),
-            rate_limit=self.rate_limit.with_overrides(STKAIEnvVars.rate_limit()),
+            auth=self.auth.with_env_vars(),
+            rqc=self.rqc.with_env_vars(),
+            agent=self.agent.with_env_vars(),
+            rate_limit=self.rate_limit.with_env_vars(),
         )
 
     @STKAIConfigTracker.track_changes("CLI")
@@ -768,115 +854,6 @@ class STKAIConfig:
                 for f in fields(section_config)
             ]
 
-        return result
-
-
-# =============================================================================
-# Environment Variable Reader
-# =============================================================================
-
-
-class STKAIEnvVars:
-    """
-    Reads STKAI configuration values from environment variables.
-
-    Provides class methods to read configuration for each section (auth, rqc,
-    agent, rate_limit) from environment variables following the naming convention
-    STKAI_{SECTION}_{FIELD}.
-
-    Example:
-        >>> STKAIEnvVars.auth()
-        {'client_id': 'my-client-id', 'client_secret': 'my-secret'}
-        >>> STKAIEnvVars.rqc()
-        {'request_timeout': 60, 'max_retries': 5}
-    """
-
-    _PREFIX = "STKAI"
-
-    @classmethod
-    def auth(cls) -> dict[str, Any]:
-        """Read AuthConfig values from environment variables."""
-        return cls._read_fields("AUTH", [
-            ("client_id", str),
-            ("client_secret", str),
-            ("token_url", str),
-        ])
-
-    @classmethod
-    def rqc(cls) -> dict[str, Any]:
-        """Read RqcConfig values from environment variables."""
-        return cls._read_fields("RQC", [
-            ("base_url", str),
-            ("request_timeout", int),
-            ("max_retries", int),
-            ("backoff_factor", float),
-            ("poll_interval", float),
-            ("poll_max_duration", float),
-            ("overload_timeout", float),
-            ("max_workers", int),
-        ])
-
-    @classmethod
-    def agent(cls) -> dict[str, Any]:
-        """Read AgentConfig values from environment variables."""
-        return cls._read_fields("AGENT", [
-            ("base_url", str),
-            ("request_timeout", int),
-        ])
-
-    @classmethod
-    def rate_limit(cls) -> dict[str, Any]:
-        """Read RateLimitConfig values from environment variables."""
-        result: dict[str, Any] = {}
-
-        # Handle boolean 'enabled' field specially
-        if enabled_str := os.environ.get(f"{cls._PREFIX}_RATE_LIMIT_ENABLED"):
-            result["enabled"] = enabled_str.lower() in ("true", "1", "yes")
-
-        # Handle strategy (string, but validated by dataclass)
-        if strategy := os.environ.get(f"{cls._PREFIX}_RATE_LIMIT_STRATEGY"):
-            result["strategy"] = strategy
-
-        # Handle max_wait_time specially (can be None for "unlimited")
-        if max_wait_str := os.environ.get(f"{cls._PREFIX}_RATE_LIMIT_MAX_WAIT_TIME"):
-            if max_wait_str.lower() in ("none", "null", "unlimited"):
-                result["max_wait_time"] = None
-            else:
-                result["max_wait_time"] = float(max_wait_str)
-
-        # Standard numeric fields
-        result.update(cls._read_fields("RATE_LIMIT", [
-            ("max_requests", int),
-            ("time_window", float),
-            ("min_rate_floor", float),
-            ("max_retries_on_429", int),
-            ("penalty_factor", float),
-            ("recovery_factor", float),
-        ]))
-
-        return result
-
-    @classmethod
-    def _read_fields(
-        cls,
-        section: str,
-        fields: list[tuple[str, type]],
-    ) -> dict[str, Any]:
-        """
-        Read fields from environment variables for a given section.
-
-        Args:
-            section: The section name (e.g., "AUTH", "RQC").
-            fields: List of (field_name, type_converter) tuples.
-
-        Returns:
-            Dict with field values read from environment variables.
-        """
-        result: dict[str, Any] = {}
-        for field_name, type_fn in fields:
-            env_var = f"{cls._PREFIX}_{section}_{field_name.upper()}"
-            if value := os.environ.get(env_var):
-                result[field_name] = type_fn(value)
         return result
 
 
