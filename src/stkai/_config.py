@@ -60,6 +60,79 @@ class ConfigEnvVarError(ValueError):
 
 
 # =============================================================================
+# Environment Variables
+# =============================================================================
+
+
+class EnvVars:
+    """
+    Utility class for reading environment variables with type conversion.
+
+    Example:
+        >>> EnvVars.get("STKAI_RQC_TIMEOUT", type_hint=int)
+        30
+        >>> EnvVars.get("STKAI_AUTH_CLIENT_ID")
+        'my-client-id'
+        >>> EnvVars.get("UNDEFINED_VAR")
+        None
+    """
+
+    @staticmethod
+    def get(
+        var_name: str,
+        type_hint: Any = str,
+        converter: Callable[[str], Any] | None = None,
+    ) -> Any:
+        """
+        Read an environment variable with optional type conversion.
+
+        Args:
+            var_name: The environment variable name.
+            type_hint: Type hint used to infer the converter (ignored if converter is provided).
+            converter: Custom converter function (takes precedence over type_hint).
+
+        Returns:
+            The converted value, or None if env var is not set/empty.
+
+        Raises:
+            ConfigEnvVarError: If the value cannot be converted.
+        """
+        raw_value = os.environ.get(var_name)
+        if not raw_value:  # None or empty string
+            return None
+
+        actual_converter = converter or EnvVars._infer_converter(type_hint)
+        try:
+            return actual_converter(raw_value)
+        except (ValueError, TypeError) as e:
+            raise ConfigEnvVarError(
+                env_var=var_name,
+                value=raw_value,
+                expected_type=type_hint.__name__ if hasattr(type_hint, "__name__") else str(type_hint),
+                cause=e,
+            ) from e
+
+    @staticmethod
+    def _infer_converter(type_hint: Any) -> Callable[[str], Any]:
+        """
+        Infer converter function from type hint.
+
+        Handles both actual types and string annotations (PEP 563).
+        """
+        # Handle string annotations (from __future__ import annotations)
+        type_str = str(type_hint)
+
+        if type_hint is int or type_str == "int":
+            return int
+        if type_hint is float or type_str == "float":
+            return float
+        if type_hint is bool or type_str == "bool":
+            return lambda v: v.lower() in ("true", "1", "yes")
+        # str and other types: return as string
+        return str
+
+
+# =============================================================================
 # Base Class
 # =============================================================================
 
@@ -134,36 +207,15 @@ class OverridableConfig:
         for f in fields(self):
             env_var = f.metadata.get("env")
             skip = f.metadata.get("skip", False)
-            if env_var and not skip and (value := os.environ.get(env_var)):
-                converter = f.metadata.get("converter", self._infer_converter(f.type))
-                try:
-                    overrides[f.name] = converter(value)
-                except (ValueError, TypeError) as e:
-                    raise ConfigEnvVarError(
-                        env_var=env_var,
-                        value=value,
-                        expected_type=f.type.__name__ if hasattr(f.type, "__name__") else str(f.type),
-                        cause=e,
-                    ) from e
+            if env_var and not skip:
+                value = EnvVars.get(
+                    var_name=env_var,
+                    type_hint=f.type,
+                    converter=f.metadata.get("converter"),
+                )
+                if value is not None:
+                    overrides[f.name] = value
         return self.with_overrides(overrides)
-
-    @staticmethod
-    def _infer_converter(type_hint: Any) -> Callable[[str], Any]:
-        """Infer converter function from type hint.
-
-        Handles both actual types and string annotations (PEP 563).
-        """
-        # Handle string annotations (from __future__ import annotations)
-        type_str = str(type_hint)
-
-        if type_hint is int or type_str == "int":
-            return int
-        if type_hint is float or type_str == "float":
-            return float
-        if type_hint is bool or type_str == "bool":
-            return lambda v: v.lower() in ("true", "1", "yes")
-        # str and other types: return as string
-        return str
 
 
 # =============================================================================
