@@ -71,8 +71,8 @@ response = rqc.execute(RqcRequest(payload={"input": "data"}))
 Or via environment variables:
 
 ```bash
-export STKAI_CLIENT_ID="your-client-id"
-export STKAI_CLIENT_SECRET="your-client-secret"
+export STKAI_AUTH_CLIENT_ID="your-client-id"
+export STKAI_AUTH_CLIENT_SECRET="your-client-secret"
 ```
 
 ## Quick Start Examples

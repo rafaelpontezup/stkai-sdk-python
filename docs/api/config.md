@@ -39,3 +39,13 @@ Complete API reference for SDK configuration.
 ::: stkai.ConfigEntry
     options:
       show_root_heading: true
+
+## Error Classes
+
+::: stkai.ConfigEnvVarError
+    options:
+      show_root_heading: true
+
+::: stkai.ConfigValidationError
+    options:
+      show_root_heading: true

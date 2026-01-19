@@ -18,6 +18,10 @@ Complete API reference for HTTP clients.
     options:
       show_root_heading: true
 
+::: stkai.EnvironmentAwareHttpClient
+    options:
+      show_root_heading: true
+
 ## Rate Limiting
 
 ::: stkai.RateLimitedHttpClient
@@ -25,6 +29,10 @@ Complete API reference for HTTP clients.
       show_root_heading: true
 
 ::: stkai.AdaptiveRateLimitedHttpClient
+    options:
+      show_root_heading: true
+
+::: stkai.RateLimitTimeoutError
     options:
       show_root_heading: true
 
