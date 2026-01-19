@@ -778,7 +778,7 @@ class STKAIConfigTracker:
             def wrapper(self: STKAIConfig, *args: Any, **kwargs: Any) -> STKAIConfig:
                 new_config = method(self, *args, **kwargs)
                 new_tracker = self._tracker.with_changes_tracked(
-                    self, new_config, source_type
+                    self, new_config, source_type, overrides=kwargs
                 )
                 return replace(new_config, _tracker=new_tracker)
 
@@ -791,70 +791,93 @@ class STKAIConfigTracker:
         old_config: STKAIConfig,
         new_config: STKAIConfig,
         source_type: str,
+        overrides: dict[str, Any] | None = None,
     ) -> STKAIConfigTracker:
         """
         Return new tracker with changes between configs tracked.
 
-        Compares old and new configs, detects changed fields, and returns
+        Detects fields touched by the source (not just value changes) and returns
         a new tracker with those changes recorded.
 
         Args:
             old_config: The config before changes.
             new_config: The config after changes.
-            source_type: Source label ("env", "CLI", or "configure").
+            source_type: Source label ("env", "CLI", or "user").
+            overrides: For "user" source, the dict of overrides per section.
 
         Returns:
             New STKAIConfigTracker with detected changes tracked.
         """
-        changes = self._detect_changes(old_config, new_config)
-        new_sources = self._merge_sources(changes, source_type)
+        changes = self._detect_touched_fields(new_config, source_type, overrides)
+        new_sources = self._merge_sources(changes, source_type, new_config)
         return STKAIConfigTracker(sources=new_sources)
 
-    def _detect_changes(
+    def _detect_touched_fields(
         self,
-        old_config: STKAIConfig,
         new_config: STKAIConfig,
+        source_type: str,
+        overrides: dict[str, Any] | None = None,
     ) -> dict[str, list[str]]:
         """
-        Detect which fields changed between two configs.
+        Detect which fields were touched by the source.
+
+        Instead of comparing values (which misses same-value overrides),
+        this method checks whether the source actually touched each field.
 
         Args:
-            old_config: The config before changes.
             new_config: The config after changes.
+            source_type: Source label ("env", "CLI", or "user").
+            overrides: For "user" source, the dict of overrides per section.
 
         Returns:
-            Dict mapping section names to lists of changed field names.
+            Dict mapping section names to lists of touched field names.
             Example: {"rqc": ["request_timeout", "base_url"]}
         """
-        changes: dict[str, list[str]] = {}
+        touched: dict[str, list[str]] = {}
 
         for section_name in ("auth", "rqc", "agent", "rate_limit"):
-            old_section = getattr(old_config, section_name)
             new_section = getattr(new_config, section_name)
+            touched_fields = []
 
-            changed_fields = []
-            for f in fields(old_section):
-                old_val = getattr(old_section, f.name)
-                new_val = getattr(new_section, f.name)
-                if old_val != new_val:
-                    changed_fields.append(f.name)
+            for f in fields(new_section):
+                if source_type == "env":
+                    # Field is touched if its env var is set and non-empty
+                    # (consistent with EnvVars.get which treats empty as None)
+                    env_var = f.metadata.get("env")
+                    if env_var and os.environ.get(env_var):
+                        touched_fields.append(f.name)
 
-            if changed_fields:
-                changes[section_name] = changed_fields
+                elif source_type == "CLI":
+                    # CLI only touches base_url in rqc section
+                    if section_name == "rqc" and f.name == "base_url":
+                        from stkai._cli import StkCLI
+                        if StkCLI.get_codebuddy_base_url() is not None:
+                            touched_fields.append(f.name)
 
-        return changes
+                elif source_type == "user" and overrides:
+                    # Field is touched if it's in the overrides dict for this section
+                    section_overrides = overrides.get(section_name) or {}
+                    if f.name in section_overrides:
+                        touched_fields.append(f.name)
+
+            if touched_fields:
+                touched[section_name] = touched_fields
+
+        return touched
 
     def _merge_sources(
         self,
         changes: dict[str, list[str]],
         source_type: str,
+        config: STKAIConfig | None = None,
     ) -> dict[str, dict[str, str]]:
         """
         Merge detected changes into existing sources.
 
         Args:
-            changes: Dict of section -> list of changed field names.
-            source_type: Source label ("env", "CLI", or "configure").
+            changes: Dict of section -> list of touched field names.
+            source_type: Source label ("env", "CLI", or "user").
+            config: The config to read env var names from field metadata.
 
         Returns:
             New sources dict with changes merged in.
@@ -863,11 +886,22 @@ class STKAIConfigTracker:
 
         for section, field_names in changes.items():
             section_sources = new_sources.setdefault(section, {})
+            section_config = getattr(config, section) if config else None
+
             for field_name in field_names:
-                if source_type == "env":
-                    # Generate env var name based on convention
-                    env_var = f"STKAI_{section.upper()}_{field_name.upper()}"
-                    section_sources[field_name] = f"env:{env_var}"
+                if source_type == "env" and section_config:
+                    # Read env var name from field metadata
+                    env_var = None
+                    for f in fields(section_config):
+                        if f.name == field_name:
+                            env_var = f.metadata.get("env")
+                            break
+                    if env_var:
+                        section_sources[field_name] = f"env:{env_var}"
+                    else:
+                        # Fallback to convention if no metadata
+                        env_var = f"STKAI_{section.upper()}_{field_name.upper()}"
+                        section_sources[field_name] = f"env:{env_var}"
                 else:
                     section_sources[field_name] = source_type
 

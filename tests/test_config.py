@@ -1406,5 +1406,103 @@ class TestConfigValidation(unittest.TestCase):
             self.assertIn("'invalid'", str(e))
 
 
+class TestSourceTrackingWithSameValue(unittest.TestCase):
+    """Test source tracking when value is same across sources."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "30"})
+    def test_env_var_same_as_default_shows_env_source(self, mock_cli):
+        """ENV var with same value as default should show env: source."""
+        STKAI.reset()
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rqc"] if e.name == "request_timeout")
+        self.assertEqual(entry.source, "env:STKAI_RQC_REQUEST_TIMEOUT")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://genai-code-buddy-api.stackspot.com")
+    def test_cli_same_as_default_shows_cli_source(self, mock_cli):
+        """CLI with same value as default should show CLI source."""
+        STKAI.reset()
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rqc"] if e.name == "base_url")
+        self.assertEqual(entry.source, "CLI")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://example.com"})
+    def test_cli_same_as_env_shows_cli_source(self, mock_cli):
+        """CLI with same value as ENV var should show CLI source."""
+        # Set CLI to return the same value as env
+        mock_cli.return_value = "https://example.com"
+        STKAI.reset()
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rqc"] if e.name == "base_url")
+        self.assertEqual(entry.source, "CLI")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_configure_same_as_default_shows_user_source(self, mock_cli):
+        """configure() with same value as default should show user source."""
+        STKAI.configure(
+            rqc={"request_timeout": 30},  # 30 is the default
+            allow_env_override=False,
+            allow_cli_override=False,
+        )
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rqc"] if e.name == "request_timeout")
+        self.assertEqual(entry.source, "user")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "60"})
+    def test_configure_same_as_env_shows_user_source(self, mock_cli):
+        """configure() with same value as ENV var should show user source."""
+        STKAI.configure(rqc={"request_timeout": 60})  # same as env
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rqc"] if e.name == "request_timeout")
+        self.assertEqual(entry.source, "user")  # user wins
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://example.com")
+    @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://example.com"})
+    def test_configure_same_as_env_and_cli_shows_user_source(self, mock_cli):
+        """configure() with same value as ENV+CLI should show user source."""
+        STKAI.configure(rqc={"base_url": "https://example.com"})  # same as env and CLI
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rqc"] if e.name == "base_url")
+        self.assertEqual(entry.source, "user")  # user wins
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_configure_none_value_with_allow_none_shows_user_source(self, mock_cli):
+        """None value with allow_none_fields should show user source."""
+        STKAI.configure(
+            rate_limit={"max_wait_time": None},
+            allow_env_override=False,
+            allow_cli_override=False,
+        )
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rate_limit"] if e.name == "max_wait_time")
+        self.assertEqual(entry.source, "user")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_AUTH_TOKEN_URL": "https://idm.stackspot.com/stackspot-dev/oidc/oauth/token"})
+    def test_auth_env_var_same_as_default_shows_env_source(self, mock_cli):
+        """Auth ENV var with same value as default should show env: source."""
+        STKAI.reset()
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["auth"] if e.name == "token_url")
+        self.assertEqual(entry.source, "env:STKAI_AUTH_TOKEN_URL")
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "false"})
+    def test_rate_limit_env_var_same_as_default_shows_env_source(self, mock_cli):
+        """Rate limit ENV var with same value as default should show env: source."""
+        STKAI.reset()
+        data = STKAI.config.explain_data()
+        entry = next(e for e in data["rate_limit"] if e.name == "enabled")
+        self.assertEqual(entry.source, "env:STKAI_RATE_LIMIT_ENABLED")
+
+
 if __name__ == "__main__":
     unittest.main()
