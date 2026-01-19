@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from stkai._config import AgentConfig
+    from stkai.agents._handlers import ChatResultHandler
 
 import requests
 
@@ -18,6 +19,37 @@ from stkai._http import HttpClient, RateLimitTimeoutError
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus, ChatTokenUsage
 
 logger = logging.getLogger(__name__)
+
+
+class ChatResultHandlerError(RuntimeError):
+    """
+    Exception raised when a result handler fails to process a chat response.
+
+    This exception wraps the underlying error from the handler and provides
+    context about which handler failed.
+
+    Attributes:
+        message: Human-readable error message.
+        cause: The original exception that caused this error.
+        result_handler: The handler that failed (if available).
+
+    Example:
+        >>> try:
+        ...     response = agent.chat(request, result_handler=JSON_RESULT_HANDLER)
+        ... except ChatResultHandlerError as e:
+        ...     print(f"Handler failed: {e}")
+        ...     print(f"Original error: {e.cause}")
+    """
+
+    def __init__(
+        self,
+        message: str,
+        cause: Exception | None = None,
+        result_handler: "ChatResultHandler | None" = None,
+    ):
+        super().__init__(message)
+        self.cause = cause
+        self.result_handler = result_handler
 
 
 @dataclass(frozen=True)
@@ -140,7 +172,11 @@ class Agent:
         self.options = resolved_options
         self.http_client: HttpClient = http_client
 
-    def chat(self, request: ChatRequest) -> ChatResponse:
+    def chat(
+        self,
+        request: ChatRequest,
+        result_handler: "ChatResultHandler | None" = None,
+    ) -> ChatResponse:
         """
         Send a message to the Agent and wait for the response (blocking).
 
@@ -149,15 +185,28 @@ class Agent:
 
         Args:
             request: The request containing the user prompt and options.
+            result_handler: Optional handler to process the response message.
+                If None, uses RawResultHandler (returns message as-is).
+                Use JSON_RESULT_HANDLER to parse JSON responses.
 
         Returns:
             ChatResponse with the Agent's reply or error information.
+            The `result` field contains the processed result from the handler.
+
+        Raises:
+            ChatResultHandlerError: If the result handler fails to process the response.
 
         Example:
-            >>> # Single message
+            >>> # Single message (default RawResultHandler)
             >>> response = agent.chat(
             ...     request=ChatRequest(user_prompt="Hello!")
             ... )
+            >>> print(response.result)  # Same as response.message
+            >>>
+            >>> # Parse JSON response
+            >>> from stkai.agents import JSON_RESULT_HANDLER
+            >>> response = agent.chat(request, result_handler=JSON_RESULT_HANDLER)
+            >>> print(response.result)  # Parsed dict
             >>>
             >>> # With conversation context
             >>> resp1 = agent.chat(
@@ -195,7 +244,27 @@ class Agent:
             )
             http_response.raise_for_status()
 
-            response = self._parse_success_response(request, http_response.json())
+            data = http_response.json()
+            raw_message = data.get("message")
+
+            # Process result through handler
+            if not result_handler:
+                from stkai.agents._handlers import DEFAULT_RESULT_HANDLER
+                result_handler = DEFAULT_RESULT_HANDLER
+
+            try:
+                from stkai.agents._handlers import ChatResultContext
+                context = ChatResultContext(request=request, raw_result=raw_message)
+                processed_result = result_handler.handle_result(context)
+            except Exception as e:
+                handler_name = type(result_handler).__name__
+                raise ChatResultHandlerError(
+                    f"{request.id} | Agent | Result handler '{handler_name}' failed: {e}",
+                    cause=e,
+                    result_handler=result_handler,
+                ) from e
+
+            response = self._parse_success_response(request, data, processed_result)
             logger.info(
                 f"{request.id[:26]:<26} | Agent | "
                 f"✅ Response received (tokens: {response.tokens.total if response.tokens else 'N/A'})"
@@ -250,13 +319,19 @@ class Agent:
                 error=error_msg,
             )
 
-    def _parse_success_response(self, request: ChatRequest, data: dict[str, Any]) -> ChatResponse:
+    def _parse_success_response(
+        self,
+        request: ChatRequest,
+        data: dict[str, Any],
+        processed_result: Any,
+    ) -> ChatResponse:
         """
         Parse the API response into a ChatResponse object.
 
         Args:
             request: The original request.
             data: The JSON response from the API.
+            processed_result: The result processed by the result handler.
 
         Returns:
             ChatResponse with parsed data and SUCCESS status.
@@ -273,6 +348,7 @@ class Agent:
             request=request,
             status=ChatStatus.SUCCESS,
             message=data.get("message"),
+            result=processed_result,
             stop_reason=data.get("stop_reason"),
             tokens=tokens,
             conversation_id=data.get("conversation_id"),

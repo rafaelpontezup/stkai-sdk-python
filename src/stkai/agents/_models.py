@@ -120,7 +120,10 @@ class ChatResponse:
     Attributes:
         request: The original request that generated this response.
         status: The status of the response (SUCCESS, ERROR, TIMEOUT).
-        message: The Agent's response message.
+        message: The Agent's response message (raw text from API).
+        result: The processed result from the result handler.
+            By default (RawResultHandler), this is the same as message.
+            When using JsonResultHandler, this is the parsed JSON object.
         stop_reason: Reason why the Agent stopped generating (e.g., "stop").
         tokens: Token usage information.
         conversation_id: ID for continuing the conversation.
@@ -130,7 +133,8 @@ class ChatResponse:
 
     Example:
         >>> if response.is_success():
-        ...     print(response.message)
+        ...     print(response.message)  # Raw text
+        ...     print(response.result)   # Processed by handler
         ...     print(f"Tokens used: {response.tokens.total}")
         ... elif response.is_timeout():
         ...     print("Request timed out")
@@ -140,6 +144,7 @@ class ChatResponse:
     request: ChatRequest
     status: ChatStatus
     message: str | None = None
+    result: Any | None = None
     stop_reason: str | None = None
     tokens: ChatTokenUsage | None = None
     conversation_id: str | None = None

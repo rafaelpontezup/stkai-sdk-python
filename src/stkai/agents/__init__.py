@@ -27,11 +27,26 @@ For conversation context:
     ...         use_conversation=True
     ...     )
     ... )
+
+For JSON response parsing:
+    >>> from stkai.agents import Agent, ChatRequest, JSON_RESULT_HANDLER
+    >>> response = agent.chat(request, result_handler=JSON_RESULT_HANDLER)
+    >>> print(response.result)  # Parsed dict
 """
 
 from stkai.agents._agent import (
     Agent,
     AgentOptions,
+    ChatResultHandlerError,
+)
+from stkai.agents._handlers import (
+    DEFAULT_RESULT_HANDLER,
+    JSON_RESULT_HANDLER,
+    ChainedResultHandler,
+    ChatResultContext,
+    ChatResultHandler,
+    JsonResultHandler,
+    RawResultHandler,
 )
 from stkai.agents._models import (
     ChatRequest,
@@ -50,4 +65,14 @@ __all__ = [
     "ChatResponse",
     "ChatStatus",
     "ChatTokenUsage",
+    # Result handlers
+    "ChatResultContext",
+    "ChatResultHandler",
+    "ChainedResultHandler",
+    "JsonResultHandler",
+    "RawResultHandler",
+    "DEFAULT_RESULT_HANDLER",
+    "JSON_RESULT_HANDLER",
+    # Exceptions
+    "ChatResultHandlerError",
 ]
