@@ -9,6 +9,7 @@ from stkai._config import (
     AgentConfig,
     AuthConfig,
     ConfigEntry,
+    ConfigValidationError,
     RateLimitConfig,
     RqcConfig,
     STKAIConfig,
@@ -1111,6 +1112,298 @@ class TestConfigEntryFormattedValue(unittest.TestCase):
         """Secret with numeric value should be masked."""
         entry = ConfigEntry("client_secret", 123456789012, "user")
         self.assertEqual(entry.formatted_value, "1234********9012")
+
+
+class TestConfigValidation(unittest.TestCase):
+    """Tests for config field validation."""
+
+    def setUp(self):
+        STKAI.reset()
+
+    def tearDown(self):
+        STKAI.reset()
+
+    # -------------------------------------------------------------------------
+    # AuthConfig validation
+    # -------------------------------------------------------------------------
+
+    def test_auth_client_id_cannot_be_empty_string(self):
+        """client_id cannot be empty string."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AuthConfig(client_id="").validate()
+        self.assertIn("client_id", str(ctx.exception))
+        self.assertIn("empty string", str(ctx.exception))
+
+    def test_auth_client_secret_cannot_be_empty_string(self):
+        """client_secret cannot be empty string."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AuthConfig(client_secret="").validate()
+        self.assertIn("client_secret", str(ctx.exception))
+        self.assertIn("empty string", str(ctx.exception))
+
+    def test_auth_token_url_must_be_http(self):
+        """token_url must start with http:// or https://."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AuthConfig(token_url="ftp://invalid.url").validate()
+        self.assertIn("token_url", str(ctx.exception))
+        self.assertIn("http", str(ctx.exception))
+
+    def test_auth_valid_config_passes(self):
+        """Valid auth config should pass validation."""
+        config = AuthConfig(
+            client_id="my-id",
+            client_secret="my-secret",
+            token_url="https://auth.example.com/token"
+        ).validate()
+        self.assertEqual(config.client_id, "my-id")
+
+    def test_auth_none_values_are_valid(self):
+        """None values for client_id/secret are valid."""
+        config = AuthConfig(client_id=None, client_secret=None).validate()
+        self.assertIsNone(config.client_id)
+
+    # -------------------------------------------------------------------------
+    # RqcConfig validation
+    # -------------------------------------------------------------------------
+
+    def test_rqc_request_timeout_must_be_positive(self):
+        """request_timeout must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(request_timeout=0).validate()
+        self.assertIn("request_timeout", str(ctx.exception))
+        self.assertIn("greater than 0", str(ctx.exception))
+
+    def test_rqc_request_timeout_negative(self):
+        """request_timeout cannot be negative."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(request_timeout=-10).validate()
+        self.assertIn("request_timeout", str(ctx.exception))
+
+    def test_rqc_max_retries_cannot_be_negative(self):
+        """max_retries must be >= 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(max_retries=-1).validate()
+        self.assertIn("max_retries", str(ctx.exception))
+        self.assertIn(">= 0", str(ctx.exception))
+
+    def test_rqc_max_retries_zero_is_valid(self):
+        """max_retries=0 is valid (no retries)."""
+        config = RqcConfig(max_retries=0).validate()
+        self.assertEqual(config.max_retries, 0)
+
+    def test_rqc_backoff_factor_must_be_positive(self):
+        """backoff_factor must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(backoff_factor=0).validate()
+        self.assertIn("backoff_factor", str(ctx.exception))
+
+    def test_rqc_poll_interval_must_be_positive(self):
+        """poll_interval must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(poll_interval=-5.0).validate()
+        self.assertIn("poll_interval", str(ctx.exception))
+
+    def test_rqc_poll_max_duration_must_be_positive(self):
+        """poll_max_duration must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(poll_max_duration=0).validate()
+        self.assertIn("poll_max_duration", str(ctx.exception))
+
+    def test_rqc_overload_timeout_must_be_positive(self):
+        """overload_timeout must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(overload_timeout=-1).validate()
+        self.assertIn("overload_timeout", str(ctx.exception))
+
+    def test_rqc_max_workers_must_be_positive(self):
+        """max_workers must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(max_workers=0).validate()
+        self.assertIn("max_workers", str(ctx.exception))
+
+    def test_rqc_base_url_must_be_http(self):
+        """base_url must start with http:// or https://."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RqcConfig(base_url="invalid-url").validate()
+        self.assertIn("base_url", str(ctx.exception))
+        self.assertIn("http", str(ctx.exception))
+
+    def test_rqc_valid_config_passes(self):
+        """Valid RQC config should pass validation."""
+        config = RqcConfig().validate()
+        self.assertEqual(config.request_timeout, 30)
+
+    # -------------------------------------------------------------------------
+    # AgentConfig validation
+    # -------------------------------------------------------------------------
+
+    def test_agent_request_timeout_must_be_positive(self):
+        """request_timeout must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(request_timeout=0).validate()
+        self.assertIn("request_timeout", str(ctx.exception))
+        self.assertIn("greater than 0", str(ctx.exception))
+
+    def test_agent_base_url_must_be_http(self):
+        """base_url must start with http:// or https://."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(base_url="ws://invalid").validate()
+        self.assertIn("base_url", str(ctx.exception))
+        self.assertIn("http", str(ctx.exception))
+
+    def test_agent_valid_config_passes(self):
+        """Valid Agent config should pass validation."""
+        config = AgentConfig().validate()
+        self.assertEqual(config.request_timeout, 60)
+
+    # -------------------------------------------------------------------------
+    # RateLimitConfig validation
+    # -------------------------------------------------------------------------
+
+    def test_rate_limit_strategy_must_be_valid(self):
+        """strategy must be 'token_bucket' or 'adaptive'."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(strategy="invalid").validate()  # type: ignore
+        self.assertIn("strategy", str(ctx.exception))
+        self.assertIn("token_bucket", str(ctx.exception))
+        self.assertIn("adaptive", str(ctx.exception))
+
+    def test_rate_limit_max_requests_must_be_positive(self):
+        """max_requests must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(max_requests=0).validate()
+        self.assertIn("max_requests", str(ctx.exception))
+
+    def test_rate_limit_time_window_must_be_positive(self):
+        """time_window must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(time_window=-1.0).validate()
+        self.assertIn("time_window", str(ctx.exception))
+
+    def test_rate_limit_max_wait_time_must_be_positive_or_none(self):
+        """max_wait_time must be > 0 or None."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(max_wait_time=0).validate()
+        self.assertIn("max_wait_time", str(ctx.exception))
+
+    def test_rate_limit_max_wait_time_none_is_valid(self):
+        """max_wait_time=None is valid (unlimited)."""
+        config = RateLimitConfig(max_wait_time=None).validate()
+        self.assertIsNone(config.max_wait_time)
+
+    def test_rate_limit_min_rate_floor_must_be_in_range(self):
+        """min_rate_floor must be > 0 and <= 1."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(min_rate_floor=0).validate()
+        self.assertIn("min_rate_floor", str(ctx.exception))
+
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(min_rate_floor=1.5).validate()
+        self.assertIn("min_rate_floor", str(ctx.exception))
+
+    def test_rate_limit_min_rate_floor_one_is_valid(self):
+        """min_rate_floor=1 is valid (edge case)."""
+        config = RateLimitConfig(min_rate_floor=1.0).validate()
+        self.assertEqual(config.min_rate_floor, 1.0)
+
+    def test_rate_limit_max_retries_on_429_cannot_be_negative(self):
+        """max_retries_on_429 must be >= 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(max_retries_on_429=-1).validate()
+        self.assertIn("max_retries_on_429", str(ctx.exception))
+
+    def test_rate_limit_penalty_factor_must_be_in_range(self):
+        """penalty_factor must be > 0 and < 1."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(penalty_factor=0).validate()
+        self.assertIn("penalty_factor", str(ctx.exception))
+
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(penalty_factor=1.0).validate()
+        self.assertIn("penalty_factor", str(ctx.exception))
+
+    def test_rate_limit_recovery_factor_must_be_in_range(self):
+        """recovery_factor must be > 0 and < 1."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(recovery_factor=0).validate()
+        self.assertIn("recovery_factor", str(ctx.exception))
+
+        with self.assertRaises(ConfigValidationError) as ctx:
+            RateLimitConfig(recovery_factor=1.0).validate()
+        self.assertIn("recovery_factor", str(ctx.exception))
+
+    def test_rate_limit_valid_config_passes(self):
+        """Valid rate limit config should pass validation."""
+        config = RateLimitConfig().validate()
+        self.assertEqual(config.strategy, "token_bucket")
+
+    # -------------------------------------------------------------------------
+    # STKAI.configure() validation
+    # -------------------------------------------------------------------------
+
+    def test_configure_validates_rqc_values(self):
+        """STKAI.configure() should validate RQC values."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            STKAI.configure(rqc={"request_timeout": -10})
+        self.assertIn("request_timeout", str(ctx.exception))
+        self.assertIn("[rqc]", str(ctx.exception))
+
+    def test_configure_validates_agent_values(self):
+        """STKAI.configure() should validate Agent values."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            STKAI.configure(agent={"request_timeout": 0})
+        self.assertIn("request_timeout", str(ctx.exception))
+        self.assertIn("[agent]", str(ctx.exception))
+
+    def test_configure_validates_rate_limit_values(self):
+        """STKAI.configure() should validate rate limit values."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            STKAI.configure(rate_limit={"strategy": "invalid"})
+        self.assertIn("strategy", str(ctx.exception))
+        self.assertIn("[rate_limit]", str(ctx.exception))
+
+    def test_configure_validates_auth_values(self):
+        """STKAI.configure() should validate auth values."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            STKAI.configure(auth={"token_url": "not-a-valid-url"})
+        self.assertIn("token_url", str(ctx.exception))
+        self.assertIn("[auth]", str(ctx.exception))
+
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_configure_valid_values_pass(self, mock_cli):
+        """STKAI.configure() with valid values should succeed."""
+        result = STKAI.configure(
+            rqc={"request_timeout": 60, "max_retries": 5},
+            agent={"request_timeout": 120},
+            rate_limit={"enabled": True, "strategy": "adaptive", "max_requests": 50},
+            allow_env_override=False,
+            allow_cli_override=False,
+        )
+        self.assertEqual(result.rqc.request_timeout, 60)
+        self.assertEqual(result.agent.request_timeout, 120)
+        self.assertTrue(result.rate_limit.enabled)
+
+    # -------------------------------------------------------------------------
+    # ConfigValidationError attributes
+    # -------------------------------------------------------------------------
+
+    def test_config_validation_error_has_field_attribute(self):
+        """ConfigValidationError should have field attribute."""
+        try:
+            RqcConfig(request_timeout=-1).validate()
+        except ConfigValidationError as e:
+            self.assertEqual(e.field, "request_timeout")
+            self.assertEqual(e.value, -1)
+            self.assertEqual(e.section, "rqc")
+
+    def test_config_validation_error_message_format(self):
+        """ConfigValidationError message should include section prefix."""
+        try:
+            RateLimitConfig(strategy="invalid").validate()  # type: ignore
+        except ConfigValidationError as e:
+            self.assertIn("[rate_limit]", str(e))
+            self.assertIn("strategy", str(e))
+            self.assertIn("'invalid'", str(e))
 
 
 if __name__ == "__main__":

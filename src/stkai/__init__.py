@@ -49,6 +49,8 @@ Configuration:
     - AgentConfig: Agent configuration.
     - RateLimitConfig: Rate limiting configuration.
     - RateLimitStrategy: Type alias for valid rate limiting strategies.
+    - ConfigEnvVarError: Exception raised when env var parsing fails.
+    - ConfigValidationError: Exception raised when config validation fails.
 
 Authentication (Standalone):
     - AuthProvider: Abstract base class for authentication providers.
@@ -81,6 +83,8 @@ from stkai._config import (
     AgentConfig,
     AuthConfig,
     ConfigEntry,
+    ConfigEnvVarError,
+    ConfigValidationError,
     RateLimitConfig,
     RateLimitStrategy,
     RqcConfig,
@@ -117,6 +121,8 @@ __all__ = [
     "STKAIConfig",
     "SdkConfig",
     "ConfigEntry",
+    "ConfigEnvVarError",
+    "ConfigValidationError",
     "AuthConfig",
     "RqcConfig",
     "AgentConfig",

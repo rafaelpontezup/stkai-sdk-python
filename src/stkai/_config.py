@@ -59,6 +59,23 @@ class ConfigEnvVarError(ValueError):
         self.__cause__ = cause
 
 
+class ConfigValidationError(ValueError):
+    """Raised when a configuration value fails validation."""
+
+    def __init__(
+        self,
+        field: str,
+        value: Any,
+        message: str,
+        section: str | None = None,
+    ):
+        self.field = field
+        self.value = value
+        self.section = section
+        prefix = f"[{section}] " if section else ""
+        super().__init__(f"{prefix}Invalid value for '{field}': {value!r}. {message}")
+
+
 # =============================================================================
 # Environment Variables
 # =============================================================================
@@ -295,6 +312,25 @@ class AuthConfig(OverridableConfig):
         """Check if both client_id and client_secret are set."""
         return bool(self.client_id and self.client_secret)
 
+    def validate(self) -> Self:
+        """Validate auth configuration fields."""
+        if self.client_id is not None and self.client_id == "":
+            raise ConfigValidationError(
+                "client_id", self.client_id,
+                "Must not be empty string.", section="auth"
+            )
+        if self.client_secret is not None and self.client_secret == "":
+            raise ConfigValidationError(
+                "client_secret", self.client_secret,
+                "Must not be empty string.", section="auth"
+            )
+        if self.token_url and not (self.token_url.startswith("http://") or self.token_url.startswith("https://")):
+            raise ConfigValidationError(
+                "token_url", self.token_url,
+                "Must start with 'http://' or 'https://'.", section="auth"
+            )
+        return self
+
 
 @dataclass(frozen=True)
 class RqcConfig(OverridableConfig):
@@ -350,6 +386,50 @@ class RqcConfig(OverridableConfig):
     max_workers: int = field(default=8, metadata={"env": "STKAI_RQC_MAX_WORKERS"})
     base_url: str = field(default="https://genai-code-buddy-api.stackspot.com", metadata={"env": "STKAI_RQC_BASE_URL"})
 
+    def validate(self) -> Self:
+        """Validate RQC configuration fields."""
+        if self.request_timeout <= 0:
+            raise ConfigValidationError(
+                "request_timeout", self.request_timeout,
+                "Must be greater than 0.", section="rqc"
+            )
+        if self.max_retries < 0:
+            raise ConfigValidationError(
+                "max_retries", self.max_retries,
+                "Must be >= 0.", section="rqc"
+            )
+        if self.backoff_factor <= 0:
+            raise ConfigValidationError(
+                "backoff_factor", self.backoff_factor,
+                "Must be greater than 0.", section="rqc"
+            )
+        if self.poll_interval <= 0:
+            raise ConfigValidationError(
+                "poll_interval", self.poll_interval,
+                "Must be greater than 0.", section="rqc"
+            )
+        if self.poll_max_duration <= 0:
+            raise ConfigValidationError(
+                "poll_max_duration", self.poll_max_duration,
+                "Must be greater than 0.", section="rqc"
+            )
+        if self.overload_timeout <= 0:
+            raise ConfigValidationError(
+                "overload_timeout", self.overload_timeout,
+                "Must be greater than 0.", section="rqc"
+            )
+        if self.max_workers <= 0:
+            raise ConfigValidationError(
+                "max_workers", self.max_workers,
+                "Must be greater than 0.", section="rqc"
+            )
+        if self.base_url and not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
+            raise ConfigValidationError(
+                "base_url", self.base_url,
+                "Must start with 'http://' or 'https://'.", section="rqc"
+            )
+        return self
+
 
 @dataclass(frozen=True)
 class AgentConfig(OverridableConfig):
@@ -376,6 +456,20 @@ class AgentConfig(OverridableConfig):
 
     request_timeout: int = field(default=60, metadata={"env": "STKAI_AGENT_REQUEST_TIMEOUT"})
     base_url: str = field(default="https://genai-inference-app.stackspot.com", metadata={"env": "STKAI_AGENT_BASE_URL"})
+
+    def validate(self) -> Self:
+        """Validate Agent configuration fields."""
+        if self.request_timeout <= 0:
+            raise ConfigValidationError(
+                "request_timeout", self.request_timeout,
+                "Must be greater than 0.", section="agent"
+            )
+        if self.base_url and not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
+            raise ConfigValidationError(
+                "base_url", self.base_url,
+                "Must start with 'http://' or 'https://'.", section="agent"
+            )
+        return self
 
 
 @dataclass(frozen=True)
@@ -509,6 +603,51 @@ class RateLimitConfig(OverridableConfig):
                 overrides["max_wait_time"] = float(max_wait)
 
         return result.with_overrides(overrides, allow_none_fields={"max_wait_time"})
+
+    def validate(self) -> Self:
+        """Validate rate limit configuration fields."""
+        valid_strategies = ("token_bucket", "adaptive")
+        if self.strategy not in valid_strategies:
+            raise ConfigValidationError(
+                "strategy", self.strategy,
+                f"Must be one of: {valid_strategies}.", section="rate_limit"
+            )
+        if self.max_requests <= 0:
+            raise ConfigValidationError(
+                "max_requests", self.max_requests,
+                "Must be greater than 0.", section="rate_limit"
+            )
+        if self.time_window <= 0:
+            raise ConfigValidationError(
+                "time_window", self.time_window,
+                "Must be greater than 0.", section="rate_limit"
+            )
+        if self.max_wait_time is not None and self.max_wait_time <= 0:
+            raise ConfigValidationError(
+                "max_wait_time", self.max_wait_time,
+                "Must be greater than 0 (or None for unlimited).", section="rate_limit"
+            )
+        if self.min_rate_floor <= 0 or self.min_rate_floor > 1:
+            raise ConfigValidationError(
+                "min_rate_floor", self.min_rate_floor,
+                "Must be greater than 0 and <= 1.", section="rate_limit"
+            )
+        if self.max_retries_on_429 < 0:
+            raise ConfigValidationError(
+                "max_retries_on_429", self.max_retries_on_429,
+                "Must be >= 0.", section="rate_limit"
+            )
+        if self.penalty_factor <= 0 or self.penalty_factor >= 1:
+            raise ConfigValidationError(
+                "penalty_factor", self.penalty_factor,
+                "Must be greater than 0 and less than 1.", section="rate_limit"
+            )
+        if self.recovery_factor <= 0 or self.recovery_factor >= 1:
+            raise ConfigValidationError(
+                "recovery_factor", self.recovery_factor,
+                "Must be greater than 0 and less than 1.", section="rate_limit"
+            )
+        return self
 
 
 @dataclass(frozen=True)
@@ -963,6 +1102,7 @@ class _STKAI:
 
         Raises:
             ValueError: If any dict contains unknown field names.
+            ConfigValidationError: If any config value fails validation.
 
         Precedence (both overrides True):
             STKAI.configure() > CLI values > ENV vars > defaults
@@ -996,7 +1136,7 @@ class _STKAI:
             rate_limit=rate_limit,
         )
 
-        return self._config
+        return self.validate()
 
     @property
     def config(self) -> STKAIConfig:
@@ -1018,15 +1158,43 @@ class _STKAI:
         Reset configuration to defaults + env vars + CLI values.
 
         Useful for testing to ensure clean state between tests.
+        Validates the configuration after reset.
 
         Returns:
             The reset STKAIConfig instance.
+
+        Raises:
+            ConfigValidationError: If any config value is invalid.
 
         Example:
             >>> from stkai import STKAI
             >>> STKAI.reset()
         """
         self._config = STKAIConfig().with_env_vars().with_cli_defaults()
+        return self.validate()
+
+    def validate(self) -> STKAIConfig:
+        """
+        Validate current configuration.
+
+        Checks all config sections for invalid values. Called automatically
+        on module load and after configure(). Can also be called manually
+        to re-validate after environment changes.
+
+        Returns:
+            The validated STKAIConfig instance.
+
+        Raises:
+            ConfigValidationError: If any config value is invalid.
+
+        Example:
+            >>> from stkai import STKAI
+            >>> STKAI.validate()  # Re-validate current config
+        """
+        self._config.auth.validate()
+        self._config.rqc.validate()
+        self._config.agent.validate()
+        self._config.rate_limit.validate()
         return self._config
 
     def explain(
@@ -1089,3 +1257,4 @@ class _STKAI:
 
 # Global singleton instance - always reflects current configuration
 STKAI: _STKAI = _STKAI()
+STKAI.validate()  # Validate defaults + env vars on module load
