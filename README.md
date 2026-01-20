@@ -20,6 +20,8 @@ pip install stkai
 
 ### Remote Quick Commands
 
+Execute LLM-powered quick commands with automatic polling and retries:
+
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
 
@@ -36,6 +38,8 @@ else:
 
 ### AI Agents
 
+Chat with StackSpot AI Agents for conversational AI capabilities:
+
 ```python
 from stkai import Agent, ChatRequest
 
@@ -46,9 +50,13 @@ response = agent.chat(
 
 if response.is_success():
     print(response.raw_result)
+else:
+    print(response.error_with_details())
 ```
 
 ### RQC Batch Processing
+
+Process multiple requests concurrently with thread pool execution:
 
 ```python
 responses = rqc.execute_many(
