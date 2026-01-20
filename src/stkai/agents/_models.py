@@ -208,3 +208,14 @@ class ChatResponse:
     def is_timeout(self) -> bool:
         """Returns True if the request timed out."""
         return self.status == ChatStatus.TIMEOUT
+
+    def error_with_details(self) -> dict[str, Any]:
+        """Returns a dictionary with error details for non-success responses."""
+        if self.is_success():
+            return {}
+
+        return {
+            "status": self.status,
+            "error_message": self.error,
+            "response_body": self.raw_response or {},
+        }

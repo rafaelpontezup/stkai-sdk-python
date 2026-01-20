@@ -240,6 +240,49 @@ class TestChatResponse(unittest.TestCase):
         with self.assertRaises(AssertionError):
             ChatResponse(request=request, status=None)  # type: ignore
 
+    def test_error_with_details_returns_empty_dict_for_success(self):
+        """Should return empty dict when response is successful."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.SUCCESS,
+            raw_response={"message": "Hi there!"},
+        )
+
+        self.assertEqual(response.error_with_details(), {})
+
+    def test_error_with_details_returns_details_for_error(self):
+        """Should return error details when response has error status."""
+        request = ChatRequest(user_prompt="Hello!")
+        raw_response = {"error": "Internal server error"}
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.ERROR,
+            error="HTTP error 500",
+            raw_response=raw_response,
+        )
+
+        details = response.error_with_details()
+
+        self.assertEqual(details["status"], ChatStatus.ERROR)
+        self.assertEqual(details["error_message"], "HTTP error 500")
+        self.assertEqual(details["response_body"], raw_response)
+
+    def test_error_with_details_returns_details_for_timeout(self):
+        """Should return error details when response has timeout status."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.TIMEOUT,
+            error="Request timed out",
+        )
+
+        details = response.error_with_details()
+
+        self.assertEqual(details["status"], ChatStatus.TIMEOUT)
+        self.assertEqual(details["error_message"], "Request timed out")
+        self.assertEqual(details["response_body"], {})
+
 
 class TestAgentOptions(unittest.TestCase):
     """Tests for AgentOptions data class."""
