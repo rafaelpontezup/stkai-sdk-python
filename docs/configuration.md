@@ -238,7 +238,7 @@ Settings for `RemoteQuickCommand` clients:
 | `base_url` | `STKAI_RQC_BASE_URL` | StackSpot API URL | API base URL |
 
 !!! tip "CLI Base URL"
-    In CLI mode, the `base_url` is automatically obtained from `oscli.__codebuddy_base_url__`. You can override it via `STKAI.configure()`, environment variable, or constructor parameter.
+    In CLI mode, the `base_url` is automatically obtained from `oscli.__codebuddy_base_url__`. Since CLI has higher precedence than environment variables, you can override it via `STKAI.configure()`, constructor parameter (`base_url=`), or by disabling CLI override with `allow_cli_override=False`.
 
 ### AgentConfig
 
