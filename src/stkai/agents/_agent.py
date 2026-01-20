@@ -300,3 +300,14 @@ class Agent:
                 status=ChatStatus.ERROR,
                 error=error_msg,
             )
+
+        except Exception as e:
+            logger.error(
+                f"{request.id[:26]:<26} | Agent | ❌ Request failed with an unexpected error: {e}",
+                exc_info=logger.isEnabledFor(logging.DEBUG)
+            )
+            return ChatResponse(
+                request=request,
+                status=ChatStatus.ERROR,
+                error=f"Request failed with an unexpected error: {e}",
+            )
