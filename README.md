@@ -24,7 +24,6 @@ pip install stkai
 from stkai import RemoteQuickCommand, RqcRequest
 
 rqc = RemoteQuickCommand(slug_name="my-quick-command")
-
 response = rqc.execute(
     request=RqcRequest(payload={"code": "def hello(): pass"})
 )
@@ -41,7 +40,6 @@ else:
 from stkai import Agent, ChatRequest
 
 agent = Agent(agent_id="my-agent-slug")
-
 response = agent.chat(
     request=ChatRequest(user_prompt="What is SOLID?")
 )
@@ -50,7 +48,7 @@ if response.is_success():
     print(response.raw_result)
 ```
 
-### Batch Processing
+### RQC Batch Processing
 
 ```python
 responses = rqc.execute_many(
