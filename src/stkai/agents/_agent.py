@@ -223,6 +223,9 @@ class Agent:
             ...     )
             ... )
         """
+        assert request, "🌀 Sanity check | Chat-Request can not be None."
+        assert request.id, "🌀 Sanity check | Chat-Request ID can not be None."
+
         # Assertion for type narrowing (mypy)
         assert self.options.request_timeout is not None, \
             "🌀 Sanity check | request_timeout must be set after with_defaults_from()"
@@ -232,10 +235,9 @@ class Agent:
             f"Sending message to agent '{self.agent_id}'..."
         )
 
-        # Build full URL using base_url
-        url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
-
+        # Prepare request
         payload = request.to_api_payload()
+        url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
         try:
             http_response = self.http_client.post(
                 url=url,
