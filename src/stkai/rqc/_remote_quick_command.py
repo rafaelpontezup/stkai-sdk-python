@@ -517,10 +517,10 @@ class RemoteQuickCommand:
 
         # Get options and assert for type narrowing
         opts = self.options.create_execution
-        assert opts is not None
-        assert opts.max_retries is not None
-        assert opts.backoff_factor is not None
-        assert opts.request_timeout is not None
+        assert opts is not None, "create_execution options must be set after with_defaults_from()"
+        assert opts.max_retries is not None, "max_retries must be set after with_defaults_from()"
+        assert opts.backoff_factor is not None, "backoff_factor must be set after with_defaults_from()"
+        assert opts.request_timeout is not None, "request_timeout must be set after with_defaults_from()"
 
         request_id = request.id
         input_data = request.to_input_data()
@@ -588,11 +588,11 @@ class RemoteQuickCommand:
 
         # Get options and assert for type narrowing
         opts = self.options.get_result
-        assert opts is not None
-        assert opts.poll_interval is not None
-        assert opts.poll_max_duration is not None
-        assert opts.overload_timeout is not None
-        assert opts.request_timeout is not None
+        assert opts is not None, "get_result options must be set after with_defaults_from()"
+        assert opts.poll_interval is not None, "poll_interval must be set after with_defaults_from()"
+        assert opts.poll_max_duration is not None, "poll_max_duration must be set after with_defaults_from()"
+        assert opts.overload_timeout is not None, "overload_timeout must be set after with_defaults_from()"
+        assert opts.request_timeout is not None, "request_timeout must be set after with_defaults_from()"
 
         start_time = time.time()
         execution_id = request.execution_id
