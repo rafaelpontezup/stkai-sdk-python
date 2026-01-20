@@ -49,7 +49,7 @@ response = agent.chat(
 )
 
 if response.is_success():
-    print(response.raw_result)
+    print(response.result)
 else:
     print(response.error_with_details())
 ```

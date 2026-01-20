@@ -115,7 +115,7 @@ class Agent:
         ...     request=ChatRequest(user_prompt="What is SOLID?")
         ... )
         >>> if response.is_success():
-        ...     print(response.raw_result)
+        ...     print(response.result)
 
     Attributes:
         agent_id: The Agent ID (slug) to interact with.

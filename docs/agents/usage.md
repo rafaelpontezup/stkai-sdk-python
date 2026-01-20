@@ -18,12 +18,18 @@ response: ChatResponse = agent.chat(
 )
 
 if response.is_success():
-    print(f"Agent says: {response.raw_result}")
+    print(f"Agent says: {response.result}")
 else:
-    print(f"Error: {response.error}")
+    print(response.error_with_details())
 ```
 
 The `chat()` method is **synchronous** and blocks until the response is received.
+
+!!! info "result vs raw_result"
+    - **`result`**: The processed response (by the result handler). Use this by default.
+    - **`raw_result`**: The raw message from the API before any processing.
+
+    By default (with `RawResultHandler`), both return the same value. When using `JsonResultHandler`, `result` contains the parsed dict while `raw_result` contains the original JSON string.
 
 ## Conversation Context
 
@@ -42,7 +48,7 @@ response1 = agent.chat(
     )
 )
 
-print(f"Agent: {response1.message}")
+print(f"Agent: {response1.result}")
 print(f"Conversation ID: {response1.conversation_id}")
 
 # Second message - continue the conversation
@@ -54,7 +60,7 @@ response2 = agent.chat(
     )
 )
 
-print(f"Agent: {response2.message}")
+print(f"Agent: {response2.result}")
 ```
 
 !!! tip "Conversation Best Practices"
@@ -89,7 +95,7 @@ for prompt in prompts:
     if response.is_success():
         conversation_id = response.conversation_id  # Update for next turn
         print(f"You: {prompt}")
-        print(f"Agent: {response.raw_result}\n")
+        print(f"Agent: {response.result}\n")
 ```
 
 ## Knowledge Sources
@@ -111,7 +117,7 @@ response = agent.chat(
 )
 
 if response.is_success():
-    print(f"Agent: {response.raw_result}")
+    print(f"Agent: {response.result}")
 
     if response.knowledge_sources:
         print(f"Knowledge sources used: {response.knowledge_sources}")
@@ -149,6 +155,8 @@ if response.is_success() and response.tokens:
 
 ### Token Tracking Example
 
+For longer sessions or batch processing, you can create a tracker to accumulate token usage across multiple requests:
+
 ```python
 class TokenTracker:
     def __init__(self):
@@ -175,6 +183,9 @@ for prompt in prompts:
 
 print(f"Session total: {tracker.total} tokens")
 ```
+
+!!! tip "Alternative: Result Handlers"
+    You can also implement token tracking using a [Result Handler](handlers.md). This approach is useful when you want to automatically track tokens for every request without manually calling `tracker.track()`.
 
 ## Configuration
 
@@ -224,10 +235,22 @@ response = agent.chat(request)
 
 if response.is_success():
     # Process successful response
-    process_message(response.raw_result)
+    process_message(response.result)
+else:
+    # Handle error or timeout
+    print(response.error_with_details())
+```
+
+For more granular error handling:
+
+```python
+response = agent.chat(request)
+
+if response.is_success():
+    process_message(response.result)
 
 elif response.is_error():
-    # Handle client-side error
+    # Handle client-side error (HTTP, network, parsing)
     log_error(response.error)
 
 elif response.is_timeout():
@@ -249,8 +272,18 @@ elif response.is_timeout():
 | `error` | `str \| None` | Error message if failed |
 | `raw_response` | `dict \| None` | Raw API response (source of truth) |
 
+### Response Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `is_success()` | `bool` | True if status is SUCCESS |
+| `is_error()` | `bool` | True if status is ERROR |
+| `is_timeout()` | `bool` | True if status is TIMEOUT |
+| `error_with_details()` | `dict` | Error details dict (empty if success) |
+
 ## Next Steps
 
+- [Result Handlers](handlers.md) - Customize response processing
 - [Configuration](../configuration.md) - Global SDK configuration
-- [Rate Limiting](../rqc/rate-limiting.md) - Rate limiting for Agents
+- [Rate Limiting](rate-limiting.md) - Rate limiting for Agents
 - [API Reference](../api/agents.md) - Complete API documentation

@@ -15,7 +15,7 @@ Quick Start (Agent):
     >>> from stkai import Agent, ChatRequest
     >>> agent = Agent(agent_id="my-agent-slug")
     >>> response = agent.chat(ChatRequest(user_prompt="What is SOLID?"))
-    >>> print(response.raw_result)
+    >>> print(response.result)
 
 Global Configuration:
     >>> from stkai import STKAI

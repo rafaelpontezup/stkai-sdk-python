@@ -64,7 +64,7 @@ The `stkai` SDK provides a clean, Pythonic interface for integrating StackSpot A
     )
 
     if response.is_success():
-        print(f"Agent: {response.raw_result}")
+        print(f"Agent: {response.result}")
     ```
 
 ## Requirements

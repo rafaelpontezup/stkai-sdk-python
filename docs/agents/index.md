@@ -13,7 +13,7 @@ agent = Agent(agent_id="my-assistant")
 response = agent.chat(ChatRequest(user_prompt="What is SOLID?"))
 
 if response.is_success():
-    print(response.raw_result)
+    print(response.result)
 ```
 
 ## Key Concepts
@@ -44,7 +44,8 @@ Contains the agent's response:
 response = agent.chat(request)
 
 if response.is_success():
-    message = response.raw_result           # Agent's response text
+    result = response.result             # Processed response (use this by default)
+    raw = response.raw_result            # Raw message from API (if needed)
     tokens = response.tokens             # Token usage info
     conv_id = response.conversation_id   # For continuing conversation
     ks_ids = response.knowledge_sources  # Knowledge sources used
@@ -66,6 +67,7 @@ if response.is_success():
 | **[Conversation Context](usage.md#conversation-context)** | Maintain context across multiple messages using conversation IDs |
 | **[Knowledge Sources](usage.md#knowledge-sources)** | Enrich responses with your organization's knowledge bases |
 | **[Token Tracking](usage.md#token-usage)** | Track token usage for monitoring and cost management |
+| **[Result Handlers](handlers.md)** | Customize response processing (JSON parsing, transformations) |
 
 ## Quick Example
 
@@ -84,17 +86,18 @@ response = agent.chat(
 )
 
 if response.is_success():
-    print(f"Agent: {response.raw_result}")
+    print(f"Agent: {response.result}")
 
     if response.tokens:
         print(f"Tokens used: {response.tokens.total}")
 else:
-    print(f"Error: {response.error}")
+    print(response.error_with_details())
 ```
 
 ## Next Steps
 
 - [Usage Guide](usage.md) - Detailed usage examples
+- [Result Handlers](handlers.md) - Customize response processing
 - [Rate Limiting](rate-limiting.md) - Rate limiting for Agents
 - [Configuration](../configuration.md) - Configure Agent options
 - [API Reference](../api/agents.md) - Complete API documentation

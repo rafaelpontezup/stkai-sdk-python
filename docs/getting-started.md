@@ -119,11 +119,11 @@ response = agent.chat(
 
 # Check the response
 if response.is_success():
-    print(f"Agent: {response.raw_result}")
+    print(f"Agent: {response.result}")
     if response.tokens:
         print(f"Tokens used: {response.tokens.total}")
 else:
-    print(f"Error: {response.error}")
+    print(response.error_with_details())
 ```
 
 ## Batch Processing

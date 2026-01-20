@@ -130,9 +130,10 @@ mypy src
 
 2. **ChatRequest**: Request data model with `user_prompt`, `conversation_id`, etc.
 
-3. **ChatResponse**: Response data model with `status`, `message`, `token_usage`
+3. **ChatResponse**: Response data model with `status`, `result`, `error`, `raw_response`
    - Status: `SUCCESS`, `ERROR`, `TIMEOUT`
-   - Helper methods: `is_success()`, `is_error()`, `is_timeout()`
+   - Helper methods: `is_success()`, `is_error()`, `is_timeout()`, `error_with_details()`
+   - Properties (from `raw_response`): `raw_result`, `stop_reason`, `tokens`, `conversation_id`, `knowledge_sources`
 
 4. **AgentOptions**: Configuration with `with_defaults_from(cfg)` pattern
    - `request_timeout`: HTTP timeout in seconds
