@@ -115,26 +115,29 @@ class ChatResponse:
     Represents a response from a StackSpot AI Agent.
 
     This class encapsulates the Agent's response including the message,
-    token usage, status, and any error information.
+    token usage, status, and any error information. Properties are lazily
+    extracted from raw_response (source of truth).
 
     Attributes:
         request: The original request that generated this response.
         status: The status of the response (SUCCESS, ERROR, TIMEOUT).
-        message: The Agent's response message (raw text from API).
         result: The processed result from the result handler.
-            By default (RawResultHandler), this is the same as message.
+            By default (RawResultHandler), this is the same as raw_result.
             When using JsonResultHandler, this is the parsed JSON object.
+        error: Error message if the request failed.
+        raw_response: The raw API response dictionary (source of truth for properties).
+
+    Properties (derived from raw_response):
+        raw_result: The Agent's response message (raw text from API).
         stop_reason: Reason why the Agent stopped generating (e.g., "stop").
         tokens: Token usage information.
         conversation_id: ID for continuing the conversation.
         knowledge_sources: List of knowledge source IDs used in the response.
-        error: Error message if the request failed.
-        raw_response: The raw API response dictionary.
 
     Example:
         >>> if response.is_success():
-        ...     print(response.message)  # Raw text
-        ...     print(response.result)   # Processed by handler
+        ...     print(response.raw_result)  # Raw text
+        ...     print(response.result)      # Processed by handler
         ...     print(f"Tokens used: {response.tokens.total}")
         ... elif response.is_timeout():
         ...     print("Request timed out")
@@ -143,18 +146,56 @@ class ChatResponse:
     """
     request: ChatRequest
     status: ChatStatus
-    message: str | None = None
     result: Any | None = None
-    stop_reason: str | None = None
-    tokens: ChatTokenUsage | None = None
-    conversation_id: str | None = None
-    knowledge_sources: list[str] = field(default_factory=list)
     error: str | None = None
     raw_response: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         assert self.request, "Request cannot be empty."
         assert self.status, "Status cannot be empty."
+
+    @property
+    def raw_result(self) -> str | None:
+        """Extracts the 'message' field from the raw API response."""
+        if not self.raw_response:
+            return None
+        return self.raw_response.get("message")
+
+    @property
+    def stop_reason(self) -> str | None:
+        """Extracts the 'stop_reason' field from the raw API response."""
+        if not self.raw_response:
+            return None
+        return self.raw_response.get("stop_reason")
+
+    @property
+    def tokens(self) -> ChatTokenUsage | None:
+        """Extracts and parses token usage from the raw API response."""
+        if not self.raw_response:
+            return None
+        tokens_data = self.raw_response.get("tokens")
+        if not tokens_data:
+            return None
+        return ChatTokenUsage(
+            user=tokens_data.get("user", 0),
+            enrichment=tokens_data.get("enrichment", 0),
+            output=tokens_data.get("output", 0),
+        )
+
+    @property
+    def conversation_id(self) -> str | None:
+        """Extracts the 'conversation_id' field from the raw API response."""
+        if not self.raw_response:
+            return None
+        return self.raw_response.get("conversation_id")
+
+    @property
+    def knowledge_sources(self) -> list[str]:
+        """Extracts the 'knowledge_source_id' field from the raw API response."""
+        if not self.raw_response:
+            return []
+        result: list[str] = self.raw_response.get("knowledge_source_id", [])
+        return result
 
     def is_success(self) -> bool:
         """Returns True if the response was successful."""

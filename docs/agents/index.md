@@ -13,7 +13,7 @@ agent = Agent(agent_id="my-assistant")
 response = agent.chat(ChatRequest(user_prompt="What is SOLID?"))
 
 if response.is_success():
-    print(response.message)
+    print(response.raw_result)
 ```
 
 ## Key Concepts
@@ -44,7 +44,7 @@ Contains the agent's response:
 response = agent.chat(request)
 
 if response.is_success():
-    message = response.message           # Agent's response text
+    message = response.raw_result           # Agent's response text
     tokens = response.tokens             # Token usage info
     conv_id = response.conversation_id   # For continuing conversation
     ks_ids = response.knowledge_sources  # Knowledge sources used
@@ -84,7 +84,7 @@ response = agent.chat(
 )
 
 if response.is_success():
-    print(f"Agent: {response.message}")
+    print(f"Agent: {response.raw_result}")
 
     if response.tokens:
         print(f"Tokens used: {response.tokens.total}")

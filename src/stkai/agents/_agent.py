@@ -7,7 +7,7 @@ supporting single message requests and conversation context.
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from stkai._config import AgentConfig
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 import requests
 
 from stkai._http import HttpClient, RateLimitTimeoutError
-from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus, ChatTokenUsage
+from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ class Agent:
         ...     request=ChatRequest(user_prompt="What is SOLID?")
         ... )
         >>> if response.is_success():
-        ...     print(response.message)
+        ...     print(response.raw_result)
 
     Attributes:
         agent_id: The Agent ID (slug) to interact with.
@@ -201,7 +201,7 @@ class Agent:
             >>> response = agent.chat(
             ...     request=ChatRequest(user_prompt="Hello!")
             ... )
-            >>> print(response.result)  # Same as response.message
+            >>> print(response.result)  # Same as response.raw_result
             >>>
             >>> # Parse JSON response
             >>> from stkai.agents import JSON_RESULT_HANDLER
@@ -264,7 +264,13 @@ class Agent:
                     result_handler=result_handler,
                 ) from e
 
-            response = self._parse_success_response(request, data, processed_result)
+            response = ChatResponse(
+                request=request,
+                status=ChatStatus.SUCCESS,
+                result=processed_result,
+                raw_response=data,
+            )
+
             logger.info(
                 f"{request.id[:26]:<26} | Agent | "
                 f"✅ Response received (tokens: {response.tokens.total if response.tokens else 'N/A'})"
@@ -318,40 +324,3 @@ class Agent:
                 status=ChatStatus.ERROR,
                 error=error_msg,
             )
-
-    def _parse_success_response(
-        self,
-        request: ChatRequest,
-        data: dict[str, Any],
-        processed_result: Any,
-    ) -> ChatResponse:
-        """
-        Parse the API response into a ChatResponse object.
-
-        Args:
-            request: The original request.
-            data: The JSON response from the API.
-            processed_result: The result processed by the result handler.
-
-        Returns:
-            ChatResponse with parsed data and SUCCESS status.
-        """
-        tokens = None
-        if "tokens" in data and data["tokens"]:
-            tokens = ChatTokenUsage(
-                user=data["tokens"].get("user", 0),
-                enrichment=data["tokens"].get("enrichment", 0),
-                output=data["tokens"].get("output", 0),
-            )
-
-        return ChatResponse(
-            request=request,
-            status=ChatStatus.SUCCESS,
-            message=data.get("message"),
-            result=processed_result,
-            stop_reason=data.get("stop_reason"),
-            tokens=tokens,
-            conversation_id=data.get("conversation_id"),
-            knowledge_sources=data.get("knowledge_source_id", []),
-            raw_response=data,
-        )

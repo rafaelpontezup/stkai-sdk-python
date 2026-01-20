@@ -195,12 +195,13 @@ class TestChatResponse(unittest.TestCase):
         response = ChatResponse(
             request=request,
             status=ChatStatus.SUCCESS,
-            message="Hi there!",
+            raw_response={"message": "Hi there!"},
         )
 
         self.assertTrue(response.is_success())
         self.assertFalse(response.is_error())
         self.assertFalse(response.is_timeout())
+        self.assertEqual(response.raw_result, "Hi there!")
 
     def test_is_error_returns_true_when_status_is_error(self):
         """Should return True when status is ERROR."""
@@ -335,7 +336,7 @@ class TestAgent(unittest.TestCase):
         response = agent.chat(ChatRequest(user_prompt="Hello!"))
 
         self.assertTrue(response.is_success())
-        self.assertEqual(response.message, "Hello! I'm an AI assistant.")
+        self.assertEqual(response.raw_result, "Hello! I'm an AI assistant.")
         self.assertEqual(response.stop_reason, "stop")
         self.assertEqual(response.conversation_id, "conv-123")
         self.assertIsNotNone(response.tokens)

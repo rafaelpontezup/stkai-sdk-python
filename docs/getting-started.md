@@ -119,7 +119,7 @@ response = agent.chat(
 
 # Check the response
 if response.is_success():
-    print(f"Agent: {response.message}")
+    print(f"Agent: {response.raw_result}")
     if response.tokens:
         print(f"Tokens used: {response.tokens.total}")
 else:

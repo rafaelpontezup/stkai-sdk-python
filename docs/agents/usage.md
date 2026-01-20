@@ -18,7 +18,7 @@ response: ChatResponse = agent.chat(
 )
 
 if response.is_success():
-    print(f"Agent says: {response.message}")
+    print(f"Agent says: {response.raw_result}")
 else:
     print(f"Error: {response.error}")
 ```
@@ -89,7 +89,7 @@ for prompt in prompts:
     if response.is_success():
         conversation_id = response.conversation_id  # Update for next turn
         print(f"You: {prompt}")
-        print(f"Agent: {response.message}\n")
+        print(f"Agent: {response.raw_result}\n")
 ```
 
 ## Knowledge Sources
@@ -111,7 +111,7 @@ response = agent.chat(
 )
 
 if response.is_success():
-    print(f"Agent: {response.message}")
+    print(f"Agent: {response.raw_result}")
 
     if response.knowledge_sources:
         print(f"Knowledge sources used: {response.knowledge_sources}")
@@ -224,7 +224,7 @@ response = agent.chat(request)
 
 if response.is_success():
     # Process successful response
-    process_message(response.message)
+    process_message(response.raw_result)
 
 elif response.is_error():
     # Handle client-side error
@@ -239,14 +239,15 @@ elif response.is_timeout():
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `message` | `str \| None` | Agent's response message |
+| `raw_result` | `str \| None` | Agent's raw response message (from API) |
+| `result` | `Any \| None` | Processed result (by handler) |
 | `status` | `ChatStatus` | Response status |
 | `tokens` | `ChatTokenUsage \| None` | Token usage info |
 | `conversation_id` | `str \| None` | ID for continuing conversation |
 | `knowledge_sources` | `list[str]` | KS IDs used (if requested) |
 | `stop_reason` | `str \| None` | Why generation stopped |
 | `error` | `str \| None` | Error message if failed |
-| `raw_response` | `dict \| None` | Raw API response |
+| `raw_response` | `dict \| None` | Raw API response (source of truth) |
 
 ## Next Steps
 

@@ -47,7 +47,7 @@ response = agent.chat(
 )
 
 if response.is_success():
-    print(response.message)
+    print(response.raw_result)
 ```
 
 ### Batch Processing

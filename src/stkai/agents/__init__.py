@@ -11,7 +11,7 @@ Example:
     ...     request=ChatRequest(user_prompt="What is SOLID?")
     ... )
     >>> if response.is_success():
-    ...     print(response.message)
+    ...     print(response.raw_result)
 
 For conversation context:
     >>> resp1 = agent.chat(
