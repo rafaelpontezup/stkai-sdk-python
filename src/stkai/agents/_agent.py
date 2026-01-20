@@ -260,8 +260,7 @@ class Agent:
                 handler_name = type(result_handler).__name__
                 raise ChatResultHandlerError(
                     f"{request.id} | Agent | Result handler '{handler_name}' failed: {e}",
-                    cause=e,
-                    result_handler=result_handler,
+                    cause=e, result_handler=result_handler,
                 ) from e
 
             response = ChatResponse(
@@ -277,47 +276,22 @@ class Agent:
             )
             return response
 
-        except requests.Timeout as e:
-            error_msg = f"Request timed out: {e}"
+        except (requests.Timeout, RateLimitTimeoutError) as e:
             logger.error(
-                f"{request.id[:26]:<26} | Agent | "
-                f"⏱️ {error_msg}"
+                f"{request.id[:26]:<26} | Agent | ❌ Request timed out due to: {e}"
             )
             return ChatResponse(
                 request=request,
                 status=ChatStatus.TIMEOUT,
-                error=error_msg,
-            )
-
-        except RateLimitTimeoutError as e:
-            error_msg = f"Rate limit timeout: {e}"
-            logger.error(
-                f"{request.id[:26]:<26} | Agent | "
-                f"⏱️ {error_msg}"
-            )
-            return ChatResponse(
-                request=request,
-                status=ChatStatus.TIMEOUT,
-                error=error_msg,
-            )
-
-        except requests.HTTPError as e:
-            error_msg = f"HTTP error {e.response.status_code}: {e.response.text}"
-            logger.error(
-                f"{request.id[:26]:<26} | Agent | "
-                f"❌ {error_msg}"
-            )
-            return ChatResponse(
-                request=request,
-                status=ChatStatus.ERROR,
-                error=error_msg,
+                error=f"Request timed out due to: {e}",
             )
 
         except requests.RequestException as e:
             error_msg = f"Request failed: {e}"
+            if isinstance(e, requests.HTTPError):
+                error_msg = f"Request failed due to an HTTP error {e.response.status_code}: {e.response.text}"
             logger.error(
-                f"{request.id[:26]:<26} | Agent | "
-                f"❌ {error_msg}"
+                f"{request.id[:26]:<26} | Agent | ❌ {error_msg}"
             )
             return ChatResponse(
                 request=request,
