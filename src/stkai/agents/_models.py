@@ -174,12 +174,12 @@ class ChatResponse:
         if not self.raw_response:
             return None
         tokens_data = self.raw_response.get("tokens")
-        if not tokens_data:
+        if tokens_data is None:
             return None
         return ChatTokenUsage(
-            user=tokens_data.get("user", 0),
-            enrichment=tokens_data.get("enrichment", 0),
-            output=tokens_data.get("output", 0),
+            user=tokens_data.get("user") or 0,
+            enrichment=tokens_data.get("enrichment") or 0,
+            output=tokens_data.get("output") or 0,
         )
 
     @property

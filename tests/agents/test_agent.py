@@ -92,6 +92,86 @@ class TestChatTokenUsage(unittest.TestCase):
             usage.user = 200  # type: ignore
 
 
+class TestChatResponseTokensProperty(unittest.TestCase):
+    """Tests for ChatResponse.tokens property handling null values from API."""
+
+    def test_tokens_with_all_null_values(self):
+        """Should handle tokens with all null values from API."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.SUCCESS,
+            raw_response={
+                "message": "Response",
+                "tokens": {"user": None, "enrichment": None, "output": None},
+            },
+        )
+
+        tokens = response.tokens
+        self.assertIsNotNone(tokens)
+        self.assertEqual(tokens.user, 0)
+        self.assertEqual(tokens.enrichment, 0)
+        self.assertEqual(tokens.output, 0)
+        self.assertEqual(tokens.total, 0)
+
+    def test_tokens_with_some_null_values(self):
+        """Should handle tokens with some null values from API."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.SUCCESS,
+            raw_response={
+                "message": "Response",
+                "tokens": {"user": 100, "enrichment": None, "output": 50},
+            },
+        )
+
+        tokens = response.tokens
+        self.assertIsNotNone(tokens)
+        self.assertEqual(tokens.user, 100)
+        self.assertEqual(tokens.enrichment, 0)
+        self.assertEqual(tokens.output, 50)
+        self.assertEqual(tokens.total, 150)
+
+    def test_tokens_with_missing_keys(self):
+        """Should handle tokens with missing keys from API."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.SUCCESS,
+            raw_response={
+                "message": "Response",
+                "tokens": {"user": 100},  # enrichment and output missing
+            },
+        )
+
+        tokens = response.tokens
+        self.assertIsNotNone(tokens)
+        self.assertEqual(tokens.user, 100)
+        self.assertEqual(tokens.enrichment, 0)
+        self.assertEqual(tokens.output, 0)
+        self.assertEqual(tokens.total, 100)
+
+    def test_tokens_with_empty_object(self):
+        """Should handle empty tokens object from API."""
+        request = ChatRequest(user_prompt="Hello!")
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.SUCCESS,
+            raw_response={
+                "message": "Response",
+                "tokens": {},
+            },
+        )
+
+        tokens = response.tokens
+        self.assertIsNotNone(tokens)
+        self.assertEqual(tokens.user, 0)
+        self.assertEqual(tokens.enrichment, 0)
+        self.assertEqual(tokens.output, 0)
+        self.assertEqual(tokens.total, 0)
+
+
 class TestChatRequest(unittest.TestCase):
     """Tests for ChatRequest data class."""
 
