@@ -48,6 +48,25 @@ class StkCLI:
         try:
             from oscli import __codebuddy_base_url__
 
+            assert __codebuddy_base_url__, \
+                "🌀 Sanity check | __codebuddy_base_url__ must not be empty. This oscli version seems to be broken."
+            assert isinstance(__codebuddy_base_url__, str), \
+                "🌀 Sanity check | __codebuddy_base_url__ must be a string. This oscli version seems to be broken."
+
             return __codebuddy_base_url__ if __codebuddy_base_url__ else None
         except (ImportError, AttributeError):
             return None
+
+    @staticmethod
+    def get_inference_app_base_url() -> str | None:
+        """
+        Get Inference-App base URL from CLI if available.
+
+        Returns:
+            The CLI's Inference-App base URL if oscli is installed
+            and the attribute exists, None otherwise.
+        """
+        codebuddy_base_url = StkCLI.get_codebuddy_base_url()
+        if codebuddy_base_url:
+            return codebuddy_base_url.replace("genai-code-buddy-api", "genai-inference-app")
+        return None

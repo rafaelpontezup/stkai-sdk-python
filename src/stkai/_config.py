@@ -848,10 +848,12 @@ class STKAIConfigTracker:
                         touched_fields.append(f.name)
 
                 elif source_type == "CLI":
-                    # CLI only touches base_url in rqc section
-                    if section_name == "rqc" and f.name == "base_url":
+                    # CLI touches base_url in rqc and agent sections
+                    if f.name == "base_url":
                         from stkai._cli import StkCLI
-                        if StkCLI.get_codebuddy_base_url() is not None:
+                        if section_name == "rqc" and StkCLI.get_codebuddy_base_url() is not None:
+                            touched_fields.append(f.name)
+                        elif section_name == "agent" and StkCLI.get_inference_app_base_url() is not None:
                             touched_fields.append(f.name)
 
                 elif source_type == "user" and overrides:
@@ -991,14 +993,18 @@ class STKAIConfig:
         from stkai._cli import StkCLI
 
         cli_rqc_overrides: dict[str, Any] = {}
-        if cli_base_url := StkCLI.get_codebuddy_base_url():
-            cli_rqc_overrides["base_url"] = cli_base_url
+        if codebuddy_base_url := StkCLI.get_codebuddy_base_url():
+            cli_rqc_overrides["base_url"] = codebuddy_base_url
+
+        cli_agent_overrides: dict[str, Any] = {}
+        if inference_app_base_url := StkCLI.get_inference_app_base_url():
+            cli_agent_overrides["base_url"] = inference_app_base_url
 
         return STKAIConfig(
             sdk=self.sdk,
             auth=self.auth,
             rqc=self.rqc.with_overrides(cli_rqc_overrides),
-            agent=self.agent,
+            agent=self.agent.with_overrides(cli_agent_overrides),
             rate_limit=self.rate_limit,
         )
 

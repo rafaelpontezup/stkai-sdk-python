@@ -624,63 +624,72 @@ class TestCLIPrecedence(unittest.TestCase):
     def tearDown(self):
         STKAI.reset()
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_cli_base_url_overrides_hardcoded_default(self, mock_cli):
+    def test_cli_base_url_overrides_hardcoded_default(self, mock_codebuddy, mock_inference):
         """CLI base_url should override hardcoded default."""
         STKAI.reset()
         self.assertEqual(STKAI.config.rqc.base_url, "https://cli.example.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
-    def test_cli_base_url_overrides_env_var(self, mock_cli):
+    def test_cli_base_url_overrides_env_var(self, mock_codebuddy, mock_inference):
         """CLI base_url should override env var."""
         STKAI.reset()
         self.assertEqual(STKAI.config.rqc.base_url, "https://cli.example.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
-    def test_user_overrides_cli_base_url(self, mock_cli):
+    def test_user_overrides_cli_base_url(self, mock_codebuddy, mock_inference):
         """STKAI.configure() should override CLI base_url."""
         STKAI.configure(rqc={"base_url": "https://user.example.com"})
         self.assertEqual(STKAI.config.rqc.base_url, "https://user.example.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_hardcoded_default_used_when_no_cli(self, mock_cli):
+    def test_hardcoded_default_used_when_no_cli(self, mock_codebuddy, mock_inference):
         """Should use hardcoded default when CLI is not available."""
         STKAI.reset()
         self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
-    def test_env_var_used_when_no_cli(self, mock_cli):
+    def test_env_var_used_when_no_cli(self, mock_codebuddy, mock_inference):
         """Should use env var when CLI is not available."""
         STKAI.reset()
         self.assertEqual(STKAI.config.rqc.base_url, "https://env.example.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_cli_preserves_other_rqc_defaults(self, mock_cli):
+    def test_cli_preserves_other_rqc_defaults(self, mock_codebuddy, mock_inference):
         """CLI should only override base_url, not other RQC defaults."""
         STKAI.reset()
         self.assertEqual(STKAI.config.rqc.base_url, "https://cli.example.com")
         self.assertEqual(STKAI.config.rqc.request_timeout, 30)  # Default preserved
         self.assertEqual(STKAI.config.rqc.max_retries, 3)  # Default preserved
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_allow_cli_override_false_ignores_cli(self, mock_cli):
+    def test_allow_cli_override_false_ignores_cli(self, mock_codebuddy, mock_inference):
         """allow_cli_override=False should ignore CLI values."""
         STKAI.configure(allow_cli_override=False)
         self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
-    def test_allow_cli_override_false_uses_env_var(self, mock_cli):
+    def test_allow_cli_override_false_uses_env_var(self, mock_codebuddy, mock_inference):
         """allow_cli_override=False should use env var instead of CLI."""
         STKAI.configure(allow_cli_override=False)
         self.assertEqual(STKAI.config.rqc.base_url, "https://env.example.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://env.example.com"})
-    def test_both_overrides_false_uses_defaults(self, mock_cli):
+    def test_both_overrides_false_uses_defaults(self, mock_codebuddy, mock_inference):
         """Both overrides False should use only defaults."""
         STKAI.configure(allow_env_override=False, allow_cli_override=False)
         self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
@@ -689,34 +698,63 @@ class TestCLIPrecedence(unittest.TestCase):
 class TestWithCliDefaults(unittest.TestCase):
     """Tests for STKAIConfig.with_cli_defaults() method."""
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_applies_cli_base_url(self, mock_cli):
+    def test_applies_cli_base_url_to_rqc(self, mock_codebuddy, mock_inference):
         """Should apply CLI base_url to RQC config."""
         config = STKAIConfig().with_cli_defaults()
         self.assertEqual(config.rqc.base_url, "https://cli.example.com")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_applies_cli_base_url_to_agent(self, mock_codebuddy, mock_inference):
+        """Should apply CLI base_url to Agent config."""
+        config = STKAIConfig().with_cli_defaults()
+        self.assertEqual(config.agent.base_url, "https://genai-inference-app.stackspot.com")
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://genai-code-buddy-api.stackspot.com")
+    def test_applies_cli_base_url_to_both_rqc_and_agent(self, mock_codebuddy, mock_inference):
+        """Should apply CLI base_url to both RQC and Agent configs."""
+        config = STKAIConfig().with_cli_defaults()
+        self.assertEqual(config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
+        self.assertEqual(config.agent.base_url, "https://genai-inference-app.stackspot.com")
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_preserves_other_defaults(self, mock_cli):
+    def test_preserves_other_rqc_defaults(self, mock_codebuddy, mock_inference):
         """Should preserve other RQC default values."""
         config = STKAIConfig().with_cli_defaults()
         self.assertEqual(config.rqc.request_timeout, 30)
         self.assertEqual(config.rqc.max_retries, 3)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_no_op_when_cli_not_available(self, mock_cli):
+    def test_preserves_other_agent_defaults(self, mock_codebuddy, mock_inference):
+        """Should preserve other Agent default values."""
+        config = STKAIConfig().with_cli_defaults()
+        self.assertEqual(config.agent.request_timeout, 60)
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_no_op_when_cli_not_available(self, mock_codebuddy, mock_inference):
         """Should be a no-op when CLI is not available."""
         original = STKAIConfig()
         result = original.with_cli_defaults()
         self.assertEqual(result.rqc.base_url, original.rqc.base_url)
+        self.assertEqual(result.agent.base_url, original.agent.base_url)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_returns_new_instance(self, mock_cli):
+    def test_returns_new_instance(self, mock_codebuddy, mock_inference):
         """Should return a new instance, not modify original."""
         original = STKAIConfig()
         result = original.with_cli_defaults()
         self.assertIsNot(original, result)
         self.assertEqual(original.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
         self.assertEqual(result.rqc.base_url, "https://cli.example.com")
+        self.assertEqual(original.agent.base_url, "https://genai-inference-app.stackspot.com")
+        self.assertEqual(result.agent.base_url, "https://genai-inference-app.stackspot.com")
 
 
 class TestSourceTracking(unittest.TestCase):
@@ -747,24 +785,29 @@ class TestSourceTracking(unittest.TestCase):
         self.assertIn("auth", config._tracker.sources)
         self.assertEqual(config._tracker.sources["auth"]["client_secret"], "env:STKAI_AUTH_CLIENT_SECRET")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.example.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_cli_values_tracked_insources(self, mock_cli):
+    def test_cli_values_tracked_insources(self, mock_codebuddy, mock_inference):
         """CLI values should be tracked in _tracker.sources."""
         config = STKAIConfig().with_cli_defaults()
         self.assertIn("rqc", config._tracker.sources)
         self.assertEqual(config._tracker.sources["rqc"]["base_url"], "CLI")
+        self.assertIn("agent", config._tracker.sources)
+        self.assertEqual(config._tracker.sources["agent"]["base_url"], "CLI")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_user_values_tracked_insources(self, mock_cli):
+    def test_user_values_tracked_insources(self, mock_codebuddy, mock_inference):
         """Configure values should be tracked in _tracker.sources."""
         STKAI.configure(rqc={"request_timeout": 120}, allow_env_override=False)
         # Access via internal _config._tracker
         self.assertIn("rqc", STKAI.config._tracker.sources)
         self.assertEqual(STKAI.config._tracker.sources["rqc"]["request_timeout"], "user")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.example.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "99"})
-    def test_user_overrides_cli_and_env_insources(self, mock_cli):
+    def test_user_overrides_cli_and_env_insources(self, mock_codebuddy, mock_inference):
         """Configure values should override CLI and env in _tracker.sources."""
         STKAI.configure(rqc={"request_timeout": 120, "base_url": "https://custom.com"})
         sources = STKAI.config._tracker.sources
@@ -772,14 +815,16 @@ class TestSourceTracking(unittest.TestCase):
         self.assertEqual(sources["rqc"]["request_timeout"], "user")
         self.assertEqual(sources["rqc"]["base_url"], "user")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.example.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10"})
-    def testsources_from_multiple_origins(self, mock_cli):
+    def testsources_from_multiple_origins(self, mock_codebuddy, mock_inference):
         """Sources should track multiple origins correctly."""
         STKAI.configure(rqc={"request_timeout": 120})
         sources = STKAI.config._tracker.sources
-        # CLI provides base_url
+        # CLI provides base_url for rqc and agent
         self.assertEqual(sources["rqc"]["base_url"], "CLI")
+        self.assertEqual(sources["agent"]["base_url"], "CLI")
         # Env var provides max_retries
         self.assertEqual(sources["rqc"]["max_retries"], "env:STKAI_RQC_MAX_RETRIES")
         # Configure provides request_timeout
@@ -811,8 +856,9 @@ class TestExplain(unittest.TestCase):
         print(output)  # Print to console for visibility
         return output
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_prints_output(self, mock_cli):
+    def test_explain_prints_output(self, mock_codebuddy, mock_inference):
         """explain() should print configuration output."""
         STKAI.configure(allow_env_override=False, allow_cli_override=False)
         output = self._capture_explain()
@@ -822,15 +868,17 @@ class TestExplain(unittest.TestCase):
         self.assertIn("[agent]", output)
         self.assertIn("[rate_limit]", output)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_shows_default_source(self, mock_cli):
+    def test_explain_shows_default_source(self, mock_codebuddy, mock_inference):
         """explain() should show 'default' for default values (without marker)."""
         STKAI.configure(allow_env_override=False, allow_cli_override=False)
         output = self._capture_explain()
         self.assertIn("  default", output)  # space before default (no ✎ marker)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_shows_user_source(self, mock_cli):
+    def test_explain_shows_user_source(self, mock_codebuddy, mock_inference):
         """explain() should show '✎ user' for userd values."""
         STKAI.configure(
             rqc={"request_timeout": 99},
@@ -841,25 +889,28 @@ class TestExplain(unittest.TestCase):
         self.assertIn("99", output)
         self.assertIn("✎ user", output)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_explain_shows_cli_source(self, mock_cli):
+    def test_explain_shows_cli_source(self, mock_codebuddy, mock_inference):
         """explain() should show '✎ CLI' for CLI values."""
         STKAI.reset()
         output = self._capture_explain()
         self.assertIn("https://cli.example.com", output)
         self.assertIn("✎ CLI", output)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "15"})
-    def test_explain_shows_env_source(self, mock_cli):
+    def test_explain_shows_env_source(self, mock_codebuddy, mock_inference):
         """explain() should show '✎ env:VAR_NAME' for env values."""
         STKAI.reset()
         output = self._capture_explain()
         self.assertIn("15", output)
         self.assertIn("✎ env:STKAI_RQC_MAX_RETRIES", output)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_masks_client_secret(self, mock_cli):
+    def test_explain_masks_client_secret(self, mock_codebuddy, mock_inference):
         """explain() should mask client_secret value."""
         STKAI.configure(
             auth={"client_secret": "super-secret-value"},
@@ -870,8 +921,9 @@ class TestExplain(unittest.TestCase):
         self.assertNotIn("super-secret-value", output)
         self.assertIn("********", output)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_shows_none_values(self, mock_cli):
+    def test_explain_shows_none_values(self, mock_codebuddy, mock_inference):
         """explain() should show 'None' for None values."""
         STKAI.configure(allow_env_override=False, allow_cli_override=False)
         output = self._capture_explain()
@@ -879,8 +931,9 @@ class TestExplain(unittest.TestCase):
         self.assertIn("client_id", output)
         self.assertIn("None", output)
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_with_custom_output_handler(self, mock_cli):
+    def test_explain_with_custom_output_handler(self, mock_codebuddy, mock_inference):
         """explain() should accept custom output handler."""
         STKAI.configure(allow_env_override=False, allow_cli_override=False)
 
@@ -896,9 +949,10 @@ class TestExplain(unittest.TestCase):
         self.assertTrue(any("STKAI Configuration:" in line for line in lines))
         self.assertTrue(any("[rqc]" in line for line in lines))
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10", "STKAI_AGENT_REQUEST_TIMEOUT": "90"})
-    def test_explain_shows_mixed_sources(self, mock_cli):
+    def test_explain_shows_mixed_sources(self, mock_codebuddy, mock_inference):
         """explain() should show mix of default, env, CLI, and user sources."""
         STKAI.configure(
             rqc={"request_timeout": 99},  # user overrides default
@@ -921,8 +975,9 @@ class TestExplain(unittest.TestCase):
         self.assertIn("https://cli.example.com", output)  # base_url from CLI
         self.assertIn("10.0", output)  # poll_interval from default
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_explain_with_logger(self, mock_cli):
+    def test_explain_with_logger(self, mock_codebuddy, mock_inference):
         """explain() should work with logging."""
         import logging
 
@@ -1369,8 +1424,9 @@ class TestConfigValidation(unittest.TestCase):
         self.assertIn("token_url", str(ctx.exception))
         self.assertIn("[auth]", str(ctx.exception))
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_configure_valid_values_pass(self, mock_cli):
+    def test_configure_valid_values_pass(self, mock_codebuddy, mock_inference):
         """STKAI.configure() with valid values should succeed."""
         result = STKAI.configure(
             rqc={"request_timeout": 60, "max_retries": 5},
@@ -1415,36 +1471,40 @@ class TestSourceTrackingWithSameValue(unittest.TestCase):
     def tearDown(self):
         STKAI.reset()
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "30"})
-    def test_env_var_same_as_default_shows_env_source(self, mock_cli):
+    def test_env_var_same_as_default_shows_env_source(self, mock_codebuddy, mock_inference):
         """ENV var with same value as default should show env: source."""
         STKAI.reset()
         data = STKAI.config.explain_data()
         entry = next(e for e in data["rqc"] if e.name == "request_timeout")
         self.assertEqual(entry.source, "env:STKAI_RQC_REQUEST_TIMEOUT")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://genai-code-buddy-api.stackspot.com")
-    def test_cli_same_as_default_shows_cli_source(self, mock_cli):
+    def test_cli_same_as_default_shows_cli_source(self, mock_codebuddy, mock_inference):
         """CLI with same value as default should show CLI source."""
         STKAI.reset()
         data = STKAI.config.explain_data()
         entry = next(e for e in data["rqc"] if e.name == "base_url")
         self.assertEqual(entry.source, "CLI")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://example.com"})
-    def test_cli_same_as_env_shows_cli_source(self, mock_cli):
+    def test_cli_same_as_env_shows_cli_source(self, mock_codebuddy, mock_inference):
         """CLI with same value as ENV var should show CLI source."""
         # Set CLI to return the same value as env
-        mock_cli.return_value = "https://example.com"
+        mock_codebuddy.return_value = "https://example.com"
         STKAI.reset()
         data = STKAI.config.explain_data()
         entry = next(e for e in data["rqc"] if e.name == "base_url")
         self.assertEqual(entry.source, "CLI")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_configure_same_as_default_shows_user_source(self, mock_cli):
+    def test_configure_same_as_default_shows_user_source(self, mock_codebuddy, mock_inference):
         """configure() with same value as default should show user source."""
         STKAI.configure(
             rqc={"request_timeout": 30},  # 30 is the default
@@ -1455,26 +1515,29 @@ class TestSourceTrackingWithSameValue(unittest.TestCase):
         entry = next(e for e in data["rqc"] if e.name == "request_timeout")
         self.assertEqual(entry.source, "user")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "60"})
-    def test_configure_same_as_env_shows_user_source(self, mock_cli):
+    def test_configure_same_as_env_shows_user_source(self, mock_codebuddy, mock_inference):
         """configure() with same value as ENV var should show user source."""
         STKAI.configure(rqc={"request_timeout": 60})  # same as env
         data = STKAI.config.explain_data()
         entry = next(e for e in data["rqc"] if e.name == "request_timeout")
         self.assertEqual(entry.source, "user")  # user wins
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://example.com")
     @patch.dict(os.environ, {"STKAI_RQC_BASE_URL": "https://example.com"})
-    def test_configure_same_as_env_and_cli_shows_user_source(self, mock_cli):
+    def test_configure_same_as_env_and_cli_shows_user_source(self, mock_codebuddy, mock_inference):
         """configure() with same value as ENV+CLI should show user source."""
         STKAI.configure(rqc={"base_url": "https://example.com"})  # same as env and CLI
         data = STKAI.config.explain_data()
         entry = next(e for e in data["rqc"] if e.name == "base_url")
         self.assertEqual(entry.source, "user")  # user wins
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_configure_none_value_with_allow_none_shows_user_source(self, mock_cli):
+    def test_configure_none_value_with_allow_none_shows_user_source(self, mock_codebuddy, mock_inference):
         """None value with allow_none_fields should show user source."""
         STKAI.configure(
             rate_limit={"max_wait_time": None},
@@ -1485,18 +1548,20 @@ class TestSourceTrackingWithSameValue(unittest.TestCase):
         entry = next(e for e in data["rate_limit"] if e.name == "max_wait_time")
         self.assertEqual(entry.source, "user")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_AUTH_TOKEN_URL": "https://idm.stackspot.com/stackspot-dev/oidc/oauth/token"})
-    def test_auth_env_var_same_as_default_shows_env_source(self, mock_cli):
+    def test_auth_env_var_same_as_default_shows_env_source(self, mock_codebuddy, mock_inference):
         """Auth ENV var with same value as default should show env: source."""
         STKAI.reset()
         data = STKAI.config.explain_data()
         entry = next(e for e in data["auth"] if e.name == "token_url")
         self.assertEqual(entry.source, "env:STKAI_AUTH_TOKEN_URL")
 
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     @patch.dict(os.environ, {"STKAI_RATE_LIMIT_ENABLED": "false"})
-    def test_rate_limit_env_var_same_as_default_shows_env_source(self, mock_cli):
+    def test_rate_limit_env_var_same_as_default_shows_env_source(self, mock_codebuddy, mock_inference):
         """Rate limit ENV var with same value as default should show env: source."""
         STKAI.reset()
         data = STKAI.config.explain_data()
