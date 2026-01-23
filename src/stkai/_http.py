@@ -31,6 +31,7 @@ For rate limiting:
 """
 
 import logging
+import random
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -819,6 +820,10 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         RateLimitTimeoutError: If max_wait_time is exceeded while waiting for a token.
     """
 
+    # Maximum Retry-After value to respect (in seconds).
+    # Protects against abusive or buggy servers sending unreasonably large values.
+    MAX_RETRY_AFTER = 60
+
     def __init__(
         self,
         delegate: HttpClient,
@@ -877,12 +882,6 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         self._tokens = float(max_requests)
         self._last_refill = time.time()
         self._lock = threading.Lock()
-
-    @property
-    def effective_max(self) -> float:
-        """Return the current effective maximum requests (for monitoring)."""
-        with self._lock:
-            return self._effective_max
 
     def _acquire_token(self) -> None:
         """
@@ -944,6 +943,10 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
 
         Reduces the effective rate to adapt to server-side rate limits,
         but never below the configured floor.
+
+        Also clamps _tokens to maintain Token Bucket invariant: tokens <= effective_max.
+        Without this, after penalization the tokens could exceed the new effective_max,
+        breaking the bucket's capacity constraint.
         """
         with self._lock:
             old_max = self._effective_max
@@ -951,6 +954,8 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
                 self._min_effective,
                 self._effective_max * (1 - self.penalty_factor)
             )
+            # Clamp tokens to maintain invariant: tokens <= effective_max
+            self._tokens = min(self._tokens, self._effective_max)
             logger.warning(
                 f"Rate limit adapted: effective_max reduced from {old_max:.1f} to {self._effective_max:.1f}"
             )
@@ -1008,6 +1013,11 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         last_response: requests.Response | None = None
 
         for attempt in range(self.max_retries_on_429 + 1):
+            # NOTE: We always pass through the token bucket, even after a 429 retry.
+            # After penalization by 429, the local rate may be more restrictive than the
+            # server's Retry-After, resulting in additional wait time. This is intentional:
+            # we favor stability over minimum latency. In multi-process/worker environments
+            # sharing quota, being conservative helps AIMD algorithm convergence.
             self._acquire_token()
             response = self.delegate.post(url, data, headers, timeout)
 
@@ -1022,16 +1032,30 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             if attempt >= self.max_retries_on_429:
                 break
 
-            # Determine wait time from Retry-After header or calculate from rate
-            retry_after = response.headers.get("Retry-After")
-            if retry_after:
+            # Calculate local average wait time (client-side)
+            wait_time = self.time_window / self._effective_max
+
+            # Determine wait time from Retry-After header when provided (server-side)
+            retry_after_header = response.headers.get("Retry-After")
+            if retry_after_header:
                 try:
-                    wait_time = float(retry_after)
-                except ValueError:
-                    # Retry-After might be a date string, fall back to calculated wait
-                    wait_time = self.time_window / self._effective_max
-            else:
-                wait_time = self.time_window / self._effective_max
+                    retry_after = float(retry_after_header)
+                    # Only respect Retry-After if it's reasonable (not abusive)
+                    if retry_after <= self.MAX_RETRY_AFTER:
+                        wait_time = retry_after
+                    else:
+                        logger.warning(
+                            f"Retry-After header ({retry_after}s) exceeds MAX_RETRY_AFTER "
+                            f"({self.MAX_RETRY_AFTER}s). Using client-side's calculated wait time."
+                        )
+                except (TypeError, ValueError):
+                    # Retry-After value might be a date string, so ignore it
+                    pass
+
+            # Add jitter (0-30%) to avoid thundering herd when multiple workers and
+            # processes receive the same Retry-After and wake up simultaneously
+            jitter = random.uniform(0, wait_time * 0.3)
+            wait_time += jitter
 
             logger.warning(
                 f"Rate limited (429). Attempt {attempt + 1}/{self.max_retries_on_429 + 1}. "

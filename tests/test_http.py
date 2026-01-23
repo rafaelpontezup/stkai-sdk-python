@@ -348,6 +348,36 @@ class TestAdaptiveRateLimitedHttpClientTimeout:
         assert response.status_code == 200
 
 
+class TestAdaptiveRateLimitedHttpClientTokenInvariant:
+    """Tests for token bucket invariant in AdaptiveRateLimitedHttpClient."""
+
+    def test_tokens_clamped_after_penalty(self):
+        """Test that tokens are clamped to effective_max after penalty.
+
+        Scenario: tokens=80, effective_max=100, penalty reduces to 50 → tokens must be 50.
+        """
+        delegate = MockHttpClient()
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            penalty_factor=0.5,  # 50% reduction: 100 → 50
+            max_wait_time=None,
+        )
+
+        # Manually set tokens to 80 (simulating partial bucket)
+        client._tokens = 80.0
+        assert client._effective_max == 100.0
+
+        # Trigger penalty
+        client._on_rate_limited()
+
+        # effective_max should be reduced by 50%: 100 * (1 - 0.5) = 50
+        assert client._effective_max == 50.0
+        # tokens should be clamped to the new effective_max
+        assert client._tokens == 50.0
+
+
 class TestAdaptiveRateLimitedHttpClient429Handling:
     """Tests for 429 handling in AdaptiveRateLimitedHttpClient."""
 
@@ -365,13 +395,13 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
             max_wait_time=None,  # Disable timeout for this test
         )
 
-        initial_effective_max = client.effective_max
+        initial_effective_max = client._effective_max
 
         # This will retry and reduce effective_max
         client.post("http://example.com", data={})
 
         # Effective max should be reduced after 429s
-        assert client.effective_max < initial_effective_max
+        assert client._effective_max < initial_effective_max
 
     def test_returns_429_after_max_retries_exhausted(self):
         delegate = MockHttpClient()
@@ -391,6 +421,72 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
         assert response.status_code == 429
         # Should have made 2 attempts (initial + 1 retry)
         assert len(delegate.post_calls) == 2
+
+    def test_jitter_applied_on_429_retry(self):
+        """Test that jitter (0-30%) is applied to the Retry-After wait time."""
+        delegate = MockHttpClient()
+        delegate.response.status_code = 429
+        delegate.response.headers = {"Retry-After": "5"}
+
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            max_retries_on_429=1,  # One retry to trigger the sleep
+            max_wait_time=None,
+        )
+
+        sleep_times = []
+
+        def mock_sleep(duration):
+            sleep_times.append(duration)
+            # Don't actually sleep in the test
+
+        with patch("stkai._http.time.sleep", side_effect=mock_sleep):
+            client.post("http://example.com", data={})
+
+        # Should have at least one sleep call (the retry delay)
+        assert len(sleep_times) >= 1
+
+        # The sleep time should be between 5.0s (base) and 6.5s (base + 30% jitter)
+        retry_sleep = sleep_times[0]
+        assert 5.0 <= retry_sleep <= 6.5, f"Expected sleep between 5.0 and 6.5, got {retry_sleep}"
+
+    def test_ignores_abusive_retry_after_header(self):
+        """Test that Retry-After values exceeding MAX_RETRY_AFTER are ignored.
+
+        Protects against buggy or malicious servers sending unreasonably large values.
+        """
+        delegate = MockHttpClient()
+        delegate.response.status_code = 429
+        delegate.response.headers = {"Retry-After": "3600"}  # 1 hour - abusive!
+
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            max_retries_on_429=1,
+            max_wait_time=None,
+        )
+
+        sleep_times = []
+
+        def mock_sleep(duration):
+            sleep_times.append(duration)
+
+        with patch("stkai._http.time.sleep", side_effect=mock_sleep):
+            client.post("http://example.com", data={})
+
+        assert len(sleep_times) >= 1
+
+        # Should use calculated wait (time_window / effective_max) instead of 3600s
+        # With penalty, effective_max ≈ 80, so calculated ≈ 60/80 = 0.75s (+ jitter)
+        # Must be WAY less than 3600s
+        retry_sleep = sleep_times[0]
+        assert retry_sleep < client.MAX_RETRY_AFTER, (
+            f"Expected sleep < {client.MAX_RETRY_AFTER}s, got {retry_sleep}s. "
+            "Abusive Retry-After should be ignored."
+        )
 
 
 # =============================================================================
