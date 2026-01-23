@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/claude-code) when working 
 src/stkai/
 ├── __init__.py                    # Public API exports (root module)
 ├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
-├── _cli.py                        # CLI abstraction: StkCLI (is_available, get_codebuddy_base_url)
+├── _cli.py                        # CLI abstraction: StkCLI (is_available, get_codebuddy_base_url, get_inference_app_base_url)
 ├── _config.py                     # Global config: STKAI singleton (configure, config, reset, explain)
 ├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, RateLimitedHttpClient, AdaptiveRateLimitedHttpClient
 ├── _utils.py                      # Internal utilities

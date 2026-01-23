@@ -13,7 +13,7 @@ Settings are resolved in this order (highest precedence first):
 5. **Hardcoded defaults**
 
 !!! info "CLI Mode"
-    When running with StackSpot CLI (`oscli`), the SDK automatically detects CLI mode and uses CLI-provided configuration values. For example, the RQC `base_url` is automatically obtained from the CLI. This ensures the SDK uses the correct endpoints for your environment.
+    When running with StackSpot CLI (`oscli`), the SDK automatically detects CLI mode and uses CLI-provided configuration values. Both RQC and Agent `base_url` are automatically obtained from the CLI. This ensures the SDK uses the correct endpoints for your environment.
 
 !!! note "Single Source of Truth"
     Options with `None` values automatically use defaults from `STKAI.config`. This follows the "Single Source of Truth" principle - all defaults come from the global config.
@@ -101,8 +101,14 @@ from stkai._cli import StkCLI
 
 if StkCLI.is_available():
     print("Running in CLI mode")
-    base_url = StkCLI.get_codebuddy_base_url()
-    print(f"CLI base_url: {base_url}")
+
+    # RQC base URL (from oscli.__codebuddy_base_url__)
+    rqc_base_url = StkCLI.get_codebuddy_base_url()
+    print(f"RQC base_url: {rqc_base_url}")
+
+    # Agent base URL (derived from codebuddy URL)
+    agent_base_url = StkCLI.get_inference_app_base_url()
+    print(f"Agent base_url: {agent_base_url}")
 else:
     print("Running in standalone mode")
 ```
@@ -248,6 +254,9 @@ Settings for `Agent` clients:
 |-------|---------|---------|-------------|
 | `request_timeout` | `STKAI_AGENT_REQUEST_TIMEOUT` | 60 | HTTP timeout (seconds) |
 | `base_url` | `STKAI_AGENT_BASE_URL` | StackSpot API URL | API base URL |
+
+!!! tip "CLI Base URL"
+    In CLI mode, the Agent `base_url` is automatically derived from the CLI's codebuddy URL (replacing `genai-code-buddy-api` with `genai-inference-app`). Since CLI has higher precedence than environment variables, you can override it via `STKAI.configure()`, constructor parameter (`base_url=`), or by disabling CLI override with `allow_cli_override=False`.
 
 ### RateLimitConfig
 
