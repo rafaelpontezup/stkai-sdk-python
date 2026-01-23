@@ -13,7 +13,9 @@ Settings are resolved in this order (highest precedence first):
 5. **Hardcoded defaults**
 
 !!! info "CLI Mode"
-    When running with StackSpot CLI (`oscli`), the SDK automatically detects CLI mode and uses CLI-provided configuration values. Both RQC and Agent `base_url` are automatically obtained from the CLI. This ensures the SDK uses the correct endpoints for your environment.
+    When running with StackSpot CLI (`stk`), the SDK automatically detects CLI mode and uses CLI-provided configuration values. Both RQC and Agent `base_url` are automatically obtained from the CLI. This ensures the SDK uses the correct endpoints for your environment.
+
+    **Important:** For CLI mode to work, your code must be executed through StackSpot CLI commands after authentication (e.g., `stk run action` or `stk run workflow`). See [CLI Detection](#cli-detection) for details.
 
 !!! note "Single Source of Truth"
     Options with `None` values automatically use defaults from `STKAI.config`. This follows the "Single Source of Truth" principle - all defaults come from the global config.
@@ -94,7 +96,36 @@ STKAI.configure()  # Reloads configuration with env vars
 
 ## CLI Detection
 
-The SDK automatically detects when running with StackSpot CLI (`oscli`) and uses CLI-provided configuration values. You can check CLI availability programmatically:
+The SDK automatically detects when running with [StackSpot CLI](https://docs.stackspot.com/en/home/stk-cli/install) (`stk`) and uses CLI-provided configuration values.
+
+### How CLI Mode Works
+
+For CLI mode to be active, your code **must be executed through StackSpot CLI commands** after authentication. The CLI injects environment variables and context that the SDK uses for authentication and API endpoints.
+
+**Common CLI execution methods:**
+
+```bash
+# Run a StackSpot Action that uses the SDK
+stk run action my-action
+
+# Run a StackSpot Workflow that uses the SDK
+stk run workflow my-workflow
+```
+
+When your code runs through these commands, the SDK automatically:
+
+1. Detects the CLI environment via injected variables
+2. Uses CLI-managed authentication (no credentials needed in code)
+3. Obtains the correct API endpoints for your environment
+
+!!! warning "Direct Python Execution"
+    Running your script directly with `python my_script.py` **will not** enable CLI mode, even if the CLI is installed and you're logged in. The script must be executed through `stk run action` or `stk run workflow` for CLI mode to work.
+
+For more details on StackSpot CLI, see the [official CLI documentation](https://docs.stackspot.com/en/home/stk-cli/install).
+
+### Checking CLI Availability
+
+You can check CLI availability programmatically:
 
 ```python
 from stkai._cli import StkCLI

@@ -29,7 +29,9 @@ The SDK supports two authentication modes:
 
 ### Option 1: StackSpot CLI (Recommended)
 
-If you have the [StackSpot CLI](https://docs.stackspot.com/docs/stk-cli/installation/) installed and authenticated, the SDK will automatically use it for authentication:
+If you have the [StackSpot CLI](https://docs.stackspot.com/en/home/stk-cli/install) installed and authenticated, the SDK will automatically use it for authentication.
+
+**Setup:**
 
 ```bash
 # Install StackSpot CLI
@@ -39,7 +41,7 @@ curl -fsSL https://stk.stackspot.com/install.sh | bash
 stk login
 ```
 
-Then simply use the SDK:
+**Usage in your code:**
 
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
@@ -47,6 +49,19 @@ from stkai import RemoteQuickCommand, RqcRequest
 rqc = RemoteQuickCommand(slug_name="my-quick-command")
 response = rqc.execute(RqcRequest(payload={"input": "data"}))
 ```
+
+!!! warning "Important: Execute via CLI"
+    For CLI mode to work, your code **must be executed through StackSpot CLI commands**, such as:
+
+    ```bash
+    # Run a StackSpot Action
+    stk run action my-action
+
+    # Run a StackSpot Workflow
+    stk run workflow my-workflow
+    ```
+
+    Running your script directly with `python my_script.py` will **not** enable CLI mode, even if you're logged in. See [CLI Detection](configuration.md#cli-detection) for more details.
 
 ### Option 2: Standalone Authentication
 
