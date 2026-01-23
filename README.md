@@ -100,6 +100,9 @@ pip install -e ".[dev]"
 # Run tests
 pytest
 
+# Run tests with coverage
+pytest --cov=src --cov-report=term-missing
+
 # Lint and type check
 ruff check src tests
 mypy src
