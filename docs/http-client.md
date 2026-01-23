@@ -106,14 +106,14 @@ auth_provider = create_standalone_auth()
 http_client = StandaloneHttpClient(auth_provider=auth_provider)
 ```
 
-### RateLimitedHttpClient
+### TokenBucketRateLimitedHttpClient
 
 Wraps another client with Token Bucket rate limiting:
 
 ```python
-from stkai import RateLimitedHttpClient, EnvironmentAwareHttpClient
+from stkai import TokenBucketRateLimitedHttpClient, EnvironmentAwareHttpClient
 
-http_client = RateLimitedHttpClient(
+http_client = TokenBucketRateLimitedHttpClient(
     delegate=EnvironmentAwareHttpClient(),
     max_requests=30,      # Requests per window
     time_window=60.0,     # Window in seconds
@@ -238,10 +238,10 @@ STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 For more control, you can manually create rate-limited clients:
 
 ```python
-from stkai import RateLimitedHttpClient, EnvironmentAwareHttpClient, RemoteQuickCommand
+from stkai import TokenBucketRateLimitedHttpClient, EnvironmentAwareHttpClient, RemoteQuickCommand
 
 # Create rate-limited client manually
-http_client = RateLimitedHttpClient(
+http_client = TokenBucketRateLimitedHttpClient(
     delegate=EnvironmentAwareHttpClient(),
     max_requests=30,
     time_window=60.0,
@@ -300,19 +300,23 @@ The `adaptive` strategy uses **Additive Increase, Multiplicative Decrease** (AIM
 
 **429 Handling:** When the server returns HTTP 429 (Too Many Requests):
 
-1. **Check `Retry-After` header** - If present, wait the specified time
-2. **Apply penalty** - Reduce effective rate by `penalty_factor`
-3. **Retry the request** - Up to `max_retries_on_429` times
-4. **Fail if exhausted** - Return error after max retries
+1. **Check `Retry-After` header** - If present and ≤ 60s, wait the specified time
+2. **Add jitter (0-30%)** - Prevents thundering herd when multiple processes retry simultaneously
+3. **Apply penalty** - Reduce effective rate by `penalty_factor`
+4. **Retry the request** - Up to `max_retries_on_429` times
+5. **Fail if exhausted** - Return error after max retries
+
+!!! note "Protection against abusive Retry-After"
+    The client ignores `Retry-After` values greater than 60 seconds to protect against buggy or malicious servers. In such cases, it falls back to the calculated wait time based on the current effective rate.
 
 ### Timeout Handling
 
 Both strategies raise `RateLimitTimeoutError` when a thread waits too long for a token:
 
 ```python
-from stkai import RateLimitedHttpClient, RateLimitTimeoutError, StkCLIHttpClient
+from stkai import TokenBucketRateLimitedHttpClient, RateLimitTimeoutError, StkCLIHttpClient
 
-http_client = RateLimitedHttpClient(
+http_client = TokenBucketRateLimitedHttpClient(
     delegate=StkCLIHttpClient(),
     max_requests=10,
     time_window=60.0,
@@ -409,7 +413,7 @@ Rate limiting clients use the decorator pattern - they wrap another client:
 ```python
 from stkai import (
     AdaptiveRateLimitedHttpClient,
-    RateLimitedHttpClient,
+    TokenBucketRateLimitedHttpClient,
     StandaloneHttpClient,
     ClientCredentialsAuthProvider,
 )
@@ -424,7 +428,7 @@ auth_provider = ClientCredentialsAuthProvider(
 base_client = StandaloneHttpClient(auth_provider=auth_provider)
 
 # Add fixed rate limiting
-rate_limited = RateLimitedHttpClient(
+rate_limited = TokenBucketRateLimitedHttpClient(
     delegate=base_client,
     max_requests=50,
     time_window=60.0,
@@ -481,14 +485,14 @@ All built-in HTTP clients are thread-safe:
 - `EnvironmentAwareHttpClient` - Delegates to thread-safe clients
 - `StkCLIHttpClient` - Stateless, safe
 - `StandaloneHttpClient` - Auth provider handles token caching
-- `RateLimitedHttpClient` - Uses `threading.Lock()`
+- `TokenBucketRateLimitedHttpClient` - Uses `threading.Lock()`
 - `AdaptiveRateLimitedHttpClient` - Uses `threading.Lock()`
 
 Safe to share across threads and with `execute_many()`:
 
 ```python
 # Thread-safe: shared client with concurrent workers
-http_client = RateLimitedHttpClient(...)
+http_client = TokenBucketRateLimitedHttpClient(...)
 
 rqc = RemoteQuickCommand(
     slug_name="my-command",

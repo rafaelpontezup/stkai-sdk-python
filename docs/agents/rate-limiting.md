@@ -42,10 +42,10 @@ For more control, you can manually create rate-limited HTTP clients:
 
 ```python
 from stkai import Agent, ChatRequest
-from stkai import RateLimitedHttpClient, StkCLIHttpClient
+from stkai import TokenBucketRateLimitedHttpClient, StkCLIHttpClient
 
 # Limit to 60 requests per minute
-http_client = RateLimitedHttpClient(
+http_client = TokenBucketRateLimitedHttpClient(
     delegate=StkCLIHttpClient(),
     max_requests=60,
     time_window=60.0,

@@ -8,7 +8,7 @@ Available implementations:
     - EnvironmentAwareHttpClient: Auto-detects environment (CLI or standalone). Default.
     - StkCLIHttpClient: Uses StackSpot CLI (oscli) for authentication.
     - StandaloneHttpClient: Uses AuthProvider for standalone authentication.
-    - RateLimitedHttpClient: Decorator that adds rate limiting (Token Bucket).
+    - TokenBucketRateLimitedHttpClient: Decorator that adds rate limiting (Token Bucket).
     - AdaptiveRateLimitedHttpClient: Decorator with adaptive rate limiting and 429 handling.
 
 Example (recommended - auto-detection):
@@ -22,8 +22,8 @@ Example (explicit CLI):
     >>> response = client.post("https://api.example.com/v1/resource", data={"key": "value"})
 
 For rate limiting:
-    >>> from stkai._http import RateLimitedHttpClient, EnvironmentAwareHttpClient
-    >>> client = RateLimitedHttpClient(
+    >>> from stkai._http import TokenBucketRateLimitedHttpClient, EnvironmentAwareHttpClient
+    >>> client = TokenBucketRateLimitedHttpClient(
     ...     delegate=EnvironmentAwareHttpClient(),
     ...     max_requests=10,
     ...     time_window=60.0,
@@ -532,7 +532,7 @@ class EnvironmentAwareHttpClient(HttpClient):
                 "EnvironmentAwareHttpClient: Applying token_bucket rate limiting "
                 f"(max_requests={rl_config.max_requests}, time_window={rl_config.time_window}s)."
             )
-            return RateLimitedHttpClient(
+            return TokenBucketRateLimitedHttpClient(
                 delegate=client,
                 max_requests=rl_config.max_requests,
                 time_window=rl_config.time_window,
@@ -618,7 +618,7 @@ class EnvironmentAwareHttpClient(HttpClient):
 # =============================================================================
 
 
-class RateLimitedHttpClient(HttpClient):
+class TokenBucketRateLimitedHttpClient(HttpClient):
     """
     HTTP client decorator that applies rate limiting to requests.
 
@@ -629,9 +629,9 @@ class RateLimitedHttpClient(HttpClient):
     This decorator is thread-safe and can be used with concurrent requests.
 
     Example:
-        >>> from stkai._http import RateLimitedHttpClient, StkCLIHttpClient
+        >>> from stkai._http import TokenBucketRateLimitedHttpClient, StkCLIHttpClient
         >>> # Limit to 10 requests per minute, give up after 60s waiting
-        >>> client = RateLimitedHttpClient(
+        >>> client = TokenBucketRateLimitedHttpClient(
         ...     delegate=StkCLIHttpClient(),
         ...     max_requests=10,
         ...     time_window=60.0,

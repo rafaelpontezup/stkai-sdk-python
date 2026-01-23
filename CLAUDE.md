@@ -24,7 +24,7 @@ src/stkai/
 ├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
 ├── _cli.py                        # CLI abstraction: StkCLI (is_available, get_codebuddy_base_url, get_inference_app_base_url)
 ├── _config.py                     # Global config: STKAI singleton (configure, config, reset, explain)
-├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, RateLimitedHttpClient, AdaptiveRateLimitedHttpClient
+├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, TokenBucketRateLimitedHttpClient, AdaptiveRateLimitedHttpClient
 ├── _utils.py                      # Internal utilities
 ├── agents/                        # AI Agents module
 │   ├── __init__.py                # Agents public API exports
@@ -147,7 +147,7 @@ mypy src
 - `EnvironmentAwareHttpClient`: Auto-detects environment (CLI or standalone). **Default.**
 - `StkCLIHttpClient`: Uses StackSpot CLI (oscli) for authentication.
 - `StandaloneHttpClient`: Uses `AuthProvider` for standalone authentication.
-- `RateLimitedHttpClient`: Decorator with Token Bucket rate limiting.
+- `TokenBucketRateLimitedHttpClient`: Decorator with Token Bucket rate limiting.
 - `AdaptiveRateLimitedHttpClient`: Decorator with adaptive AIMD rate limiting.
 
 #### Rate Limiting

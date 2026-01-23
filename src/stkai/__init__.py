@@ -63,7 +63,7 @@ HTTP Client:
     - EnvironmentAwareHttpClient: Auto-detects environment (CLI or standalone). Default.
     - StkCLIHttpClient: HTTP client using StackSpot CLI for authentication.
     - StandaloneHttpClient: HTTP client using AuthProvider for standalone auth.
-    - RateLimitedHttpClient: HTTP client decorator with rate limiting.
+    - TokenBucketRateLimitedHttpClient: HTTP client decorator with rate limiting.
     - AdaptiveRateLimitedHttpClient: HTTP client decorator with adaptive rate limiting.
     - RateLimitTimeoutError: Exception raised when rate limiter exceeds max_wait_time.
 """
@@ -95,10 +95,10 @@ from stkai._http import (
     AdaptiveRateLimitedHttpClient,
     EnvironmentAwareHttpClient,
     HttpClient,
-    RateLimitedHttpClient,
     RateLimitTimeoutError,
     StandaloneHttpClient,
     StkCLIHttpClient,
+    TokenBucketRateLimitedHttpClient,
 )
 from stkai.agents import (
     Agent,
@@ -138,7 +138,7 @@ __all__ = [
     "EnvironmentAwareHttpClient",
     "StkCLIHttpClient",
     "StandaloneHttpClient",
-    "RateLimitedHttpClient",
+    "TokenBucketRateLimitedHttpClient",
     "AdaptiveRateLimitedHttpClient",
     "RateLimitTimeoutError",
     # RQC

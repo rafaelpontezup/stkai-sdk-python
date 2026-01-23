@@ -11,10 +11,10 @@ from stkai import (
     AuthProvider,
     EnvironmentAwareHttpClient,
     HttpClient,
-    RateLimitedHttpClient,
     RateLimitTimeoutError,
     StandaloneHttpClient,
     StkCLIHttpClient,
+    TokenBucketRateLimitedHttpClient,
 )
 
 # =============================================================================
@@ -49,7 +49,7 @@ class TestRateLimitTimeoutError:
 
 
 # =============================================================================
-# RateLimitedHttpClient Tests
+# TokenBucketRateLimitedHttpClient Tests
 # =============================================================================
 
 
@@ -72,12 +72,12 @@ class MockHttpClient(HttpClient):
 
 
 class TestRateLimitedHttpClientInit:
-    """Tests for RateLimitedHttpClient initialization."""
+    """Tests for TokenBucketRateLimitedHttpClient initialization."""
 
     def test_init_with_default_max_wait_time(self):
         delegate = MockHttpClient()
 
-        client = RateLimitedHttpClient(
+        client = TokenBucketRateLimitedHttpClient(
             delegate=delegate,
             max_requests=10,
             time_window=60.0,
@@ -88,7 +88,7 @@ class TestRateLimitedHttpClientInit:
     def test_init_with_custom_max_wait_time(self):
         delegate = MockHttpClient()
 
-        client = RateLimitedHttpClient(
+        client = TokenBucketRateLimitedHttpClient(
             delegate=delegate,
             max_requests=10,
             time_window=60.0,
@@ -100,7 +100,7 @@ class TestRateLimitedHttpClientInit:
     def test_init_with_none_max_wait_time_allows_infinite_wait(self):
         delegate = MockHttpClient()
 
-        client = RateLimitedHttpClient(
+        client = TokenBucketRateLimitedHttpClient(
             delegate=delegate,
             max_requests=10,
             time_window=60.0,
@@ -113,7 +113,7 @@ class TestRateLimitedHttpClientInit:
         delegate = MockHttpClient()
 
         with pytest.raises(AssertionError, match="max_wait_time must be > 0 or None"):
-            RateLimitedHttpClient(
+            TokenBucketRateLimitedHttpClient(
                 delegate=delegate,
                 max_requests=10,
                 time_window=60.0,
@@ -124,7 +124,7 @@ class TestRateLimitedHttpClientInit:
         delegate = MockHttpClient()
 
         with pytest.raises(AssertionError, match="max_wait_time must be > 0 or None"):
-            RateLimitedHttpClient(
+            TokenBucketRateLimitedHttpClient(
                 delegate=delegate,
                 max_requests=10,
                 time_window=60.0,
@@ -133,12 +133,12 @@ class TestRateLimitedHttpClientInit:
 
 
 class TestRateLimitedHttpClientTimeout:
-    """Tests for RateLimitedHttpClient timeout behavior."""
+    """Tests for TokenBucketRateLimitedHttpClient timeout behavior."""
 
     def test_raises_timeout_error_when_max_wait_time_exceeded(self):
         delegate = MockHttpClient()
         # Very restrictive rate: 1 request per 100 seconds
-        client = RateLimitedHttpClient(
+        client = TokenBucketRateLimitedHttpClient(
             delegate=delegate,
             max_requests=1,
             time_window=100.0,
@@ -157,7 +157,7 @@ class TestRateLimitedHttpClientTimeout:
 
     def test_does_not_timeout_when_tokens_available(self):
         delegate = MockHttpClient()
-        client = RateLimitedHttpClient(
+        client = TokenBucketRateLimitedHttpClient(
             delegate=delegate,
             max_requests=10,
             time_window=60.0,
@@ -171,7 +171,7 @@ class TestRateLimitedHttpClientTimeout:
 
     def test_get_requests_bypass_rate_limiting(self):
         delegate = MockHttpClient()
-        client = RateLimitedHttpClient(
+        client = TokenBucketRateLimitedHttpClient(
             delegate=delegate,
             max_requests=1,
             time_window=100.0,
@@ -188,12 +188,12 @@ class TestRateLimitedHttpClientTimeout:
 
 
 class TestRateLimitedHttpClientThreadIsolation:
-    """Tests for thread isolation in RateLimitedHttpClient."""
+    """Tests for thread isolation in TokenBucketRateLimitedHttpClient."""
 
     def test_each_thread_has_independent_timeout(self):
         delegate = MockHttpClient()
         # Very restrictive: 1 request per 10 seconds
-        client = RateLimitedHttpClient(
+        client = TokenBucketRateLimitedHttpClient(
             delegate=delegate,
             max_requests=1,
             time_window=10.0,
