@@ -4,7 +4,7 @@ This guide will help you install and configure the StackSpot AI SDK for Python.
 
 ## Installation
 
-Install the SDK using pip:
+Install the SDK from [PyPI](https://pypi.org/project/stkai/):
 
 ```bash
 pip install stkai

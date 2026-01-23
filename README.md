@@ -1,11 +1,14 @@
 # stkai
 
+[![PyPI](https://img.shields.io/pypi/v/stkai.svg)](https://pypi.org/project/stkai/)
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 Python SDK for [StackSpot AI](https://ai.stackspot.com/) - Execute Remote Quick Commands (RQCs) and interact with AI Agents.
 
 ## Installation
+
+Install from [PyPI](https://pypi.org/project/stkai/):
 
 ```bash
 pip install stkai
