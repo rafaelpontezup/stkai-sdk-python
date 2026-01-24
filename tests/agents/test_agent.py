@@ -524,7 +524,9 @@ class TestAgent(unittest.TestCase):
             response_data={"error": "Internal error"},
             status_code=500,
         )
-        agent = Agent(agent_id="my-agent", http_client=mock_client)
+        # Disable retry to test HTTP error handling directly
+        options = AgentOptions(retry_max_retries=0)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
 
         response = agent.chat(ChatRequest(user_prompt="Hello!"))
 
@@ -613,6 +615,196 @@ class TestAgentBaseUrl(unittest.TestCase):
 
         # Should strip trailing slash
         self.assertEqual(agent.base_url, "https://custom.api.com")
+
+
+class FailThenSucceedHttpClient(HttpClient):
+    """HTTP client that fails N times then succeeds."""
+
+    def __init__(
+        self,
+        fail_count: int,
+        failure_status_code: int = 503,
+        success_data: dict | None = None,
+    ):
+        self.fail_count = fail_count
+        self.failure_status_code = failure_status_code
+        self.success_data = success_data or {"message": "Success"}
+        self.call_count = 0
+
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        return self._make_response()
+
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        return self._make_response()
+
+    def _make_response(self) -> requests.Response:
+        self.call_count += 1
+        response = MagicMock(spec=requests.Response)
+
+        if self.call_count <= self.fail_count:
+            response.status_code = self.failure_status_code
+            response.json.return_value = {"error": "Server error"}
+            response.text = "Server error"
+            error = requests.HTTPError(response=response)
+            response.raise_for_status.side_effect = error
+        else:
+            response.status_code = 200
+            response.json.return_value = self.success_data
+            response.text = str(self.success_data)
+            response.raise_for_status.return_value = None
+
+        return response
+
+
+class TestAgentOptionsRetry(unittest.TestCase):
+    """Tests for AgentOptions retry fields."""
+
+    def test_default_retry_values_are_none(self):
+        """Should have None as default retry values (to be filled from config)."""
+        options = AgentOptions()
+
+        self.assertIsNone(options.retry_max_retries)
+        self.assertIsNone(options.retry_backoff_factor)
+
+    def test_custom_retry_values(self):
+        """Should accept custom retry values."""
+        options = AgentOptions(
+            retry_max_retries=5,
+            retry_backoff_factor=1.0,
+        )
+
+        self.assertEqual(options.retry_max_retries, 5)
+        self.assertEqual(options.retry_backoff_factor, 1.0)
+
+    def test_with_defaults_from_fills_retry_values(self):
+        """Should fill retry values from config defaults."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.agent
+
+        options = AgentOptions()
+        resolved = options.with_defaults_from(cfg)
+
+        self.assertEqual(resolved.retry_max_retries, cfg.retry_max_retries)
+        self.assertEqual(resolved.retry_backoff_factor, cfg.retry_backoff_factor)
+
+    def test_with_defaults_from_preserves_user_retry_values(self):
+        """Should preserve user-provided retry values."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.agent
+
+        options = AgentOptions(retry_max_retries=10, retry_backoff_factor=2.0)
+        resolved = options.with_defaults_from(cfg)
+
+        self.assertEqual(resolved.retry_max_retries, 10)
+        self.assertEqual(resolved.retry_backoff_factor, 2.0)
+
+
+class TestAgentRetry(unittest.TestCase):
+    """Tests for Agent retry behavior."""
+
+    def test_no_retry_when_retry_disabled(self):
+        """Should not retry when retry_max_retries is 0."""
+        mock_client = MockHttpClient(
+            response_data={"error": "Server error"},
+            status_code=503,
+        )
+        options = AgentOptions(retry_max_retries=0)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        self.assertEqual(len(mock_client.calls), 1)  # Only 1 attempt
+        self.assertTrue(response.is_error())
+
+    @unittest.mock.patch("stkai._retry.sleep_with_jitter")
+    def test_retry_success_after_failures(self, mock_sleep: MagicMock):
+        """Should succeed after retrying failed requests."""
+        # Fail twice, then succeed
+        mock_client = FailThenSucceedHttpClient(
+            fail_count=2,
+            failure_status_code=503,
+            success_data={"message": "Success after retry"},
+        )
+        options = AgentOptions(retry_max_retries=3, retry_backoff_factor=0.1)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        self.assertEqual(mock_client.call_count, 3)  # 2 failures + 1 success
+        self.assertTrue(response.is_success())
+        self.assertEqual(response.raw_result, "Success after retry")
+
+    @unittest.mock.patch("stkai._retry.sleep_with_jitter")
+    def test_retry_exhausted_returns_error(self, mock_sleep: MagicMock):
+        """Should return error response when all retries exhausted."""
+        mock_client = MockHttpClient(
+            response_data={"error": "Server error"},
+            status_code=503,
+        )
+        options = AgentOptions(retry_max_retries=2, retry_backoff_factor=0.1)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        self.assertEqual(len(mock_client.calls), 3)  # 1 original + 2 retries
+        self.assertTrue(response.is_error())
+        self.assertIn("Max retries exceeded", response.error)
+
+    def test_no_retry_on_4xx_errors(self):
+        """Should not retry on 4xx client errors."""
+        mock_client = MockHttpClient(
+            response_data={"error": "Bad request"},
+            status_code=400,
+        )
+        options = AgentOptions(retry_max_retries=3)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        self.assertEqual(len(mock_client.calls), 1)  # No retry
+        self.assertTrue(response.is_error())
+        self.assertIn("HTTP error 400", response.error)
+
+    def test_no_retry_on_401_unauthorized(self):
+        """Should not retry on 401 Unauthorized."""
+        mock_client = MockHttpClient(
+            response_data={"error": "Unauthorized"},
+            status_code=401,
+        )
+        options = AgentOptions(retry_max_retries=3)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        self.assertEqual(len(mock_client.calls), 1)  # No retry
+        self.assertTrue(response.is_error())
+
+    def test_no_retry_on_404_not_found(self):
+        """Should not retry on 404 Not Found."""
+        mock_client = MockHttpClient(
+            response_data={"error": "Not found"},
+            status_code=404,
+        )
+        options = AgentOptions(retry_max_retries=3)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+
+        response = agent.chat(ChatRequest(user_prompt="Hello!"))
+
+        self.assertEqual(len(mock_client.calls), 1)  # No retry
+        self.assertTrue(response.is_error())
 
 
 if __name__ == "__main__":

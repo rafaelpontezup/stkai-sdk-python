@@ -61,16 +61,23 @@ class AgentOptions:
 
     Attributes:
         request_timeout: HTTP request timeout in seconds.
+        retry_max_retries: Maximum number of retry attempts for failed chat calls.
+            Use 0 to disable retries (single attempt only).
+            Use 3 for 4 total attempts (1 original + 3 retries).
+        retry_backoff_factor: Multiplier for exponential backoff between retries
+            (delay = factor * 2^attempt).
 
     Example:
         >>> # Use all defaults from config
         >>> agent = Agent(agent_id="my-agent")
         >>>
-        >>> # Customize timeout
-        >>> options = AgentOptions(request_timeout=120)
+        >>> # Customize timeout and enable retry
+        >>> options = AgentOptions(request_timeout=120, retry_max_retries=3)
         >>> agent = Agent(agent_id="my-agent", options=options)
     """
     request_timeout: int | None = None
+    retry_max_retries: int | None = None
+    retry_backoff_factor: float | None = None
 
     def with_defaults_from(self, cfg: "AgentConfig") -> "AgentOptions":
         """
@@ -93,6 +100,8 @@ class AgentOptions:
         """
         return AgentOptions(
             request_timeout=self.request_timeout if self.request_timeout is not None else cfg.request_timeout,
+            retry_max_retries=self.retry_max_retries if self.retry_max_retries is not None else cfg.retry_max_retries,
+            retry_backoff_factor=self.retry_backoff_factor if self.retry_backoff_factor is not None else cfg.retry_backoff_factor,
         )
 
 
@@ -183,6 +192,17 @@ class Agent:
         This method sends a user prompt to the Agent and blocks until
         a response is received or an error occurs.
 
+        If retry is configured (retry_max_retries > 0), automatically retries on:
+        - HTTP 5xx errors (500, 502, 503, 504)
+        - Network errors (Timeout, ConnectionError)
+
+        Does NOT retry on:
+        - HTTP 4xx errors (client errors)
+
+        Note:
+            retry_max_retries=0 means 1 attempt (no retry).
+            retry_max_retries=3 means 4 attempts (1 original + 3 retries).
+
         Args:
             request: The request containing the user prompt and options.
             result_handler: Optional handler to process the response message.
@@ -229,54 +249,53 @@ class Agent:
         # Assertion for type narrowing (mypy)
         assert self.options.request_timeout is not None, \
             "🌀 Sanity check | request_timeout must be set after with_defaults_from()"
+        assert self.options.retry_max_retries is not None, \
+            "🌀 Sanity check | retry_max_retries must be set after with_defaults_from()"
+        assert self.options.retry_backoff_factor is not None, \
+            "🌀 Sanity check | retry_backoff_factor must be set after with_defaults_from()"
 
         logger.info(
             f"{request.id[:26]:<26} | Agent | "
             f"Sending message to agent '{self.agent_id}'..."
         )
 
-        # Prepare request
-        payload = request.to_api_payload()
-        url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
+        from stkai._retry import MaxRetriesExceededError, Retrying
         try:
-            http_response = self.http_client.post(
-                url=url,
-                data=payload,
-                timeout=self.options.request_timeout,
+            for attempt in Retrying(
+                max_retries=self.options.retry_max_retries,
+                backoff_factor=self.options.retry_backoff_factor,
+                logger_prefix=f"{request.id[:26]:<26} | Agent",
+            ):
+                with attempt:
+                    return self._do_chat(
+                        request=request,
+                        result_handler=result_handler
+                    )
+
+            # Should never reach here - Retrying raises MaxRetriesExceededError
+            raise RuntimeError(
+                "Unexpected error while chatting the agent: "
+                "reached end of `_do_chat` method without returning a response."
             )
-            http_response.raise_for_status()
 
-            data = http_response.json()
-            raw_message = data.get("message")
+        except MaxRetriesExceededError as e:
+            # Get the original exception from the retry
+            last_exc = e.last_exception
+            error_msg = f"Max retries exceeded while chatting the agent. Last error: {last_exc}"
+            logger.error(
+                f"{request.id[:26]:<26} | Agent | ❌ {error_msg}"
+            )
 
-            # Process result through handler
-            if not result_handler:
-                from stkai.agents._handlers import DEFAULT_RESULT_HANDLER
-                result_handler = DEFAULT_RESULT_HANDLER
+            # Determine status based on the last exception type
+            status = ChatStatus.ERROR
+            if isinstance(last_exc, (requests.Timeout, RateLimitTimeoutError)):
+                status = ChatStatus.TIMEOUT
 
-            try:
-                from stkai.agents._handlers import ChatResultContext
-                context = ChatResultContext(request=request, raw_result=raw_message)
-                processed_result = result_handler.handle_result(context)
-            except Exception as e:
-                handler_name = type(result_handler).__name__
-                raise ChatResultHandlerError(
-                    f"{request.id} | Agent | Result handler '{handler_name}' failed: {e}",
-                    cause=e, result_handler=result_handler,
-                ) from e
-
-            response = ChatResponse(
+            return ChatResponse(
                 request=request,
-                status=ChatStatus.SUCCESS,
-                result=processed_result,
-                raw_response=data,
+                status=status,
+                error=error_msg,
             )
-
-            logger.info(
-                f"{request.id[:26]:<26} | Agent | "
-                f"✅ Response received (tokens: {response.tokens.total if response.tokens else 'N/A'})"
-            )
-            return response
 
         except (requests.Timeout, RateLimitTimeoutError) as e:
             logger.error(
@@ -311,3 +330,75 @@ class Agent:
                 status=ChatStatus.ERROR,
                 error=f"Request failed with an unexpected error: {e}",
             )
+
+    def _do_chat(
+        self,
+        request: ChatRequest,
+        result_handler: "ChatResultHandler | None" = None,
+    ) -> ChatResponse:
+        """
+        Execute the actual chat request (without retry logic).
+
+        This internal method performs the HTTP request and processes the response.
+        It raises exceptions on failure, which are handled by the retry mechanism
+        in chat().
+
+        Args:
+            request: The request containing the user prompt and options.
+            result_handler: Optional handler to process the response message.
+
+        Returns:
+            ChatResponse with the Agent's reply.
+
+        Raises:
+            requests.Timeout: On request timeout.
+            requests.ConnectionError: On network errors.
+            requests.HTTPError: On HTTP error responses.
+            ChatResultHandlerError: If the result handler fails.
+        """
+        # Assertion for type narrowing (mypy) - caller (chat) already validates this
+        assert self.options.request_timeout is not None, \
+            "🌀 Sanity check | request_timeout must be set after with_defaults_from()"
+
+        # Prepare request
+        payload = request.to_api_payload()
+        url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
+
+        http_response = self.http_client.post(
+            url=url,
+            data=payload,
+            timeout=self.options.request_timeout,
+        )
+        http_response.raise_for_status()
+
+        response_data = http_response.json()
+        raw_message = response_data.get("message")
+
+        # Process result through handler
+        if not result_handler:
+            from stkai.agents._handlers import DEFAULT_RESULT_HANDLER
+            result_handler = DEFAULT_RESULT_HANDLER
+
+        try:
+            from stkai.agents._handlers import ChatResultContext
+            context = ChatResultContext(request=request, raw_result=raw_message)
+            processed_result = result_handler.handle_result(context)
+        except Exception as e:
+            handler_name = type(result_handler).__name__
+            raise ChatResultHandlerError(
+                f"{request.id} | Agent | Result handler '{handler_name}' failed: {e}",
+                cause=e, result_handler=result_handler,
+            ) from e
+
+        response = ChatResponse(
+            request=request,
+            status=ChatStatus.SUCCESS,
+            result=processed_result,
+            raw_response=response_data,
+        )
+
+        logger.info(
+            f"{request.id[:26]:<26} | Agent | "
+            f"✅ Response received (tokens: {response.tokens.total if response.tokens else 'N/A'})"
+        )
+        return response

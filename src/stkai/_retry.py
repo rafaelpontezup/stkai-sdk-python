@@ -1,0 +1,291 @@
+"""
+Retry utilities with exponential backoff.
+
+Inspired by Tenacity's Retrying class, this module provides a context manager
+for implementing retry logic with configurable backoff and exception handling.
+
+Example:
+    >>> from stkai._retry import Retrying
+    >>> for attempt in Retrying(max_retries=3, backoff_factor=0.5):
+    ...     with attempt:
+    ...         response = http_client.post(url, data=payload)
+    ...         response.raise_for_status()
+    ...         return response.json()
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Generator
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+import requests
+
+from stkai._utils import sleep_with_jitter
+
+if TYPE_CHECKING:
+    pass
+
+logger = logging.getLogger(__name__)
+
+
+class MaxRetriesExceededError(Exception):
+    """
+    Raised when all retry attempts are exhausted.
+
+    This exception wraps the last exception that occurred during retry attempts,
+    providing access to the original error for debugging.
+
+    Attributes:
+        message: Human-readable error message.
+        last_exception: The original exception from the last retry attempt.
+
+    Example:
+        >>> try:
+        ...     for attempt in Retrying(max_retries=3):
+        ...         with attempt:
+        ...             raise ConnectionError("Server unavailable")
+        ... except MaxRetriesExceededError as e:
+        ...     print(f"Failed after retries: {e}")
+        ...     print(f"Original error: {e.last_exception}")
+    """
+
+    def __init__(self, message: str, last_exception: Exception | None = None):
+        super().__init__(message)
+        self.last_exception = last_exception
+
+
+@dataclass(frozen=True)
+class RetryAttempt:
+    """
+    Represents a single retry attempt.
+
+    This dataclass provides metadata about the current attempt within a retry loop,
+    useful for logging and conditional logic.
+
+    Attributes:
+        attempt_number: Zero-based index of the current attempt (0 = first attempt).
+        max_retries: Maximum number of retry attempts configured.
+
+    Example:
+        >>> for attempt_ctx in Retrying(max_retries=3):
+        ...     with attempt_ctx as attempt:
+        ...         print(f"Attempt {attempt.attempt_number + 1}/{attempt.max_retries + 1}")
+        ...         if attempt.is_last_attempt:
+        ...             print("This is the last attempt!")
+    """
+
+    attempt_number: int
+    max_retries: int
+
+    @property
+    def is_last_attempt(self) -> bool:
+        """Return True if this is the last retry attempt."""
+        return self.attempt_number >= self.max_retries
+
+
+class Retrying:
+    """
+    Context manager for retry with exponential backoff.
+
+    This class provides a Tenacity-inspired interface for implementing retry logic.
+    It supports configurable retry conditions based on HTTP status codes and
+    exception types, with exponential backoff between attempts.
+
+    Usage:
+        >>> for attempt in Retrying(max_retries=3, backoff_factor=0.5):
+        ...     with attempt:
+        ...         response = http_client.post(url, data=payload)
+        ...         response.raise_for_status()
+        ...         return response.json()
+
+    Args:
+        max_retries: Maximum number of retry attempts (default: 3).
+            Use 0 to disable retries (single attempt only).
+        backoff_factor: Base multiplier for exponential backoff (default: 0.5).
+            Sleep time = backoff_factor * (2 ** attempt_number)
+            Example: With factor=0.5, delays are 0.5s, 1s, 2s, 4s...
+        retry_on_status_codes: HTTP status codes that trigger retry (default: 500, 502, 503, 504).
+            Only applies to RequestException with response attached.
+        retry_on_exceptions: Exception types that trigger retry (default: Timeout, ConnectionError).
+            These exceptions always trigger retry regardless of status code.
+        skip_retry_on_exceptions: Exception types that never trigger retry.
+            Takes precedence over retry_on_exceptions.
+        logger_prefix: Prefix for log messages (e.g., "Agent(my-id)").
+
+    Raises:
+        MaxRetriesExceededError: When all retry attempts are exhausted.
+            Contains the last exception in the `last_exception` attribute.
+
+    Note:
+        - By default, only 5xx errors trigger retry (4xx are not in retry_on_status_codes)
+        - The loop naturally exits on success (no exception raised)
+        - Exceptions not matching retry conditions are re-raised immediately
+    """
+
+    def __init__(
+        self,
+        max_retries: int = 3,
+        backoff_factor: float = 0.5,
+        retry_on_status_codes: tuple[int, ...] = (500, 502, 503, 504),
+        retry_on_exceptions: tuple[type[Exception], ...] = (
+            requests.Timeout,
+            requests.ConnectionError,
+        ),
+        skip_retry_on_exceptions: tuple[type[Exception], ...] = (),
+        logger_prefix: str = "",
+    ):
+        # Validate invariants
+        assert max_retries >= 0, f"max_retries must be >= 0, got {max_retries}"
+        assert backoff_factor > 0, f"backoff_factor must be > 0, got {backoff_factor}"
+        assert retry_on_status_codes is not None, "retry_on_status_codes cannot be None"
+        assert retry_on_exceptions is not None, "retry_on_exceptions cannot be None"
+        assert skip_retry_on_exceptions is not None, "skip_retry_on_exceptions cannot be None"
+
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+        self.retry_on_status_codes = set(retry_on_status_codes)
+        self.retry_on_exceptions = retry_on_exceptions
+        self.skip_retry_on_exceptions = skip_retry_on_exceptions
+        self.logger_prefix = logger_prefix
+
+        self._current_attempt = 0
+        self._last_exception: Exception | None = None
+
+    def __iter__(self) -> Generator[_RetryContext, None, None]:
+        """Yield retry contexts for each attempt."""
+        for attempt in range(self.max_retries + 1):
+            self._current_attempt = attempt
+            yield _RetryContext(self, attempt)
+
+    def _should_retry(self, exception: Exception) -> bool:
+        """
+        Determine if exception should trigger a retry.
+
+        Args:
+            exception: The exception that occurred during the attempt.
+
+        Returns:
+            True if the exception should trigger a retry, False otherwise.
+
+        Logic:
+            1. Skip retry for exceptions in skip_retry_on_exceptions
+            2. For RequestException with response: retry if status code is in retry_on_status_codes
+            3. Retry on configured exception types (Timeout, ConnectionError, etc.)
+        """
+        # Skip retry for specific exceptions
+        if isinstance(exception, self.skip_retry_on_exceptions):
+            return False
+
+        # Check HTTP status codes for RequestException
+        if isinstance(exception, requests.RequestException):
+            response = getattr(exception, "response", None)
+            if response is not None:
+                return response.status_code in self.retry_on_status_codes
+
+        # Retry on configured exception types
+        return isinstance(exception, self.retry_on_exceptions)
+
+    def _handle_retry(self, exception: Exception) -> None:
+        """
+        Handle retry: log, sleep, prepare for next attempt.
+
+        Args:
+            exception: The exception that triggered the retry.
+        """
+        self._last_exception = exception
+        sleep_time = self.backoff_factor * (2 ** self._current_attempt)
+
+        prefix = f"{self.logger_prefix} | " if self.logger_prefix else ""
+        logger.warning(
+            f"{prefix}Attempt {self._current_attempt + 1}/{self.max_retries + 1} failed: {exception}"
+        )
+        logger.warning(
+            f"{prefix}Retrying in {sleep_time:.1f}s..."
+        )
+        sleep_with_jitter(sleep_time)
+
+    def _handle_exhausted(self, exception: Exception) -> None:
+        """
+        Handle when all retries are exhausted.
+
+        Args:
+            exception: The exception from the last attempt.
+
+        Raises:
+            MaxRetriesExceededError: Always raised with the last exception.
+        """
+        self._last_exception = exception
+        prefix = f"{self.logger_prefix} | " if self.logger_prefix else ""
+        logger.error(
+            f"{prefix}Max retries ({self.max_retries}) exceeded. Last error: {exception}"
+        )
+        raise MaxRetriesExceededError(
+            message=f"Max retries exceeded. Last error: {exception}",
+            last_exception=exception,
+        ) from exception
+
+
+class _RetryContext:
+    """
+    Context for a single retry attempt (internal).
+
+    This class is yielded by `Retrying.__iter__()` and implements the context
+    manager protocol to handle exceptions within the retry loop.
+
+    On success (no exception): exits normally, loop continues to natural end
+    On retryable exception: suppresses exception, loop continues
+    On non-retryable exception: re-raises exception, loop exits
+    On exhausted retries: raises MaxRetriesExceededError
+    """
+
+    def __init__(self, retrying: Retrying, attempt: int):
+        self._retrying = retrying
+        self.attempt = attempt
+
+    def __enter__(self) -> RetryAttempt:
+        """Enter context and return attempt metadata."""
+        return RetryAttempt(
+            attempt_number=self.attempt,
+            max_retries=self._retrying.max_retries,
+        )
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> bool:
+        """
+        Handle exception (if any) and decide whether to retry.
+
+        Returns:
+            True to suppress exception and continue loop (retry)
+            False to propagate exception (no retry)
+        """
+        if exc_val is None:
+            # Success - caller should break/return to exit loop
+            return False
+
+        # Only handle Exception, not BaseException (KeyboardInterrupt, etc.)
+        if not isinstance(exc_val, Exception):
+            return False
+
+        if not self._retrying._should_retry(exc_val):
+            # Don't retry - re-raise exception
+            return False
+
+        # If max_retries is 0, retries are disabled - let original exception propagate
+        # without wrapping in MaxRetriesExceededError
+        if self._retrying.max_retries == 0:
+            return False
+
+        if self.attempt >= self._retrying.max_retries:
+            # Exhausted - raise MaxRetriesExceededError
+            self._retrying._handle_exhausted(exc_val)
+            return False  # Never reached
+
+        # Retry - suppress exception and continue loop
+        self._retrying._handle_retry(exc_val)
+        return True  # Suppress exception

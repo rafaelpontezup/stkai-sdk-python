@@ -66,6 +66,10 @@ HTTP Client:
     - TokenBucketRateLimitedHttpClient: HTTP client decorator with rate limiting.
     - AdaptiveRateLimitedHttpClient: HTTP client decorator with adaptive rate limiting.
     - RateLimitTimeoutError: Exception raised when rate limiter exceeds max_wait_time.
+
+Retry:
+    - Retrying: Context manager for retry with exponential backoff.
+    - MaxRetriesExceededError: Exception raised when all retry attempts are exhausted.
 """
 
 from importlib.metadata import version as _get_version
@@ -99,6 +103,10 @@ from stkai._http import (
     StandaloneHttpClient,
     StkCLIHttpClient,
     TokenBucketRateLimitedHttpClient,
+)
+from stkai._retry import (
+    MaxRetriesExceededError,
+    Retrying,
 )
 from stkai.agents import (
     Agent,
@@ -141,6 +149,9 @@ __all__ = [
     "TokenBucketRateLimitedHttpClient",
     "AdaptiveRateLimitedHttpClient",
     "RateLimitTimeoutError",
+    # Retry
+    "Retrying",
+    "MaxRetriesExceededError",
     # RQC
     "RemoteQuickCommand",
     "RqcOptions",

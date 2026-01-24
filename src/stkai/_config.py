@@ -446,16 +446,29 @@ class AgentConfig(OverridableConfig):
         base_url: Base URL for the Agent API.
             Env var: STKAI_AGENT_BASE_URL
 
+        retry_max_retries: Maximum number of retry attempts for failed chat calls.
+            Use 0 to disable retries (single attempt only).
+            Use 3 for 4 total attempts (1 original + 3 retries).
+            Env var: STKAI_AGENT_RETRY_MAX_RETRIES
+
+        retry_backoff_factor: Multiplier for exponential backoff between retries
+            (delay = factor * 2^attempt).
+            Env var: STKAI_AGENT_RETRY_BACKOFF_FACTOR
+
     Example:
         >>> from stkai import STKAI
         >>> STKAI.config.agent.request_timeout
         60
         >>> STKAI.config.agent.base_url
         'https://genai-inference-app.stackspot.com'
+        >>> STKAI.config.agent.retry_max_retries
+        0
     """
 
     request_timeout: int = field(default=60, metadata={"env": "STKAI_AGENT_REQUEST_TIMEOUT"})
     base_url: str = field(default="https://genai-inference-app.stackspot.com", metadata={"env": "STKAI_AGENT_BASE_URL"})
+    retry_max_retries: int = field(default=3, metadata={"env": "STKAI_AGENT_RETRY_MAX_RETRIES"})
+    retry_backoff_factor: float = field(default=0.5, metadata={"env": "STKAI_AGENT_RETRY_BACKOFF_FACTOR"})
 
     def validate(self) -> Self:
         """Validate Agent configuration fields."""
@@ -468,6 +481,16 @@ class AgentConfig(OverridableConfig):
             raise ConfigValidationError(
                 "base_url", self.base_url,
                 "Must start with 'http://' or 'https://'.", section="agent"
+            )
+        if self.retry_max_retries < 0:
+            raise ConfigValidationError(
+                "retry_max_retries", self.retry_max_retries,
+                "Must be >= 0.", section="agent"
+            )
+        if self.retry_backoff_factor <= 0:
+            raise ConfigValidationError(
+                "retry_backoff_factor", self.retry_backoff_factor,
+                "Must be greater than 0.", section="agent"
             )
         return self
 
