@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from stkai._retry import MaxRetriesExceededError, RetryAttempt, Retrying
+from stkai._retry import MaxRetriesExceededError, RetryableError, RetryAttempt, Retrying
 
 
 class TestRetryAttempt(unittest.TestCase):
@@ -385,6 +385,127 @@ class TestRetryingLogging(unittest.TestCase):
         self.assertTrue(mock_logger.error.called)
         error_msg = mock_logger.error.call_args[0][0]
         self.assertIn("Max retries", error_msg)
+
+
+class TestRetryableError(unittest.TestCase):
+    """Tests for RetryableError base class."""
+
+    def test_retryable_error_is_exception(self):
+        """RetryableError should be an Exception."""
+        self.assertTrue(issubclass(RetryableError, Exception))
+
+    def test_custom_retryable_error_can_extend(self):
+        """Custom exceptions can extend RetryableError."""
+        class MyCustomError(RetryableError):
+            pass
+
+        error = MyCustomError("test")
+        self.assertIsInstance(error, RetryableError)
+        self.assertIsInstance(error, Exception)
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_retryable_error_is_automatically_retried(self, mock_sleep: MagicMock):
+        """Exceptions extending RetryableError should be automatically retried."""
+        class MyRetryableError(RetryableError):
+            pass
+
+        call_count = 0
+
+        for attempt in Retrying(max_retries=2):
+            with attempt:
+                call_count += 1
+                if call_count < 3:
+                    raise MyRetryableError("Temporary failure")
+                # Success on 3rd attempt
+                break
+
+        self.assertEqual(call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_retryable_error_exhausts_retries(self, mock_sleep: MagicMock):
+        """RetryableError should exhaust retries and raise MaxRetriesExceededError."""
+        class MyRetryableError(RetryableError):
+            pass
+
+        call_count = 0
+
+        with self.assertRaises(MaxRetriesExceededError) as ctx:
+            for attempt in Retrying(max_retries=2):
+                with attempt:
+                    call_count += 1
+                    raise MyRetryableError("Persistent failure")
+
+        self.assertEqual(call_count, 3)  # 1 original + 2 retries
+        self.assertIsInstance(ctx.exception.last_exception, MyRetryableError)
+
+    def test_retryable_error_not_retried_when_in_skip_list(self):
+        """RetryableError should not retry when in skip_retry_on_exceptions."""
+        class MyRetryableError(RetryableError):
+            pass
+
+        call_count = 0
+
+        with self.assertRaises(MyRetryableError):
+            for attempt in Retrying(
+                max_retries=3,
+                skip_retry_on_exceptions=(MyRetryableError,),
+            ):
+                with attempt:
+                    call_count += 1
+                    raise MyRetryableError("Should not retry")
+
+        self.assertEqual(call_count, 1)  # No retry
+
+    def test_retryable_error_no_config_needed(self):
+        """RetryableError does not need to be in retry_on_exceptions."""
+        class MyRetryableError(RetryableError):
+            pass
+
+        # Empty retry_on_exceptions - but RetryableError should still work
+        retrying = Retrying(
+            max_retries=3,
+            retry_on_exceptions=(),  # Empty!
+        )
+
+        self.assertTrue(retrying._should_retry(MyRetryableError("test")))
+
+
+class TestRateLimitTimeoutErrorRetry(unittest.TestCase):
+    """Tests for RateLimitTimeoutError retry behavior."""
+
+    def test_rate_limit_timeout_error_is_retryable(self):
+        """RateLimitTimeoutError should extend RetryableError."""
+        from stkai._http import RateLimitTimeoutError
+
+        self.assertTrue(issubclass(RateLimitTimeoutError, RetryableError))
+
+    def test_rate_limit_timeout_error_is_automatically_retried(self):
+        """RateLimitTimeoutError should be automatically retried by Retrying."""
+        from stkai._http import RateLimitTimeoutError
+
+        retrying = Retrying(max_retries=3)
+        error = RateLimitTimeoutError(waited=5.0, max_wait_time=10.0)
+
+        self.assertTrue(retrying._should_retry(error))
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_rate_limit_timeout_error_retry_integration(self, mock_sleep: MagicMock):
+        """RateLimitTimeoutError should work with Retrying context manager."""
+        from stkai._http import RateLimitTimeoutError
+
+        call_count = 0
+
+        for attempt in Retrying(max_retries=2):
+            with attempt:
+                call_count += 1
+                if call_count < 3:
+                    raise RateLimitTimeoutError(waited=5.0, max_wait_time=10.0)
+                # Success on 3rd attempt
+                break
+
+        self.assertEqual(call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
 
 
 if __name__ == "__main__":

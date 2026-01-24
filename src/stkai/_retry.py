@@ -30,6 +30,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class RetryableError(Exception):
+    """
+    Base class for exceptions that should trigger automatic retry.
+
+    Exceptions extending this class are automatically retried by the Retrying
+    context manager without needing explicit configuration in retry_on_exceptions.
+
+    This follows the Open/Closed principle - new retryable exceptions can be
+    added by extending this class, without modifying the Retrying class.
+
+    Example:
+        >>> class MyTransientError(RetryableError):
+        ...     '''Custom retryable error for my service.'''
+        ...     pass
+        >>>
+        >>> for attempt in Retrying(max_retries=3):
+        ...     with attempt:
+        ...         if some_condition:
+        ...             raise MyTransientError("Temporary failure")
+        ...         break  # Success
+    """
+
+    pass
+
+
 class MaxRetriesExceededError(Exception):
     """
     Raised when all retry attempts are exhausted.
@@ -119,6 +144,7 @@ class Retrying:
             Contains the last exception in the `last_exception` attribute.
 
     Note:
+        - Exceptions extending RetryableError are automatically retried (opt-in via inheritance)
         - By default, only 5xx errors trigger retry (4xx are not in retry_on_status_codes)
         - The loop naturally exits on success (no exception raised)
         - Exceptions not matching retry conditions are re-raised immediately
@@ -172,9 +198,10 @@ class Retrying:
         Logic:
             1. Skip retry for exceptions in skip_retry_on_exceptions
             2. For RequestException with response: retry if status code is in retry_on_status_codes
-            3. Retry on configured exception types (Timeout, ConnectionError, etc.)
+            3. Auto-retry if exception extends RetryableError (opt-in via inheritance)
+            4. Retry on configured exception types (Timeout, ConnectionError, etc.)
         """
-        # Skip retry for specific exceptions
+        # Skip retry for specific exceptions (highest priority)
         if isinstance(exception, self.skip_retry_on_exceptions):
             return False
 
@@ -184,7 +211,11 @@ class Retrying:
             if response is not None:
                 return response.status_code in self.retry_on_status_codes
 
-        # Retry on configured exception types
+        # Auto-retry if exception declares itself retryable via inheritance
+        if isinstance(exception, RetryableError):
+            return True
+
+        # Retry on configured exception types (for external libs like requests)
         return isinstance(exception, self.retry_on_exceptions)
 
     def _handle_retry(self, exception: Exception) -> None:

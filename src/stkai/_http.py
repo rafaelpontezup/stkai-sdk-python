@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING, Any, override
 
 import requests
 
+from stkai._retry import RetryableError
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -50,13 +52,18 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class RateLimitTimeoutError(Exception):
+class RateLimitTimeoutError(RetryableError):
     """
     Raised when rate limiter exceeds max_wait_time waiting for a token.
 
     This exception indicates that a thread waited too long to acquire
     a rate limit token and gave up. This prevents threads from blocking
     indefinitely when rate limits are very restrictive.
+
+    Extends RetryableError so it's automatically retried by the Retrying
+    context manager, following the pattern used by Resilience4J, Polly,
+    failsafe-go, AWS SDK, and Spring Retry - where rate limit/throttling
+    exceptions are retryable by default.
 
     Attributes:
         waited: Time in seconds the thread waited before giving up.

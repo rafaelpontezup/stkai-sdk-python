@@ -69,6 +69,7 @@ HTTP Client:
 
 Retry:
     - Retrying: Context manager for retry with exponential backoff.
+    - RetryableError: Base class for exceptions that trigger automatic retry.
     - MaxRetriesExceededError: Exception raised when all retry attempts are exhausted.
 """
 
@@ -106,6 +107,7 @@ from stkai._http import (
 )
 from stkai._retry import (
     MaxRetriesExceededError,
+    RetryableError,
     Retrying,
 )
 from stkai.agents import (
@@ -151,6 +153,7 @@ __all__ = [
     "RateLimitTimeoutError",
     # Retry
     "Retrying",
+    "RetryableError",
     "MaxRetriesExceededError",
     # RQC
     "RemoteQuickCommand",
