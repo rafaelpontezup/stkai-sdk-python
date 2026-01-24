@@ -158,7 +158,9 @@ The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, 
 | Strategy | Algorithm | Use Case |
 |----------|-----------|----------|
 | `token_bucket` | Token Bucket | Simple, predictable rate limiting |
-| `adaptive` | AIMD (Additive Increase, Multiplicative Decrease) | Dynamic environments with shared quotas, handles HTTP 429 |
+| `adaptive` | AIMD (Additive Increase, Multiplicative Decrease) | Dynamic environments with shared quotas |
+
+**Note:** HTTP 429 retry logic is handled by the `Retrying` class (in `_retry.py`), not the rate limiter. The adaptive strategy applies AIMD penalty on 429 responses (reduces rate) and raises `HTTPError` for `Retrying` to handle with backoff and `Retry-After` header support.
 
 **Configuration via code:**
 ```python
@@ -196,7 +198,6 @@ STKAI_RATE_LIMIT_MAX_REQUESTS=50
 STKAI_RATE_LIMIT_TIME_WINDOW=60.0
 STKAI_RATE_LIMIT_MAX_WAIT_TIME=unlimited  # or "none", "null"
 STKAI_RATE_LIMIT_MIN_RATE_FLOOR=0.1
-STKAI_RATE_LIMIT_MAX_RETRIES_ON_429=3
 STKAI_RATE_LIMIT_PENALTY_FACTOR=0.2
 STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 ```
@@ -210,7 +211,6 @@ STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 | `time_window` | `float` | `60.0` | Time window in seconds |
 | `max_wait_time` | `float \| None` | `60.0` | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
-| `max_retries_on_429` | `int` | `3` | (adaptive) Retries on HTTP 429 |
 | `penalty_factor` | `float` | `0.2` | (adaptive) Rate reduction on 429 |
 | `recovery_factor` | `float` | `0.01` | (adaptive) Rate increase on success |
 

@@ -510,6 +510,9 @@ class RateLimitConfig(OverridableConfig):
             Multiplicative Decrease). Automatically adjusts rate based on
             HTTP 429 responses from the server.
 
+    Note: HTTP 429 retry logic is handled by the Retrying class, not the rate
+    limiter. The adaptive strategy only applies AIMD penalty on 429 responses.
+
     Attributes:
         enabled: Whether to enable rate limiting.
             Env var: STKAI_RATE_LIMIT_ENABLED
@@ -530,9 +533,6 @@ class RateLimitConfig(OverridableConfig):
         min_rate_floor: (adaptive only) Minimum rate as fraction of max_requests.
             Prevents rate from dropping below this floor.
             Env var: STKAI_RATE_LIMIT_MIN_RATE_FLOOR
-
-        max_retries_on_429: (adaptive only) Maximum retries on HTTP 429.
-            Env var: STKAI_RATE_LIMIT_MAX_RETRIES_ON_429
 
         penalty_factor: (adaptive only) Rate reduction factor on 429 (0-1).
             Env var: STKAI_RATE_LIMIT_PENALTY_FACTOR
@@ -575,7 +575,6 @@ class RateLimitConfig(OverridableConfig):
     )
     # Adaptive strategy parameters (ignored if strategy != "adaptive")
     min_rate_floor: float = field(default=0.1, metadata={"env": "STKAI_RATE_LIMIT_MIN_RATE_FLOOR"})
-    max_retries_on_429: int = field(default=3, metadata={"env": "STKAI_RATE_LIMIT_MAX_RETRIES_ON_429"})
     penalty_factor: float = field(default=0.2, metadata={"env": "STKAI_RATE_LIMIT_PENALTY_FACTOR"})
     recovery_factor: float = field(default=0.01, metadata={"env": "STKAI_RATE_LIMIT_RECOVERY_FACTOR"})
 
@@ -654,11 +653,6 @@ class RateLimitConfig(OverridableConfig):
             raise ConfigValidationError(
                 "min_rate_floor", self.min_rate_floor,
                 "Must be greater than 0 and <= 1.", section="rate_limit"
-            )
-        if self.max_retries_on_429 < 0:
-            raise ConfigValidationError(
-                "max_retries_on_429", self.max_retries_on_429,
-                "Must be >= 0.", section="rate_limit"
             )
         if self.penalty_factor <= 0 or self.penalty_factor >= 1:
             raise ConfigValidationError(

@@ -381,112 +381,79 @@ class TestAdaptiveRateLimitedHttpClientTokenInvariant:
 class TestAdaptiveRateLimitedHttpClient429Handling:
     """Tests for 429 handling in AdaptiveRateLimitedHttpClient."""
 
-    def test_retries_on_429_and_adapts_rate(self):
+    def test_raises_http_error_on_429_and_adapts_rate(self):
+        """Test that 429 applies AIMD penalty and raises HTTPError."""
         delegate = MockHttpClient()
         delegate.response.status_code = 429
         delegate.response.headers = {}
+        # Configure raise_for_status to actually raise HTTPError
+        delegate.response.raise_for_status = MagicMock(
+            side_effect=requests.HTTPError(response=delegate.response)
+        )
 
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
             max_requests=100,
             time_window=60.0,
-            max_retries_on_429=2,
             penalty_factor=0.5,
             max_wait_time=None,  # Disable timeout for this test
         )
 
         initial_effective_max = client._effective_max
 
-        # This will retry and reduce effective_max
-        client.post("http://example.com", data={})
+        # 429 should raise HTTPError (for Retrying to handle)
+        with pytest.raises(requests.HTTPError):
+            client.post("http://example.com", data={})
 
-        # Effective max should be reduced after 429s
+        # Effective max should be reduced (AIMD penalty applied)
         assert client._effective_max < initial_effective_max
+        # Should have made only 1 attempt (no internal retry)
+        assert len(delegate.post_calls) == 1
 
-    def test_returns_429_after_max_retries_exhausted(self):
+    def test_raises_http_error_on_429_with_correct_response(self):
+        """Test that the HTTPError raised on 429 contains the response."""
         delegate = MockHttpClient()
         delegate.response.status_code = 429
+        delegate.response.headers = {"Retry-After": "5"}
+        delegate.response.raise_for_status = MagicMock(
+            side_effect=requests.HTTPError(response=delegate.response)
+        )
+
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            max_wait_time=None,
+        )
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            client.post("http://example.com", data={})
+
+        # The exception should have the response attached (for Retry-After parsing)
+        assert exc_info.value.response is not None
+        assert exc_info.value.response.status_code == 429
+
+    def test_success_recovers_rate(self):
+        """Test that successful requests trigger AIMD recovery."""
+        delegate = MockHttpClient()
+        delegate.response.status_code = 200
         delegate.response.headers = {}
 
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
             max_requests=100,
             time_window=60.0,
-            max_retries_on_429=1,
+            recovery_factor=0.1,  # 10% recovery
             max_wait_time=None,
         )
 
-        response = client.post("http://example.com", data={})
+        # Manually reduce effective_max to simulate prior penalty
+        client._effective_max = 50.0
 
-        assert response.status_code == 429
-        # Should have made 2 attempts (initial + 1 retry)
-        assert len(delegate.post_calls) == 2
+        client.post("http://example.com", data={})
 
-    def test_jitter_applied_on_429_retry(self):
-        """Test that jitter (0-30%) is applied to the Retry-After wait time."""
-        delegate = MockHttpClient()
-        delegate.response.status_code = 429
-        delegate.response.headers = {"Retry-After": "5"}
-
-        client = AdaptiveRateLimitedHttpClient(
-            delegate=delegate,
-            max_requests=100,
-            time_window=60.0,
-            max_retries_on_429=1,  # One retry to trigger the sleep
-            max_wait_time=None,
-        )
-
-        sleep_times = []
-
-        def mock_sleep(duration):
-            sleep_times.append(duration)
-            # Don't actually sleep in the test
-
-        with patch("stkai._http.time.sleep", side_effect=mock_sleep):
-            client.post("http://example.com", data={})
-
-        # Should have at least one sleep call (the retry delay)
-        assert len(sleep_times) >= 1
-
-        # The sleep time should be between 5.0s (base) and 6.5s (base + 30% jitter)
-        retry_sleep = sleep_times[0]
-        assert 5.0 <= retry_sleep <= 6.5, f"Expected sleep between 5.0 and 6.5, got {retry_sleep}"
-
-    def test_ignores_abusive_retry_after_header(self):
-        """Test that Retry-After values exceeding MAX_RETRY_AFTER are ignored.
-
-        Protects against buggy or malicious servers sending unreasonably large values.
-        """
-        delegate = MockHttpClient()
-        delegate.response.status_code = 429
-        delegate.response.headers = {"Retry-After": "3600"}  # 1 hour - abusive!
-
-        client = AdaptiveRateLimitedHttpClient(
-            delegate=delegate,
-            max_requests=100,
-            time_window=60.0,
-            max_retries_on_429=1,
-            max_wait_time=None,
-        )
-
-        sleep_times = []
-
-        def mock_sleep(duration):
-            sleep_times.append(duration)
-
-        with patch("stkai._http.time.sleep", side_effect=mock_sleep):
-            client.post("http://example.com", data={})
-
-        assert len(sleep_times) >= 1
-
-        # Should use calculated wait (time_window / effective_max) instead of 3600s
-        # With penalty, effective_max ≈ 80, so calculated ≈ 60/80 = 0.75s (+ jitter)
-        # Must be WAY less than 3600s
-        retry_sleep = sleep_times[0]
-        assert retry_sleep < client.MAX_RETRY_AFTER, (
-            f"Expected sleep < {client.MAX_RETRY_AFTER}s, got {retry_sleep}s. "
-            "Abusive Retry-After should be ignored."
-        )
+        # Recovery: 50 + (100 * 0.1) = 60
+        assert client._effective_max == 60.0
 
 
 # =============================================================================

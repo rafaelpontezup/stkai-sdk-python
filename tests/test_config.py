@@ -382,7 +382,6 @@ class TestRateLimitConfigDefaults(unittest.TestCase):
         self.assertEqual(rl.time_window, 60.0)
         self.assertEqual(rl.max_wait_time, 60.0)
         self.assertEqual(rl.min_rate_floor, 0.1)
-        self.assertEqual(rl.max_retries_on_429, 3)
         self.assertEqual(rl.penalty_factor, 0.2)
         self.assertEqual(rl.recovery_factor, 0.01)
 
@@ -432,7 +431,6 @@ class TestRateLimitConfigure(unittest.TestCase):
                 "time_window": 120.0,
                 "max_wait_time": 30.0,
                 "min_rate_floor": 0.2,
-                "max_retries_on_429": 5,
                 "penalty_factor": 0.3,
                 "recovery_factor": 0.02,
             }
@@ -444,7 +442,6 @@ class TestRateLimitConfigure(unittest.TestCase):
         self.assertEqual(rl.time_window, 120.0)
         self.assertEqual(rl.max_wait_time, 30.0)
         self.assertEqual(rl.min_rate_floor, 0.2)
-        self.assertEqual(rl.max_retries_on_429, 5)
         self.assertEqual(rl.penalty_factor, 0.3)
         self.assertEqual(rl.recovery_factor, 0.02)
 
@@ -537,7 +534,6 @@ class TestRateLimitEnvVars(unittest.TestCase):
             "STKAI_RATE_LIMIT_MAX_REQUESTS": "25",
             "STKAI_RATE_LIMIT_TIME_WINDOW": "30.0",
             "STKAI_RATE_LIMIT_MIN_RATE_FLOOR": "0.15",
-            "STKAI_RATE_LIMIT_MAX_RETRIES_ON_429": "7",
             "STKAI_RATE_LIMIT_PENALTY_FACTOR": "0.25",
             "STKAI_RATE_LIMIT_RECOVERY_FACTOR": "0.05",
         },
@@ -551,7 +547,6 @@ class TestRateLimitEnvVars(unittest.TestCase):
         self.assertEqual(rl.max_requests, 25)
         self.assertEqual(rl.time_window, 30.0)
         self.assertEqual(rl.min_rate_floor, 0.15)
-        self.assertEqual(rl.max_retries_on_429, 7)
         self.assertEqual(rl.penalty_factor, 0.25)
         self.assertEqual(rl.recovery_factor, 0.05)
 
@@ -1360,12 +1355,6 @@ class TestConfigValidation(unittest.TestCase):
         """min_rate_floor=1 is valid (edge case)."""
         config = RateLimitConfig(min_rate_floor=1.0).validate()
         self.assertEqual(config.min_rate_floor, 1.0)
-
-    def test_rate_limit_max_retries_on_429_cannot_be_negative(self):
-        """max_retries_on_429 must be >= 0."""
-        with self.assertRaises(ConfigValidationError) as ctx:
-            RateLimitConfig(max_retries_on_429=-1).validate()
-        self.assertIn("max_retries_on_429", str(ctx.exception))
 
     def test_rate_limit_penalty_factor_must_be_in_range(self):
         """penalty_factor must be > 0 and < 1."""

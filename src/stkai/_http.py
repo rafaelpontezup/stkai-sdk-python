@@ -9,7 +9,7 @@ Available implementations:
     - StkCLIHttpClient: Uses StackSpot CLI (oscli) for authentication.
     - StandaloneHttpClient: Uses AuthProvider for standalone authentication.
     - TokenBucketRateLimitedHttpClient: Decorator that adds rate limiting (Token Bucket).
-    - AdaptiveRateLimitedHttpClient: Decorator with adaptive rate limiting and 429 handling.
+    - AdaptiveRateLimitedHttpClient: Decorator with adaptive rate limiting (AIMD).
 
 Example (recommended - auto-detection):
     >>> from stkai._http import EnvironmentAwareHttpClient
@@ -31,7 +31,6 @@ For rate limiting:
 """
 
 import logging
-import random
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -556,7 +555,6 @@ class EnvironmentAwareHttpClient(HttpClient):
                 time_window=rl_config.time_window,
                 max_wait_time=rl_config.max_wait_time,
                 min_rate_floor=rl_config.min_rate_floor,
-                max_retries_on_429=rl_config.max_retries_on_429,
                 penalty_factor=rl_config.penalty_factor,
                 recovery_factor=rl_config.recovery_factor,
             )
@@ -790,17 +788,20 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
 
 class AdaptiveRateLimitedHttpClient(HttpClient):
     """
-    HTTP client decorator with adaptive rate limiting and automatic 429 handling.
+    HTTP client decorator with adaptive rate limiting using AIMD algorithm.
 
     Extends rate limiting with:
-    - Automatic retry on HTTP 429 (Too Many Requests)
-    - Respects Retry-After header from server
     - AIMD algorithm to adapt rate based on server responses
     - Floor protection to prevent deadlock
     - Configurable timeout to prevent indefinite blocking
 
-    This is ideal for scenarios with multiple clients sharing the same rate limit
-    quota, where the effective available rate is unpredictable.
+    When an HTTP 429 response is received, this client:
+    1. Applies AIMD penalty (reduces effective rate)
+    2. Raises requests.HTTPError for the caller/Retrying to handle
+
+    This follows the pattern of Resilience4J, Polly, and AWS SDK where rate
+    limiting and retry are separate concerns. Use this client with Retrying
+    for complete 429 handling with backoff.
 
     Example:
         >>> from stkai._http import AdaptiveRateLimitedHttpClient, StkCLIHttpClient
@@ -817,7 +818,6 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         max_requests: Maximum number of requests allowed in the time window.
         time_window: Time window in seconds for the rate limit.
         min_rate_floor: Minimum rate as fraction of max_requests (default: 0.1 = 10%).
-        max_retries_on_429: Maximum retries when receiving 429 (default: 3).
         penalty_factor: Rate reduction factor on 429 (default: 0.2 = -20%).
         recovery_factor: Rate increase factor on success (default: 0.01 = +1%).
         max_wait_time: Maximum time in seconds to wait for a token. If None,
@@ -825,11 +825,8 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
 
     Raises:
         RateLimitTimeoutError: If max_wait_time is exceeded while waiting for a token.
+        requests.HTTPError: When server returns HTTP 429 (after AIMD penalty applied).
     """
-
-    # Maximum Retry-After value to respect (in seconds).
-    # Protects against abusive or buggy servers sending unreasonably large values.
-    MAX_RETRY_AFTER = 60
 
     def __init__(
         self,
@@ -837,7 +834,6 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         max_requests: int,
         time_window: float,
         min_rate_floor: float = 0.1,
-        max_retries_on_429: int = 3,
         penalty_factor: float = 0.2,
         recovery_factor: float = 0.01,
         max_wait_time: float | None = 60.0,
@@ -850,7 +846,6 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             max_requests: Maximum number of requests allowed in the time window.
             time_window: Time window in seconds for the rate limit.
             min_rate_floor: Minimum rate as fraction of max_requests (default: 0.1 = 10%).
-            max_retries_on_429: Maximum retries when receiving 429 (default: 3).
             penalty_factor: Rate reduction factor on 429 (default: 0.2 = -20%).
             recovery_factor: Rate increase factor on success (default: 0.01 = +1%).
             max_wait_time: Maximum time in seconds to wait for a token.
@@ -866,8 +861,6 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         assert time_window > 0, "time_window must be greater than 0."
         assert min_rate_floor is not None, "min_rate_floor cannot be None."
         assert 0 < min_rate_floor <= 1, "min_rate_floor must be between 0 (exclusive) and 1 (inclusive)."
-        assert max_retries_on_429 is not None, "max_retries_on_429 cannot be None."
-        assert max_retries_on_429 >= 0, "max_retries_on_429 must be >= 0."
         assert penalty_factor is not None, "penalty_factor cannot be None."
         assert 0 < penalty_factor < 1, "penalty_factor must be between 0 and 1 (exclusive)."
         assert recovery_factor is not None, "recovery_factor cannot be None."
@@ -878,7 +871,6 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         self.max_requests = max_requests
         self.time_window = time_window
         self.min_rate_floor = min_rate_floor
-        self.max_retries_on_429 = max_retries_on_429
         self.penalty_factor = penalty_factor
         self.recovery_factor = recovery_factor
         self.max_wait_time = max_wait_time
@@ -999,13 +991,17 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         timeout: int = 30,
     ) -> requests.Response:
         """
-        Acquire token, delegate request, handle 429 with retry and adaptation.
+        Acquire token, delegate request, adapt rate based on response.
 
         This method:
         1. Acquires a rate limit token (blocking if necessary)
         2. Delegates the request to the underlying client
-        3. On success: gradually increases the effective rate
-        4. On 429: reduces effective rate and retries with backoff
+        3. On success: gradually increases the effective rate (AIMD recovery)
+        4. On 429: reduces effective rate (AIMD penalty) and raises HTTPError
+
+        The 429 handling follows the separation of concerns pattern:
+        - Rate limiter: applies AIMD penalty and raises exception
+        - Retrying: handles retry with Retry-After header support
 
         Args:
             url: The full URL to request.
@@ -1014,62 +1010,18 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             timeout: Request timeout in seconds.
 
         Returns:
-            The HTTP response.
-            May return a 429 response if max_retries_on_429 is exceeded.
+            The HTTP response (non-429 responses only).
+
+        Raises:
+            requests.HTTPError: When server returns HTTP 429.
+            RateLimitTimeoutError: When max_wait_time is exceeded.
         """
-        last_response: requests.Response | None = None
+        self._acquire_token()
+        response = self.delegate.post(url, data, headers, timeout)
 
-        for attempt in range(self.max_retries_on_429 + 1):
-            # NOTE: We always pass through the token bucket, even after a 429 retry.
-            # After penalization by 429, the local rate may be more restrictive than the
-            # server's Retry-After, resulting in additional wait time. This is intentional:
-            # we favor stability over minimum latency. In multi-process/worker environments
-            # sharing quota, being conservative helps AIMD algorithm convergence.
-            self._acquire_token()
-            response = self.delegate.post(url, data, headers, timeout)
-
-            if response.status_code != 429:
-                self._on_success()
-                return response
-
-            # HTTP 429 - Rate limited by server
-            last_response = response
+        if response.status_code == 429:
             self._on_rate_limited()
+            response.raise_for_status()  # Raises HTTPError → Retrying captures it
 
-            if attempt >= self.max_retries_on_429:
-                break
-
-            # Calculate local average wait time (client-side)
-            wait_time = self.time_window / self._effective_max
-
-            # Determine wait time from Retry-After header when provided (server-side)
-            retry_after_header = response.headers.get("Retry-After")
-            if retry_after_header:
-                try:
-                    retry_after = float(retry_after_header)
-                    # Only respect Retry-After if it's reasonable (not abusive)
-                    if retry_after <= self.MAX_RETRY_AFTER:
-                        wait_time = retry_after
-                    else:
-                        logger.warning(
-                            f"Retry-After header ({retry_after}s) exceeds MAX_RETRY_AFTER "
-                            f"({self.MAX_RETRY_AFTER}s). Using client-side's calculated wait time."
-                        )
-                except (TypeError, ValueError):
-                    # Retry-After value might be a date string, so ignore it
-                    pass
-
-            # Add jitter (0-30%) to avoid thundering herd when multiple workers and
-            # processes receive the same Retry-After and wake up simultaneously
-            jitter = random.uniform(0, wait_time * 0.3)
-            wait_time += jitter
-
-            logger.warning(
-                f"Rate limited (429). Attempt {attempt + 1}/{self.max_retries_on_429 + 1}. "
-                f"Waiting {wait_time:.1f}s before retry..."
-            )
-            time.sleep(wait_time)
-
-        # Return last response (429) for caller to handle
-        assert last_response is not None, "Expected at least one response from retry loop"
-        return last_response
+        self._on_success()
+        return response

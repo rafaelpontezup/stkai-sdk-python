@@ -135,6 +135,7 @@ class Retrying:
             Only applies to RequestException with response attached.
             Default includes transient server errors:
             - 408 Request Timeout: Server closed connection (client took too long)
+            - 429 Too Many Requests: Rate limited, respects Retry-After header
             - 500 Internal Server Error
             - 502 Bad Gateway
             - 503 Service Unavailable
@@ -151,16 +152,21 @@ class Retrying:
 
     Note:
         - Exceptions extending RetryableError are automatically retried (opt-in via inheritance)
-        - By default, transient errors (408, 5xx) trigger retry
+        - By default, transient errors (408, 429, 5xx) trigger retry
+        - HTTP 429 responses respect the Retry-After header when calculating wait time
         - The loop naturally exits on success (no exception raised)
         - Exceptions not matching retry conditions are re-raised immediately
     """
+
+    # Maximum Retry-After value to respect (in seconds).
+    # Protects against abusive or buggy servers sending unreasonably large values.
+    MAX_RETRY_AFTER = 60.0
 
     def __init__(
         self,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
-        retry_on_status_codes: tuple[int, ...] = (408, 500, 502, 503, 504),
+        retry_on_status_codes: tuple[int, ...] = (408, 429, 500, 502, 503, 504),
         retry_on_exceptions: tuple[type[Exception], ...] = (
             requests.Timeout,
             requests.ConnectionError,
@@ -228,11 +234,13 @@ class Retrying:
         """
         Handle retry: log, sleep, prepare for next attempt.
 
+        For HTTP 429 responses, respects the Retry-After header if present.
+
         Args:
             exception: The exception that triggered the retry.
         """
         self._last_exception = exception
-        sleep_time = self.backoff_factor * (2 ** self._current_attempt)
+        sleep_time = self._calculate_wait_time(exception)
 
         prefix = f"{self.logger_prefix} | " if self.logger_prefix else ""
         logger.warning(
@@ -242,6 +250,67 @@ class Retrying:
             f"{prefix}Retrying in {sleep_time:.1f}s..."
         )
         sleep_with_jitter(sleep_time)
+
+    def _calculate_wait_time(self, exception: Exception) -> float:
+        """
+        Calculate wait time, respecting Retry-After header if present.
+
+        For HTTP 429 responses with a valid Retry-After header, uses the
+        maximum of the header value and the exponential backoff time.
+
+        Args:
+            exception: The exception that occurred during the attempt.
+
+        Returns:
+            The wait time in seconds before the next retry attempt.
+        """
+        base_wait: float = self.backoff_factor * (2 ** self._current_attempt)
+
+        # Check for Retry-After header on 429 responses
+        if isinstance(exception, requests.HTTPError):
+            response: requests.Response | None = getattr(exception, "response", None)
+            if response is not None and response.status_code == 429:
+                retry_after = self._parse_retry_after(response)
+                if retry_after is not None:
+                    # Use the larger of Retry-After and exponential backoff
+                    return float(max(retry_after, base_wait))
+
+        return base_wait
+
+    def _parse_retry_after(self, response: requests.Response) -> float | None:
+        """
+        Parse Retry-After header from response.
+
+        Supports numeric seconds format. HTTP-date format is not supported.
+        Values exceeding MAX_RETRY_AFTER are ignored to protect against
+        abusive or buggy servers.
+
+        Args:
+            response: The HTTP response to parse.
+
+        Returns:
+            The Retry-After value in seconds, or None if not present/invalid.
+        """
+        header = response.headers.get("Retry-After")
+        if not header:
+            return None
+
+        # Try parsing as seconds
+        try:
+            seconds = float(header)
+            # Cap at MAX_RETRY_AFTER to protect against abusive values
+            if seconds <= self.MAX_RETRY_AFTER:
+                return seconds
+            else:
+                prefix = f"{self.logger_prefix} | " if self.logger_prefix else ""
+                logger.warning(
+                    f"{prefix}Retry-After header ({seconds}s) exceeds MAX_RETRY_AFTER "
+                    f"({self.MAX_RETRY_AFTER}s). Using exponential backoff instead."
+                )
+                return None
+        except (TypeError, ValueError):
+            # Retry-After value might be an HTTP-date string, which we don't support
+            return None
 
     def _handle_exhausted(self, exception: Exception) -> None:
         """

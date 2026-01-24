@@ -175,6 +175,31 @@ class TestRetryingHttpStatusCodes(unittest.TestCase):
         self.assertEqual(mock_sleep.call_count, 2)
 
     @patch("stkai._retry.sleep_with_jitter")
+    def test_retry_on_429_status_code(self, mock_sleep: MagicMock):
+        """Should retry on 429 Too Many Requests by default."""
+        call_count = 0
+
+        def make_http_error(status_code: int, headers: dict | None = None) -> requests.HTTPError:
+            response = MagicMock()
+            response.status_code = status_code
+            response.headers = headers or {}
+            error = requests.HTTPError()
+            error.response = response
+            return error
+
+        # Using default retry_on_status_codes which now includes 429
+        for attempt in Retrying(max_retries=2):
+            with attempt:
+                call_count += 1
+                if call_count < 3:
+                    raise make_http_error(429)
+                # Success on 3rd attempt
+                break
+
+        self.assertEqual(call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("stkai._retry.sleep_with_jitter")
     def test_retry_on_5xx_status_codes(self, mock_sleep: MagicMock):
         """Should retry on configured 5xx status codes."""
         call_count = 0
@@ -530,6 +555,163 @@ class TestRateLimitTimeoutErrorRetry(unittest.TestCase):
 
         self.assertEqual(call_count, 3)
         self.assertEqual(mock_sleep.call_count, 2)
+
+
+class TestRetryingRetryAfterHeader(unittest.TestCase):
+    """Tests for Retry-After header handling in Retrying."""
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_retry_respects_retry_after_header(self, mock_sleep: MagicMock):
+        """Should respect Retry-After header when calculating wait time."""
+        call_count = 0
+
+        def make_http_error_with_retry_after(retry_after: str) -> requests.HTTPError:
+            response = MagicMock()
+            response.status_code = 429
+            response.headers = {"Retry-After": retry_after}
+            error = requests.HTTPError()
+            error.response = response
+            return error
+
+        for attempt in Retrying(max_retries=1, backoff_factor=0.5):
+            with attempt:
+                call_count += 1
+                if call_count < 2:
+                    raise make_http_error_with_retry_after("10")  # 10 seconds
+                # Success on 2nd attempt
+                break
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
+
+        # Should use max(Retry-After, exponential_backoff) = max(10, 0.5) = 10
+        actual_sleep_time = mock_sleep.call_args[0][0]
+        self.assertEqual(actual_sleep_time, 10.0)
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_retry_uses_backoff_when_greater_than_retry_after(self, mock_sleep: MagicMock):
+        """Should use exponential backoff when it's greater than Retry-After."""
+        call_count = 0
+
+        def make_http_error_with_retry_after(retry_after: str) -> requests.HTTPError:
+            response = MagicMock()
+            response.status_code = 429
+            response.headers = {"Retry-After": retry_after}
+            error = requests.HTTPError()
+            error.response = response
+            return error
+
+        # With backoff_factor=5.0 and attempt=0, backoff = 5.0 * 2^0 = 5.0
+        for attempt in Retrying(max_retries=1, backoff_factor=5.0):
+            with attempt:
+                call_count += 1
+                if call_count < 2:
+                    raise make_http_error_with_retry_after("1")  # 1 second
+                # Success on 2nd attempt
+                break
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
+
+        # Should use max(Retry-After, exponential_backoff) = max(1, 5.0) = 5.0
+        actual_sleep_time = mock_sleep.call_args[0][0]
+        self.assertEqual(actual_sleep_time, 5.0)
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_retry_caps_retry_after_at_max(self, mock_sleep: MagicMock):
+        """Should ignore Retry-After values exceeding MAX_RETRY_AFTER."""
+        call_count = 0
+
+        def make_http_error_with_retry_after(retry_after: str) -> requests.HTTPError:
+            response = MagicMock()
+            response.status_code = 429
+            response.headers = {"Retry-After": retry_after}
+            error = requests.HTTPError()
+            error.response = response
+            return error
+
+        for attempt in Retrying(max_retries=1, backoff_factor=0.5):
+            with attempt:
+                call_count += 1
+                if call_count < 2:
+                    raise make_http_error_with_retry_after("3600")  # 1 hour - abusive!
+                # Success on 2nd attempt
+                break
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
+
+        # Should use exponential backoff instead of 3600
+        actual_sleep_time = mock_sleep.call_args[0][0]
+        self.assertLess(actual_sleep_time, Retrying.MAX_RETRY_AFTER)
+        self.assertEqual(actual_sleep_time, 0.5)  # backoff_factor * 2^0
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_retry_uses_backoff_when_no_retry_after(self, mock_sleep: MagicMock):
+        """Should use exponential backoff when Retry-After header is not present."""
+        call_count = 0
+
+        def make_http_error_without_header() -> requests.HTTPError:
+            response = MagicMock()
+            response.status_code = 429
+            response.headers = {}  # No Retry-After
+            error = requests.HTTPError()
+            error.response = response
+            return error
+
+        for attempt in Retrying(max_retries=1, backoff_factor=2.0):
+            with attempt:
+                call_count += 1
+                if call_count < 2:
+                    raise make_http_error_without_header()
+                # Success on 2nd attempt
+                break
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
+
+        # Should use exponential backoff: 2.0 * 2^0 = 2.0
+        actual_sleep_time = mock_sleep.call_args[0][0]
+        self.assertEqual(actual_sleep_time, 2.0)
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_retry_ignores_invalid_retry_after_format(self, mock_sleep: MagicMock):
+        """Should ignore non-numeric Retry-After values (e.g., HTTP-date)."""
+        call_count = 0
+
+        def make_http_error_with_date_retry_after() -> requests.HTTPError:
+            response = MagicMock()
+            response.status_code = 429
+            # HTTP-date format (not supported)
+            response.headers = {"Retry-After": "Wed, 21 Oct 2025 07:28:00 GMT"}
+            error = requests.HTTPError()
+            error.response = response
+            return error
+
+        for attempt in Retrying(max_retries=1, backoff_factor=1.5):
+            with attempt:
+                call_count += 1
+                if call_count < 2:
+                    raise make_http_error_with_date_retry_after()
+                # Success on 2nd attempt
+                break
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
+
+        # Should fall back to exponential backoff: 1.5 * 2^0 = 1.5
+        actual_sleep_time = mock_sleep.call_args[0][0]
+        self.assertEqual(actual_sleep_time, 1.5)
+
+    def test_429_in_default_retry_on_status_codes(self):
+        """HTTP 429 should be in the default retry_on_status_codes."""
+        retrying = Retrying()
+        self.assertIn(429, retrying.retry_on_status_codes)
+
+    def test_max_retry_after_constant_exists(self):
+        """MAX_RETRY_AFTER constant should be defined."""
+        self.assertTrue(hasattr(Retrying, "MAX_RETRY_AFTER"))
+        self.assertEqual(Retrying.MAX_RETRY_AFTER, 60.0)
 
 
 if __name__ == "__main__":
