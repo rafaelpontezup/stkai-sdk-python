@@ -151,6 +151,30 @@ class TestRetryingHttpStatusCodes(unittest.TestCase):
     """Tests for Retrying with HTTP status codes."""
 
     @patch("stkai._retry.sleep_with_jitter")
+    def test_retry_on_408_request_timeout(self, mock_sleep: MagicMock):
+        """Should retry on 408 Request Timeout (transient error) by default."""
+        call_count = 0
+
+        def make_http_error(status_code: int) -> requests.HTTPError:
+            response = MagicMock()
+            response.status_code = status_code
+            error = requests.HTTPError()
+            error.response = response
+            return error
+
+        # Using default retry_on_status_codes which includes 408
+        for attempt in Retrying(max_retries=2):
+            with attempt:
+                call_count += 1
+                if call_count < 3:
+                    raise make_http_error(408)
+                # Success on 3rd attempt
+                break
+
+        self.assertEqual(call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("stkai._retry.sleep_with_jitter")
     def test_retry_on_5xx_status_codes(self, mock_sleep: MagicMock):
         """Should retry on configured 5xx status codes."""
         call_count = 0

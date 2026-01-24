@@ -131,8 +131,14 @@ class Retrying:
         backoff_factor: Base multiplier for exponential backoff (default: 0.5).
             Sleep time = backoff_factor * (2 ** attempt_number)
             Example: With factor=0.5, delays are 0.5s, 1s, 2s, 4s...
-        retry_on_status_codes: HTTP status codes that trigger retry (default: 500, 502, 503, 504).
+        retry_on_status_codes: HTTP status codes that trigger retry.
             Only applies to RequestException with response attached.
+            Default includes transient server errors:
+            - 408 Request Timeout: Server closed connection (client took too long)
+            - 500 Internal Server Error
+            - 502 Bad Gateway
+            - 503 Service Unavailable
+            - 504 Gateway Timeout
         retry_on_exceptions: Exception types that trigger retry (default: Timeout, ConnectionError).
             These exceptions always trigger retry regardless of status code.
         skip_retry_on_exceptions: Exception types that never trigger retry.
@@ -145,7 +151,7 @@ class Retrying:
 
     Note:
         - Exceptions extending RetryableError are automatically retried (opt-in via inheritance)
-        - By default, only 5xx errors trigger retry (4xx are not in retry_on_status_codes)
+        - By default, transient errors (408, 5xx) trigger retry
         - The loop naturally exits on success (no exception raised)
         - Exceptions not matching retry conditions are re-raised immediately
     """
@@ -154,7 +160,7 @@ class Retrying:
         self,
         max_retries: int = 3,
         backoff_factor: float = 0.5,
-        retry_on_status_codes: tuple[int, ...] = (500, 502, 503, 504),
+        retry_on_status_codes: tuple[int, ...] = (408, 500, 502, 503, 504),
         retry_on_exceptions: tuple[type[Exception], ...] = (
             requests.Timeout,
             requests.ConnectionError,
