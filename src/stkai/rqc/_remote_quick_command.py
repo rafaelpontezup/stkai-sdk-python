@@ -425,9 +425,17 @@ class RemoteQuickCommand:
         self._notify_listeners("on_before_execute", request=request, context=event_context)
 
         # Phase-1: Try to create the remote execution
-        response = None
+        error_response = None
         try:
             execution_id = self._create_execution(request=request)
+            # Notify status change: PENDING → CREATED (execution created successfully)
+            self._notify_listeners(
+                "on_status_change",
+                request=request,
+                old_status=RqcExecutionStatus.PENDING,
+                new_status=RqcExecutionStatus.CREATED,
+                context=event_context,
+            )
         except Exception as e:
             error_status = RqcExecutionStatus.from_exception(e)
             error_msg = f"Failed to create execution: {e}"
@@ -445,66 +453,44 @@ class RemoteQuickCommand:
                 new_status=error_status,
                 context=event_context,
             )
-            response = RqcResponse(
+            # Finish the workflow here
+            error_response = RqcResponse(
                 request=request,
                 status=error_status,
                 error=error_msg,
             )
-            return response
+            return error_response
         finally:
             # Notify listeners: after execute (in case of error)
-            if response:
+            if error_response:
                 self._notify_listeners(
                     "on_after_execute",
-                    request=request, response=response, context=event_context
+                    request=request, response=error_response, context=event_context
                 )
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
         assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_submitted()` method called?"
         assert execution_id == request.execution_id, "🌀 Sanity check | RQC-Request's `execution_id` and response's `execution_id` are different."
 
-        # Notify status change: PENDING → CREATED (execution created successfully)
-        self._notify_listeners(
-            "on_status_change",
-            request=request,
-            old_status=RqcExecutionStatus.PENDING,
-            new_status=RqcExecutionStatus.CREATED,
-            context=event_context,
-        )
-
         # Phase-2: Poll for status
         if not result_handler:
             from stkai.rqc._handlers import DEFAULT_RESULT_HANDLER
             result_handler = DEFAULT_RESULT_HANDLER
 
-        response = None
+        poll_response = None
         try:
-            response = self._poll_until_done(
+            poll_response = self._poll_until_done(
                 request=request, handler=result_handler, context=event_context
-            )
-        except Exception as e:
-            error_status = RqcExecutionStatus.from_exception(e)
-            error_msg = f"Error during polling: {e}"
-            if isinstance(e, requests.HTTPError) and e.response is not None:
-                error_msg = f"Error during polling due to an HTTP error {e.response.status_code}: {e.response.text}"
-            logger.error(
-                f"{execution_id} | RQC | ❌ {error_msg}",
-                exc_info=logger.isEnabledFor(logging.DEBUG)
-            )
-            response = RqcResponse(
-                request=request,
-                status=error_status,
-                error=error_msg,
             )
         finally:
             # Notify listeners: after execute (always called)
             self._notify_listeners(
                 "on_after_execute",
-                request=request, response=response, context=event_context
+                request=request, response=poll_response, context=event_context
             )
 
-        assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
-        return response
+        assert poll_response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
+        return poll_response
 
     # ======================
     # Internals
@@ -699,20 +685,28 @@ class RemoteQuickCommand:
                     )
                     sleep_with_jitter(opts.poll_interval)
 
-        except TimeoutError as e:
-            logger.error(f"{execution_id} | RQC | ❌ Polling timed out due to: {e}")
-            # Notify status change: last_status → TIMEOUT
+        except Exception as e:
+            # Catch-all for TimeoutError, HTTPError 4xx, RqcResultHandlerError, etc.
+            error_status = RqcExecutionStatus.from_exception(e)
+            error_msg = f"Error during polling: {e}"
+            if isinstance(e, requests.HTTPError) and e.response is not None:
+                error_msg = f"Error during polling due to an HTTP error {e.response.status_code}: {e.response.text}"
+            logger.error(
+                f"{execution_id} | RQC | ❌ {error_msg}",
+                exc_info=logger.isEnabledFor(logging.DEBUG)
+            )
+            # Notify status change: last_status → ERROR/TIMEOUT
             self._notify_listeners(
                 "on_status_change",
                 request=request,
                 old_status=last_status,
-                new_status=RqcExecutionStatus.TIMEOUT,
+                new_status=error_status,
                 context=context,
             )
             return RqcResponse(
                 request=request,
-                status=RqcExecutionStatus.TIMEOUT,
-                error=str(e),
+                status=error_status,
+                error=error_msg,
             )
 
         # It should never happen
