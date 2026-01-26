@@ -18,8 +18,7 @@ if TYPE_CHECKING:
 import requests
 
 from stkai._http import HttpClient
-from stkai._rate_limit import TokenAcquisitionTimeoutError
-from stkai._retry import MaxRetriesExceededError, Retrying
+from stkai._retry import Retrying
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
@@ -430,34 +429,35 @@ class RemoteQuickCommand:
         try:
             execution_id = self._create_execution(request=request)
         except Exception as e:
+            error_status = RqcExecutionStatus.from_exception(e)
+            error_msg = f"Failed to create execution: {e}"
+            if isinstance(e, requests.HTTPError) and e.response is not None:
+                error_msg = f"Failed to create execution due to an HTTP error {e.response.status_code}: {e.response.text}"
             logger.error(
-                f"{request.id[:26]:<26} | RQC | ❌ Failed to create execution. {e}",
+                f"{request.id[:26]:<26} | RQC | ❌ {error_msg}",
                 exc_info=logger.isEnabledFor(logging.DEBUG)
             )
-            # Determine status: TIMEOUT if caused by HTTP timeout or rate limit timeout, ERROR otherwise
-            status = RqcExecutionStatus.ERROR
-            if isinstance(e, TokenAcquisitionTimeoutError):
-                status = RqcExecutionStatus.TIMEOUT
-            if isinstance(e, MaxRetriesExceededError) and isinstance(e.last_exception, requests.exceptions.Timeout):
-                status = RqcExecutionStatus.TIMEOUT
             # Notify status change: PENDING → ERROR or TIMEOUT
             self._notify_listeners(
                 "on_status_change",
                 request=request,
                 old_status=RqcExecutionStatus.PENDING,
-                new_status=status,
+                new_status=error_status,
                 context=event_context,
             )
             response = RqcResponse(
                 request=request,
-                status=status,
-                error=f"Failed to create execution: {e}",
+                status=error_status,
+                error=error_msg,
             )
             return response
         finally:
             # Notify listeners: after execute (in case of error)
             if response:
-                self._notify_listeners("on_after_execute", request=request, response=response, context=event_context)
+                self._notify_listeners(
+                    "on_after_execute",
+                    request=request, response=response, context=event_context
+                )
 
         assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
         assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_submitted()` method called?"
@@ -483,15 +483,25 @@ class RemoteQuickCommand:
                 request=request, handler=result_handler, context=event_context
             )
         except Exception as e:
-            logger.error(f"{execution_id} | RQC | ❌ Error during polling: {e}")
+            error_status = RqcExecutionStatus.from_exception(e)
+            error_msg = f"Error during polling: {e}"
+            if isinstance(e, requests.HTTPError) and e.response is not None:
+                error_msg = f"Error during polling due to an HTTP error {e.response.status_code}: {e.response.text}"
+            logger.error(
+                f"{execution_id} | RQC | ❌ {error_msg}",
+                exc_info=logger.isEnabledFor(logging.DEBUG)
+            )
             response = RqcResponse(
                 request=request,
-                status=RqcExecutionStatus.ERROR,
-                error=f"Error during polling: {e}",
+                status=error_status,
+                error=error_msg,
             )
         finally:
             # Notify listeners: after execute (always called)
-            self._notify_listeners("on_after_execute", request=request, response=response, context=event_context)
+            self._notify_listeners(
+                "on_after_execute",
+                request=request, response=response, context=event_context
+            )
 
         assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
         return response

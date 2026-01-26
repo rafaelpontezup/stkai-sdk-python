@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 import requests
 
 from stkai._http import HttpClient
-from stkai._rate_limit import TokenAcquisitionTimeoutError
+from stkai._retry import Retrying
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
 
 logger = logging.getLogger(__name__)
@@ -260,7 +260,6 @@ class Agent:
             f"Sending message to agent '{self.agent_id}'..."
         )
 
-        from stkai._retry import MaxRetriesExceededError, Retrying
         try:
             for attempt in Retrying(
                 max_retries=self.options.retry_max_retries,
@@ -279,57 +278,19 @@ class Agent:
                 "reached end of `_do_chat` method without returning a response."
             )
 
-        except MaxRetriesExceededError as e:
-            # Get the original exception from the retry
-            last_exc = e.last_exception
-            error_msg = f"Max retries exceeded while chatting the agent. Last error: {last_exc}"
-            logger.error(
-                f"{request.id[:26]:<26} | Agent | ❌ {error_msg}"
-            )
-
-            # Determine status based on the last exception type
-            status = ChatStatus.ERROR
-            if isinstance(last_exc, (requests.Timeout, TokenAcquisitionTimeoutError)):
-                status = ChatStatus.TIMEOUT
-
-            return ChatResponse(
-                request=request,
-                status=status,
-                error=error_msg,
-            )
-
-        except (requests.Timeout, TokenAcquisitionTimeoutError) as e:
-            logger.error(
-                f"{request.id[:26]:<26} | Agent | ❌ Request timed out due to: {e}"
-            )
-            return ChatResponse(
-                request=request,
-                status=ChatStatus.TIMEOUT,
-                error=f"Request timed out due to: {e}",
-            )
-
-        except requests.RequestException as e:
-            error_msg = f"Request failed: {e}"
-            if isinstance(e, requests.HTTPError):
-                error_msg = f"Request failed due to an HTTP error {e.response.status_code}: {e.response.text}"
-            logger.error(
-                f"{request.id[:26]:<26} | Agent | ❌ {error_msg}"
-            )
-            return ChatResponse(
-                request=request,
-                status=ChatStatus.ERROR,
-                error=error_msg,
-            )
-
         except Exception as e:
+            error_status = ChatStatus.from_exception(e)
+            error_msg = f"Chat message failed: {e}"
+            if isinstance(e, requests.HTTPError) and e.response is not None:
+                error_msg = f"Chat message failed due to an HTTP error {e.response.status_code}: {e.response.text}"
             logger.error(
-                f"{request.id[:26]:<26} | Agent | ❌ Request failed with an unexpected error: {e}",
+                f"{request.id[:26]:<26} | Agent | ❌ {error_msg}",
                 exc_info=logger.isEnabledFor(logging.DEBUG)
             )
             return ChatResponse(
                 request=request,
-                status=ChatStatus.ERROR,
-                error=f"Request failed with an unexpected error: {e}",
+                status=error_status,
+                error=error_msg
             )
 
     def _do_chat(

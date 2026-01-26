@@ -24,6 +24,27 @@ class ChatStatus(Enum):
     ERROR = "ERROR"
     TIMEOUT = "TIMEOUT"
 
+    @classmethod
+    def from_exception(cls, exc: Exception) -> "ChatStatus":
+        """
+        Determine the appropriate status for an exception.
+
+        Args:
+            exc: The exception that occurred during the chat request.
+
+        Returns:
+            TIMEOUT for timeout exceptions, ERROR for all others.
+
+        Example:
+            >>> try:
+            ...     response = agent.chat(request)
+            ... except Exception as e:
+            ...     status = ChatStatus.from_exception(e)
+            ...     # status is TIMEOUT if e is a timeout, ERROR otherwise
+        """
+        from stkai._utils import is_timeout_exception
+        return cls.TIMEOUT if is_timeout_exception(exc) else cls.ERROR
+
 
 @dataclass(frozen=True)
 class ChatTokenUsage:

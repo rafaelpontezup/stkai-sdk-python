@@ -43,6 +43,27 @@ class RqcExecutionStatus(str, Enum):
     def __str__(self) -> str:
         return self.value
 
+    @classmethod
+    def from_exception(cls, exc: Exception) -> "RqcExecutionStatus":
+        """
+        Determine the appropriate status for an exception.
+
+        Args:
+            exc: The exception that occurred during RQC execution.
+
+        Returns:
+            TIMEOUT for timeout exceptions, ERROR for all others.
+
+        Example:
+            >>> try:
+            ...     execution_id = rqc._create_execution(request)
+            ... except Exception as e:
+            ...     status = RqcExecutionStatus.from_exception(e)
+            ...     # status is TIMEOUT if e is a timeout, ERROR otherwise
+        """
+        from stkai._utils import is_timeout_exception
+        return cls.TIMEOUT if is_timeout_exception(exc) else cls.ERROR
+
 
 @dataclass
 class RqcRequest:

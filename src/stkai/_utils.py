@@ -5,6 +5,8 @@ This module provides internal helper functions used throughout the RQC client.
 These functions are not part of the public API and may change without notice.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import random
@@ -64,3 +66,49 @@ def save_json_file(data: dict[str, Any], file_path: Path) -> None:
             exc_info=logger.isEnabledFor(logging.DEBUG)
         )
         raise RuntimeError(f"It's not possible to save JSON file in the disk ({file_path.name}): {e}") from e
+
+
+def is_timeout_exception(exc: Exception) -> bool:
+    """
+    Determine if an exception indicates a timeout condition.
+
+    This is the single source of truth for identifying timeout exceptions,
+    including exceptions wrapped in MaxRetriesExceededError.
+
+    Args:
+        exc: The exception to check.
+
+    Returns:
+        True if the exception indicates a timeout, False otherwise.
+
+    Supported timeout exceptions:
+        - requests.Timeout: HTTP request timeout
+        - TimeoutError: Python built-in (used in polling)
+        - TokenAcquisitionTimeoutError: Rate limiter timeout
+        - MaxRetriesExceededError: If last_exception is a timeout (recursive)
+    """
+    # Lazy imports to avoid circular dependencies
+    import requests
+
+    from stkai._rate_limit import TokenAcquisitionTimeoutError
+    from stkai._retry import MaxRetriesExceededError
+
+    # Tuple of exception types that indicate a timeout condition.
+    # Used by is_timeout_exception() as the single source of truth.
+    timeout_exceptions_types = (
+        requests.Timeout,
+        TokenAcquisitionTimeoutError,
+        TimeoutError,  # Python built-in (used in polling)
+    )
+
+    # Check direct timeout types
+    if isinstance(exc, timeout_exceptions_types):
+        return True
+
+    # Check wrapped exceptions in MaxRetriesExceededError (recursive)
+    if isinstance(exc, MaxRetriesExceededError):
+        last_exc = exc.last_exception
+        if last_exc is not None:
+            return is_timeout_exception(last_exc)
+
+    return False

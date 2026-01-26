@@ -246,7 +246,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
         # Validation
         self.assertEqual(result.status, RqcExecutionStatus.ERROR)
-        self.assertIn("Failed to create execution: 401 Client Error", result.error)
+        self.assertIn("Failed to create execution due to an HTTP error 401", result.error)
         self.http_client.post.assert_called_once()
         self.http_client.get.assert_not_called()
 
@@ -269,7 +269,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
         # Validation
         self.assertEqual(result.status, RqcExecutionStatus.ERROR)
-        self.assertIn("Error during polling: 403 Client Error", result.error)
+        self.assertIn("Error during polling due to an HTTP error 403", result.error)
         self.http_client.post.assert_called_once()
         self.http_client.get.assert_called_once()
 
