@@ -15,7 +15,8 @@ if TYPE_CHECKING:
 
 import requests
 
-from stkai._http import HttpClient, TokenAcquisitionTimeoutError
+from stkai._http import HttpClient
+from stkai._rate_limit import TokenAcquisitionTimeoutError
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
 
 logger = logging.getLogger(__name__)

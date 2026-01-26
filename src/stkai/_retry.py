@@ -300,7 +300,7 @@ class Retrying:
             response = getattr(exception, "response", None)
         else:
             # Lazy import to avoid circular dependency
-            from stkai._http import ServerSideRateLimitError
+            from stkai._rate_limit import ServerSideRateLimitError
 
             if isinstance(exception, ServerSideRateLimitError):
                 # Wrapped 429 from AdaptiveRateLimitedHttpClient

@@ -99,13 +99,15 @@ from stkai._config import (
     STKAIConfig,
 )
 from stkai._http import (
-    AdaptiveRateLimitedHttpClient,
-    ClientSideRateLimitError,
     EnvironmentAwareHttpClient,
     HttpClient,
-    ServerSideRateLimitError,
     StandaloneHttpClient,
     StkCLIHttpClient,
+)
+from stkai._rate_limit import (
+    AdaptiveRateLimitedHttpClient,
+    ClientSideRateLimitError,
+    ServerSideRateLimitError,
     TokenAcquisitionTimeoutError,
     TokenBucketRateLimitedHttpClient,
 )

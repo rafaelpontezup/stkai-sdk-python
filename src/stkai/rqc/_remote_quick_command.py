@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 
 import requests
 
-from stkai._http import HttpClient, TokenAcquisitionTimeoutError
+from stkai._http import HttpClient
+from stkai._rate_limit import TokenAcquisitionTimeoutError
 from stkai._retry import MaxRetriesExceededError, Retrying
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener

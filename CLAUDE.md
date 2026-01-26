@@ -24,7 +24,8 @@ src/stkai/
 ├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
 ├── _cli.py                        # CLI abstraction: StkCLI (is_available, get_codebuddy_base_url, get_inference_app_base_url)
 ├── _config.py                     # Global config: STKAI singleton (configure, config, reset, explain)
-├── _http.py                       # HTTP clients: EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient, TokenBucketRateLimitedHttpClient, AdaptiveRateLimitedHttpClient
+├── _http.py                       # HTTP clients: HttpClient (ABC), EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient
+├── _rate_limit.py                 # Rate limiting: TokenBucketRateLimitedHttpClient, AdaptiveRateLimitedHttpClient, exceptions
 ├── _utils.py                      # Internal utilities
 ├── agents/                        # AI Agents module
 │   ├── __init__.py                # Agents public API exports
