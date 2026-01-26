@@ -6,7 +6,7 @@ for implementing retry logic with configurable backoff and exception handling.
 
 Example:
     >>> from stkai._retry import Retrying
-    >>> for attempt in Retrying(max_retries=3, backoff_factor=0.5):
+    >>> for attempt in Retrying(max_retries=3, initial_delay=0.5):
     ...     with attempt:
     ...         response = http_client.post(url, data=payload)
     ...         response.raise_for_status()
@@ -128,7 +128,7 @@ class Retrying:
     exception types, with exponential backoff between attempts.
 
     Usage:
-        >>> for attempt in Retrying(max_retries=3, backoff_factor=0.5):
+        >>> for attempt in Retrying(max_retries=3, initial_delay=0.5):
         ...     with attempt:
         ...         response = http_client.post(url, data=payload)
         ...         response.raise_for_status()
@@ -137,9 +137,10 @@ class Retrying:
     Args:
         max_retries: Maximum number of retry attempts (default: 3).
             Use 0 to disable retries (single attempt only).
-        backoff_factor: Base multiplier for exponential backoff (default: 0.5).
-            Sleep time = backoff_factor * (2 ** attempt_number)
-            Example: With factor=0.5, delays are 0.5s, 1s, 2s, 4s...
+        initial_delay: Initial delay in seconds for the first retry (default: 0.5).
+            Subsequent retries use exponential backoff (delay doubles each attempt).
+            Sleep time = initial_delay * (2 ** (attempt_number - 1))
+            Example: With initial_delay=0.5, delays are 0.5s, 1s, 2s, 4s...
         retry_on_status_codes: HTTP status codes that trigger retry.
             Only applies to RequestException with response attached.
             Default includes transient server errors:
@@ -174,7 +175,7 @@ class Retrying:
     def __init__(
         self,
         max_retries: int = 3,
-        backoff_factor: float = 0.5,
+        initial_delay: float = 0.5,
         retry_on_status_codes: tuple[int, ...] = (408, 429, 500, 502, 503, 504),
         retry_on_exceptions: tuple[type[Exception], ...] = (
             requests.Timeout,
@@ -185,13 +186,13 @@ class Retrying:
     ):
         # Validate invariants
         assert max_retries >= 0, f"max_retries must be >= 0, got {max_retries}"
-        assert backoff_factor > 0, f"backoff_factor must be > 0, got {backoff_factor}"
+        assert initial_delay > 0, f"initial_delay must be > 0, got {initial_delay}"
         assert retry_on_status_codes is not None, "retry_on_status_codes cannot be None"
         assert retry_on_exceptions is not None, "retry_on_exceptions cannot be None"
         assert skip_retry_on_exceptions is not None, "skip_retry_on_exceptions cannot be None"
 
         self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
+        self.initial_delay = initial_delay
         self.retry_on_status_codes = set(retry_on_status_codes)
         self.retry_on_exceptions = retry_on_exceptions
         self.skip_retry_on_exceptions = skip_retry_on_exceptions
@@ -289,7 +290,7 @@ class Retrying:
         """
         # Convert 1-indexed attempt to 0-indexed for exponential calculation
         # Attempt 1 → 2^0, Attempt 2 → 2^1, Attempt 3 → 2^2, etc.
-        base_wait: float = self.backoff_factor * (2 ** (self._current_attempt - 1))
+        base_wait: float = self.initial_delay * (2 ** (self._current_attempt - 1))
 
         # Extract response from either HTTPError or ServerSideRateLimitError
         response: requests.Response | None = None

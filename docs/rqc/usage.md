@@ -96,7 +96,7 @@ rqc = RemoteQuickCommand(
     options=RqcOptions(
         create_execution=CreateExecutionOptions(
             retry_max_retries=5,          # Custom retries (default from config)
-            retry_backoff_factor=0.5,     # Custom backoff
+            retry_initial_delay=0.5,     # Initial delay (doubles each retry)
         ),
         get_result=GetResultOptions(
             poll_interval=5.0,      # Faster polling
@@ -140,7 +140,7 @@ rqc = RemoteQuickCommand(
 | Option | Default | Description |
 |--------|---------|-------------|
 | `retry_max_retries` | 3 | Max retry attempts (0 = disabled) |
-| `retry_backoff_factor` | 0.5 | Exponential backoff multiplier |
+| `retry_initial_delay` | 0.5 | Initial delay for first retry (seconds) |
 | `request_timeout` | 30 | HTTP request timeout in seconds |
 
 #### GetResultOptions

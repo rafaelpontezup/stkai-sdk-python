@@ -64,8 +64,8 @@ class AgentOptions:
         retry_max_retries: Maximum number of retry attempts for failed chat calls.
             Use 0 to disable retries (single attempt only).
             Use 3 for 4 total attempts (1 original + 3 retries).
-        retry_backoff_factor: Multiplier for exponential backoff between retries
-            (delay = factor * 2^attempt).
+        retry_initial_delay: Initial delay in seconds for the first retry attempt.
+            Subsequent retries use exponential backoff (delay doubles each attempt).
 
     Example:
         >>> # Use all defaults from config
@@ -77,7 +77,7 @@ class AgentOptions:
     """
     request_timeout: int | None = None
     retry_max_retries: int | None = None
-    retry_backoff_factor: float | None = None
+    retry_initial_delay: float | None = None
 
     def with_defaults_from(self, cfg: "AgentConfig") -> "AgentOptions":
         """
@@ -101,7 +101,7 @@ class AgentOptions:
         return AgentOptions(
             request_timeout=self.request_timeout if self.request_timeout is not None else cfg.request_timeout,
             retry_max_retries=self.retry_max_retries if self.retry_max_retries is not None else cfg.retry_max_retries,
-            retry_backoff_factor=self.retry_backoff_factor if self.retry_backoff_factor is not None else cfg.retry_backoff_factor,
+            retry_initial_delay=self.retry_initial_delay if self.retry_initial_delay is not None else cfg.retry_initial_delay,
         )
 
 
@@ -251,8 +251,8 @@ class Agent:
             "🌀 Sanity check | request_timeout must be set after with_defaults_from()"
         assert self.options.retry_max_retries is not None, \
             "🌀 Sanity check | retry_max_retries must be set after with_defaults_from()"
-        assert self.options.retry_backoff_factor is not None, \
-            "🌀 Sanity check | retry_backoff_factor must be set after with_defaults_from()"
+        assert self.options.retry_initial_delay is not None, \
+            "🌀 Sanity check | retry_initial_delay must be set after with_defaults_from()"
 
         logger.info(
             f"{request.id[:26]:<26} | Agent | "
@@ -263,7 +263,7 @@ class Agent:
         try:
             for attempt in Retrying(
                 max_retries=self.options.retry_max_retries,
-                backoff_factor=self.options.retry_backoff_factor,
+                initial_delay=self.options.retry_initial_delay,
                 logger_prefix=f"{request.id[:26]:<26} | Agent",
             ):
                 with attempt:

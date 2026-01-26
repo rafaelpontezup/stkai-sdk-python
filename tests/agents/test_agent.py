@@ -675,17 +675,17 @@ class TestAgentOptionsRetry(unittest.TestCase):
         options = AgentOptions()
 
         self.assertIsNone(options.retry_max_retries)
-        self.assertIsNone(options.retry_backoff_factor)
+        self.assertIsNone(options.retry_initial_delay)
 
     def test_custom_retry_values(self):
         """Should accept custom retry values."""
         options = AgentOptions(
             retry_max_retries=5,
-            retry_backoff_factor=1.0,
+            retry_initial_delay=1.0,
         )
 
         self.assertEqual(options.retry_max_retries, 5)
-        self.assertEqual(options.retry_backoff_factor, 1.0)
+        self.assertEqual(options.retry_initial_delay, 1.0)
 
     def test_with_defaults_from_fills_retry_values(self):
         """Should fill retry values from config defaults."""
@@ -697,7 +697,7 @@ class TestAgentOptionsRetry(unittest.TestCase):
         resolved = options.with_defaults_from(cfg)
 
         self.assertEqual(resolved.retry_max_retries, cfg.retry_max_retries)
-        self.assertEqual(resolved.retry_backoff_factor, cfg.retry_backoff_factor)
+        self.assertEqual(resolved.retry_initial_delay, cfg.retry_initial_delay)
 
     def test_with_defaults_from_preserves_user_retry_values(self):
         """Should preserve user-provided retry values."""
@@ -705,11 +705,11 @@ class TestAgentOptionsRetry(unittest.TestCase):
 
         cfg = STKAI.config.agent
 
-        options = AgentOptions(retry_max_retries=10, retry_backoff_factor=2.0)
+        options = AgentOptions(retry_max_retries=10, retry_initial_delay=2.0)
         resolved = options.with_defaults_from(cfg)
 
         self.assertEqual(resolved.retry_max_retries, 10)
-        self.assertEqual(resolved.retry_backoff_factor, 2.0)
+        self.assertEqual(resolved.retry_initial_delay, 2.0)
 
 
 class TestAgentRetry(unittest.TestCase):
@@ -738,7 +738,7 @@ class TestAgentRetry(unittest.TestCase):
             failure_status_code=503,
             success_data={"message": "Success after retry"},
         )
-        options = AgentOptions(retry_max_retries=3, retry_backoff_factor=0.1)
+        options = AgentOptions(retry_max_retries=3, retry_initial_delay=0.1)
         agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
 
         response = agent.chat(ChatRequest(user_prompt="Hello!"))
@@ -754,7 +754,7 @@ class TestAgentRetry(unittest.TestCase):
             response_data={"error": "Server error"},
             status_code=503,
         )
-        options = AgentOptions(retry_max_retries=2, retry_backoff_factor=0.1)
+        options = AgentOptions(retry_max_retries=2, retry_initial_delay=0.1)
         agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
 
         response = agent.chat(ChatRequest(user_prompt="Hello!"))

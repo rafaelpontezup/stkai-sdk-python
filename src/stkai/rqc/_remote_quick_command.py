@@ -42,11 +42,12 @@ class CreateExecutionOptions:
         retry_max_retries: Maximum retry attempts for failed create-execution calls.
             Use 0 to disable retries (single attempt only).
             Use 3 for 4 total attempts (1 original + 3 retries).
-        retry_backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
+        retry_initial_delay: Initial delay in seconds for the first retry attempt.
+            Subsequent retries use exponential backoff (delay doubles each attempt).
         request_timeout: HTTP request timeout in seconds.
     """
     retry_max_retries: int | None = None
-    retry_backoff_factor: float | None = None
+    retry_initial_delay: float | None = None
     request_timeout: int | None = None
 
 
@@ -114,7 +115,7 @@ class RqcOptions:
             ... )
             >>> resolved = options.with_defaults_from(STKAI.config.rqc)
             >>> resolved.create_execution.retry_max_retries  # 5 (user-defined)
-            >>> resolved.create_execution.retry_backoff_factor  # from config
+            >>> resolved.create_execution.retry_initial_delay  # from config
         """
         ce = self.create_execution or CreateExecutionOptions()
         gr = self.get_result or GetResultOptions()
@@ -122,7 +123,7 @@ class RqcOptions:
         return RqcOptions(
             create_execution=CreateExecutionOptions(
                 retry_max_retries=ce.retry_max_retries if ce.retry_max_retries is not None else cfg.retry_max_retries,
-                retry_backoff_factor=ce.retry_backoff_factor if ce.retry_backoff_factor is not None else cfg.retry_backoff_factor,
+                retry_initial_delay=ce.retry_initial_delay if ce.retry_initial_delay is not None else cfg.retry_initial_delay,
                 request_timeout=ce.request_timeout if ce.request_timeout is not None else cfg.request_timeout,
             ),
             get_result=GetResultOptions(
@@ -506,7 +507,7 @@ class RemoteQuickCommand:
         opts = self.options.create_execution
         assert opts is not None, "create_execution options must be set after with_defaults_from()"
         assert opts.retry_max_retries is not None, "retry_max_retries must be set after with_defaults_from()"
-        assert opts.retry_backoff_factor is not None, "retry_backoff_factor must be set after with_defaults_from()"
+        assert opts.retry_initial_delay is not None, "retry_initial_delay must be set after with_defaults_from()"
         assert opts.request_timeout is not None, "request_timeout must be set after with_defaults_from()"
 
         request_id = request.id
@@ -517,7 +518,7 @@ class RemoteQuickCommand:
 
         for attempt_ctx in Retrying(
             max_retries=opts.retry_max_retries,
-            backoff_factor=opts.retry_backoff_factor,
+            initial_delay=opts.retry_initial_delay,
             logger_prefix=f"{request_id[:26]:<26} | RQC",
         ):
             with attempt_ctx as attempt:

@@ -51,7 +51,7 @@ agent = Agent(
     agent_id="my-assistant",
     options=AgentOptions(
         retry_max_retries=5,        # 6 total attempts (1 + 5 retries)
-        retry_backoff_factor=1.0,   # Backoff: 1s, 2s, 4s, 8s, 16s
+        retry_initial_delay=1.0,    # Delays: 1s, 2s, 4s, 8s, 16s
     ),
 )
 
@@ -79,7 +79,7 @@ from stkai import STKAI
 STKAI.configure(
     agent={
         "retry_max_retries": 5,
-        "retry_backoff_factor": 1.0,
+        "retry_initial_delay": 1.0,
     }
 )
 ```
@@ -88,7 +88,7 @@ Or via environment variables:
 
 ```bash
 STKAI_AGENT_RETRY_MAX_RETRIES=5
-STKAI_AGENT_RETRY_BACKOFF_FACTOR=1.0
+STKAI_AGENT_RETRY_INITIAL_DELAY=1.0
 ```
 
 !!! tip "Retry-After Header"

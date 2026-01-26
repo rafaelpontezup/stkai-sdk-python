@@ -330,7 +330,7 @@ class TestRetryingBackoff(unittest.TestCase):
         with self.assertRaises(MaxRetriesExceededError):
             for attempt in Retrying(
                 max_retries=3,
-                backoff_factor=1.0,
+                initial_delay=1.0,
                 retry_on_exceptions=(ValueError,),
             ):
                 with attempt:
@@ -341,12 +341,12 @@ class TestRetryingBackoff(unittest.TestCase):
         self.assertEqual(calls, [1.0, 2.0, 4.0])
 
     @patch("stkai._retry.sleep_with_jitter")
-    def test_custom_backoff_factor(self, mock_sleep: MagicMock):
+    def test_custom_initial_delay(self, mock_sleep: MagicMock):
         """Should use custom backoff factor."""
         with self.assertRaises(MaxRetriesExceededError):
             for attempt in Retrying(
                 max_retries=2,
-                backoff_factor=0.5,
+                initial_delay=0.5,
                 retry_on_exceptions=(ValueError,),
             ):
                 with attempt:
@@ -615,7 +615,7 @@ class TestServerSideRateLimitErrorRetry(unittest.TestCase):
 
         call_count = 0
 
-        for attempt in Retrying(max_retries=1, backoff_factor=0.5):
+        for attempt in Retrying(max_retries=1, initial_delay=0.5):
             with attempt:
                 call_count += 1
                 if call_count < 2:
@@ -647,7 +647,7 @@ class TestRetryingRetryAfterHeader(unittest.TestCase):
             error.response = response
             return error
 
-        for attempt in Retrying(max_retries=1, backoff_factor=0.5):
+        for attempt in Retrying(max_retries=1, initial_delay=0.5):
             with attempt:
                 call_count += 1
                 if call_count < 2:
@@ -675,8 +675,8 @@ class TestRetryingRetryAfterHeader(unittest.TestCase):
             error.response = response
             return error
 
-        # With backoff_factor=5.0 and attempt=0, backoff = 5.0 * 2^0 = 5.0
-        for attempt in Retrying(max_retries=1, backoff_factor=5.0):
+        # With initial_delay=5.0 and attempt=0, backoff = 5.0 * 2^0 = 5.0
+        for attempt in Retrying(max_retries=1, initial_delay=5.0):
             with attempt:
                 call_count += 1
                 if call_count < 2:
@@ -704,7 +704,7 @@ class TestRetryingRetryAfterHeader(unittest.TestCase):
             error.response = response
             return error
 
-        for attempt in Retrying(max_retries=1, backoff_factor=0.5):
+        for attempt in Retrying(max_retries=1, initial_delay=0.5):
             with attempt:
                 call_count += 1
                 if call_count < 2:
@@ -718,7 +718,7 @@ class TestRetryingRetryAfterHeader(unittest.TestCase):
         # Should use exponential backoff instead of 3600
         actual_sleep_time = mock_sleep.call_args[0][0]
         self.assertLess(actual_sleep_time, Retrying.MAX_RETRY_AFTER)
-        self.assertEqual(actual_sleep_time, 0.5)  # backoff_factor * 2^0
+        self.assertEqual(actual_sleep_time, 0.5)  # initial_delay * 2^0
 
     @patch("stkai._retry.sleep_with_jitter")
     def test_retry_uses_backoff_when_no_retry_after(self, mock_sleep: MagicMock):
@@ -733,7 +733,7 @@ class TestRetryingRetryAfterHeader(unittest.TestCase):
             error.response = response
             return error
 
-        for attempt in Retrying(max_retries=1, backoff_factor=2.0):
+        for attempt in Retrying(max_retries=1, initial_delay=2.0):
             with attempt:
                 call_count += 1
                 if call_count < 2:
@@ -762,7 +762,7 @@ class TestRetryingRetryAfterHeader(unittest.TestCase):
             error.response = response
             return error
 
-        for attempt in Retrying(max_retries=1, backoff_factor=1.5):
+        for attempt in Retrying(max_retries=1, initial_delay=1.5):
             with attempt:
                 call_count += 1
                 if call_count < 2:

@@ -350,9 +350,10 @@ class RqcConfig(OverridableConfig):
             Use 3 for 4 total attempts (1 original + 3 retries).
             Env var: STKAI_RQC_RETRY_MAX_RETRIES
 
-        retry_backoff_factor: Multiplier for exponential backoff between retries
-            (delay = factor * 2^attempt).
-            Env var: STKAI_RQC_RETRY_BACKOFF_FACTOR
+        retry_initial_delay: Initial delay in seconds for the first retry attempt.
+            Subsequent retries use exponential backoff (delay doubles each attempt).
+            Example: with 0.5s initial delay, retries wait 0.5s, 1s, 2s, 4s...
+            Env var: STKAI_RQC_RETRY_INITIAL_DELAY
 
         poll_interval: Seconds to wait between polling status checks.
             Env var: STKAI_RQC_POLL_INTERVAL
@@ -381,7 +382,7 @@ class RqcConfig(OverridableConfig):
 
     request_timeout: int = field(default=30, metadata={"env": "STKAI_RQC_REQUEST_TIMEOUT"})
     retry_max_retries: int = field(default=3, metadata={"env": "STKAI_RQC_RETRY_MAX_RETRIES"})
-    retry_backoff_factor: float = field(default=0.5, metadata={"env": "STKAI_RQC_RETRY_BACKOFF_FACTOR"})
+    retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_RQC_RETRY_INITIAL_DELAY"})
     poll_interval: float = field(default=10.0, metadata={"env": "STKAI_RQC_POLL_INTERVAL"})
     poll_max_duration: float = field(default=600.0, metadata={"env": "STKAI_RQC_POLL_MAX_DURATION"})
     overload_timeout: float = field(default=60.0, metadata={"env": "STKAI_RQC_OVERLOAD_TIMEOUT"})
@@ -400,9 +401,9 @@ class RqcConfig(OverridableConfig):
                 "retry_max_retries", self.retry_max_retries,
                 "Must be >= 0.", section="rqc"
             )
-        if self.retry_backoff_factor <= 0:
+        if self.retry_initial_delay <= 0:
             raise ConfigValidationError(
-                "retry_backoff_factor", self.retry_backoff_factor,
+                "retry_initial_delay", self.retry_initial_delay,
                 "Must be greater than 0.", section="rqc"
             )
         if self.poll_interval <= 0:
@@ -453,9 +454,10 @@ class AgentConfig(OverridableConfig):
             Use 3 for 4 total attempts (1 original + 3 retries).
             Env var: STKAI_AGENT_RETRY_MAX_RETRIES
 
-        retry_backoff_factor: Multiplier for exponential backoff between retries
-            (delay = factor * 2^attempt).
-            Env var: STKAI_AGENT_RETRY_BACKOFF_FACTOR
+        retry_initial_delay: Initial delay in seconds for the first retry attempt.
+            Subsequent retries use exponential backoff (delay doubles each attempt).
+            Example: with 0.5s initial delay, retries wait 0.5s, 1s, 2s, 4s...
+            Env var: STKAI_AGENT_RETRY_INITIAL_DELAY
 
     Example:
         >>> from stkai import STKAI
@@ -470,7 +472,7 @@ class AgentConfig(OverridableConfig):
     request_timeout: int = field(default=60, metadata={"env": "STKAI_AGENT_REQUEST_TIMEOUT"})
     base_url: str = field(default="https://genai-inference-app.stackspot.com", metadata={"env": "STKAI_AGENT_BASE_URL"})
     retry_max_retries: int = field(default=3, metadata={"env": "STKAI_AGENT_RETRY_MAX_RETRIES"})
-    retry_backoff_factor: float = field(default=0.5, metadata={"env": "STKAI_AGENT_RETRY_BACKOFF_FACTOR"})
+    retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_AGENT_RETRY_INITIAL_DELAY"})
 
     def validate(self) -> Self:
         """Validate Agent configuration fields."""
@@ -489,9 +491,9 @@ class AgentConfig(OverridableConfig):
                 "retry_max_retries", self.retry_max_retries,
                 "Must be >= 0.", section="agent"
             )
-        if self.retry_backoff_factor <= 0:
+        if self.retry_initial_delay <= 0:
             raise ConfigValidationError(
-                "retry_backoff_factor", self.retry_backoff_factor,
+                "retry_initial_delay", self.retry_initial_delay,
                 "Must be greater than 0.", section="agent"
             )
         return self

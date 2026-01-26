@@ -55,7 +55,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             options=RqcOptions(
                 create_execution=CreateExecutionOptions(
                     retry_max_retries=3,
-                    retry_backoff_factor=0.1,
+                    retry_initial_delay=0.1,
                 ),
                 get_result=GetResultOptions(
                     poll_interval=0.01,
@@ -209,7 +209,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             options=RqcOptions(
                 create_execution=CreateExecutionOptions(
                     retry_max_retries=3,
-                    retry_backoff_factor=0.1,
+                    retry_initial_delay=0.1,
                 ),
                 get_result=GetResultOptions(
                     poll_interval=0.01,
@@ -543,7 +543,7 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
         # create_execution should be filled
         self.assertIsNotNone(resolved.create_execution)
         self.assertEqual(resolved.create_execution.retry_max_retries, cfg.retry_max_retries)
-        self.assertEqual(resolved.create_execution.retry_backoff_factor, cfg.retry_backoff_factor)
+        self.assertEqual(resolved.create_execution.retry_initial_delay, cfg.retry_initial_delay)
         self.assertEqual(resolved.create_execution.request_timeout, cfg.request_timeout)
 
         # get_result should be filled
@@ -563,7 +563,7 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
         options = RqcOptions(
             create_execution=CreateExecutionOptions(
                 retry_max_retries=99,  # User value
-                # retry_backoff_factor and request_timeout are None -> use config
+                # retry_initial_delay and request_timeout are None -> use config
             ),
             get_result=GetResultOptions(
                 poll_interval=999.0,  # User value
@@ -582,7 +582,7 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
         self.assertEqual(resolved.get_result.poll_max_duration, 888.0)
 
         # None values should be filled from config
-        self.assertEqual(resolved.create_execution.retry_backoff_factor, cfg.retry_backoff_factor)
+        self.assertEqual(resolved.create_execution.retry_initial_delay, cfg.retry_initial_delay)
         self.assertEqual(resolved.create_execution.request_timeout, cfg.request_timeout)
         self.assertEqual(resolved.get_result.overload_timeout, cfg.overload_timeout)
         self.assertEqual(resolved.get_result.request_timeout, cfg.request_timeout)

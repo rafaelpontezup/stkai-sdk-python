@@ -138,7 +138,7 @@ mypy src
 4. **AgentOptions**: Configuration with `with_defaults_from(cfg)` pattern
    - `request_timeout`: HTTP timeout in seconds
    - `retry_max_retries`: Max retry attempts (0 = disabled, 3 = 4 total attempts)
-   - `retry_backoff_factor`: Exponential backoff multiplier
+   - `retry_initial_delay`: Initial delay for first retry (subsequent retries double)
    - Fields set to `None` use defaults from `STKAI.config.agent` (Single Source of Truth)
 
 **Retry:** Agent automatically retries on HTTP 5xx, 408, 429, and network errors with exponential backoff. HTTP 429 respects `Retry-After` header. Retry is handled by `Retrying` class.
@@ -250,8 +250,8 @@ STKAI.configure(
 **Configuration classes:**
 - `SdkConfig`: `version`, `cli_mode` (read-only, auto-detected)
 - `AuthConfig`: `client_id`, `client_secret`, `token_url`
-- `RqcConfig`: `request_timeout`, `retry_max_retries`, `retry_backoff_factor`, `poll_interval`, `poll_max_duration`, etc.
-- `AgentConfig`: `request_timeout`, `base_url`
+- `RqcConfig`: `request_timeout`, `retry_max_retries`, `retry_initial_delay`, `poll_interval`, `poll_max_duration`, etc.
+- `AgentConfig`: `request_timeout`, `base_url`, `retry_max_retries`, `retry_initial_delay`
 - `RateLimitConfig`: `enabled`, `strategy`, `max_requests`, etc. (see [HTTP Client > Rate Limiting](#rate-limiting))
 - `ConfigEntry`: Represents a config field with its value and source (used by `explain()`)
 

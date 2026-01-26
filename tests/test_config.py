@@ -29,7 +29,7 @@ class TestDefaults(unittest.TestCase):
         """Should return sensible defaults for RQC config."""
         self.assertEqual(STKAI.config.rqc.request_timeout, 30)
         self.assertEqual(STKAI.config.rqc.retry_max_retries, 3)
-        self.assertEqual(STKAI.config.rqc.retry_backoff_factor, 0.5)
+        self.assertEqual(STKAI.config.rqc.retry_initial_delay, 0.5)
         self.assertEqual(STKAI.config.rqc.poll_interval, 10.0)
         self.assertEqual(STKAI.config.rqc.poll_max_duration, 600.0)
         self.assertEqual(STKAI.config.rqc.overload_timeout, 60.0)
@@ -213,7 +213,7 @@ class TestAllEnvVars(unittest.TestCase):
             "STKAI_RQC_BASE_URL": "https://rqc.custom",
             "STKAI_RQC_REQUEST_TIMEOUT": "100",
             "STKAI_RQC_RETRY_MAX_RETRIES": "5",
-            "STKAI_RQC_RETRY_BACKOFF_FACTOR": "1.0",
+            "STKAI_RQC_RETRY_INITIAL_DELAY": "1.0",
             "STKAI_RQC_POLL_INTERVAL": "20.0",
             "STKAI_RQC_POLL_MAX_DURATION": "900.0",
             "STKAI_RQC_OVERLOAD_TIMEOUT": "120.0",
@@ -226,7 +226,7 @@ class TestAllEnvVars(unittest.TestCase):
         self.assertEqual(STKAI.config.rqc.base_url, "https://rqc.custom")
         self.assertEqual(STKAI.config.rqc.request_timeout, 100)
         self.assertEqual(STKAI.config.rqc.retry_max_retries, 5)
-        self.assertEqual(STKAI.config.rqc.retry_backoff_factor, 1.0)
+        self.assertEqual(STKAI.config.rqc.retry_initial_delay, 1.0)
         self.assertEqual(STKAI.config.rqc.poll_interval, 20.0)
         self.assertEqual(STKAI.config.rqc.poll_max_duration, 900.0)
         self.assertEqual(STKAI.config.rqc.overload_timeout, 120.0)
@@ -1241,11 +1241,11 @@ class TestConfigValidation(unittest.TestCase):
         config = RqcConfig(retry_max_retries=0).validate()
         self.assertEqual(config.retry_max_retries, 0)
 
-    def test_rqc_retry_backoff_factor_must_be_positive(self):
-        """retry_backoff_factor must be > 0."""
+    def test_rqc_retry_initial_delay_must_be_positive(self):
+        """retry_initial_delay must be > 0."""
         with self.assertRaises(ConfigValidationError) as ctx:
-            RqcConfig(retry_backoff_factor=0).validate()
-        self.assertIn("retry_backoff_factor", str(ctx.exception))
+            RqcConfig(retry_initial_delay=0).validate()
+        self.assertIn("retry_initial_delay", str(ctx.exception))
 
     def test_rqc_poll_interval_must_be_positive(self):
         """poll_interval must be > 0."""

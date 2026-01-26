@@ -208,7 +208,7 @@ STKAI Configuration:
 [rqc]
   request_timeout .......... 60                                                 ✎ user
   retry_max_retries ........ 5                                                  ✎ env:STKAI_RQC_RETRY_MAX_RETRIES
-  retry_backoff_factor ..... 0.5                                                  default
+  retry_initial_delay ...... 0.5                                                  default
   poll_interval ............ 10.0                                                 default
   poll_max_duration ........ 600.0                                                default
   overload_timeout ......... 60.0                                                 default
@@ -216,7 +216,7 @@ STKAI Configuration:
   base_url ................. https://cli.example.com                            ✎ CLI
 [agent]
   request_timeout .......... 60                                                   default
-  base_url ................. https://genai-inference-app.stackspot.com            default
+  base_url ................. https://genai-inference-app.stackspot.com          ✎ CLI
 [rate_limit]
   enabled .................. False                                                default
   strategy ................. token_bucket                                         default
@@ -267,7 +267,7 @@ Settings for `RemoteQuickCommand` clients:
 |-------|---------|---------|-------------|
 | `request_timeout` | `STKAI_RQC_REQUEST_TIMEOUT` | 30 | HTTP timeout (seconds) |
 | `retry_max_retries` | `STKAI_RQC_RETRY_MAX_RETRIES` | 3 | Max retry attempts (0 = disabled) |
-| `retry_backoff_factor` | `STKAI_RQC_RETRY_BACKOFF_FACTOR` | 0.5 | Exponential backoff multiplier |
+| `retry_initial_delay` | `STKAI_RQC_RETRY_INITIAL_DELAY` | 0.5 | Initial delay for first retry (seconds) |
 | `poll_interval` | `STKAI_RQC_POLL_INTERVAL` | 10.0 | Seconds between polls |
 | `poll_max_duration` | `STKAI_RQC_POLL_MAX_DURATION` | 600.0 | Max polling duration |
 | `overload_timeout` | `STKAI_RQC_OVERLOAD_TIMEOUT` | 60.0 | Max CREATED state duration |
@@ -286,10 +286,10 @@ Settings for `Agent` clients:
 | `request_timeout` | `STKAI_AGENT_REQUEST_TIMEOUT` | 60 | HTTP timeout (seconds) |
 | `base_url` | `STKAI_AGENT_BASE_URL` | StackSpot API URL | API base URL |
 | `retry_max_retries` | `STKAI_AGENT_RETRY_MAX_RETRIES` | 3 | Max retry attempts (0 = disabled) |
-| `retry_backoff_factor` | `STKAI_AGENT_RETRY_BACKOFF_FACTOR` | 0.5 | Exponential backoff multiplier |
+| `retry_initial_delay` | `STKAI_AGENT_RETRY_INITIAL_DELAY` | 0.5 | Initial delay for first retry (seconds) |
 
 !!! tip "Retry Behavior"
-    Retry is enabled by default. Use `retry_max_retries=3` for 4 total attempts (1 original + 3 retries). The backoff delay is calculated as `factor * 2^attempt`, so with factor 0.5: 0.5s, 1s, 2s, 4s.
+    Retry is enabled by default. Use `retry_max_retries=3` for 4 total attempts (1 original + 3 retries). The delay doubles each retry: with `retry_initial_delay=0.5`, delays are 0.5s, 1s, 2s, 4s.
 
 !!! tip "CLI Base URL"
     In CLI mode, the Agent `base_url` is automatically derived from the CLI's codebuddy URL (replacing `genai-code-buddy-api` with `genai-inference-app`). Since CLI has higher precedence than environment variables, you can override it via `STKAI.configure()`, constructor parameter (`base_url=`), or by disabling CLI override with `allow_cli_override=False`.
