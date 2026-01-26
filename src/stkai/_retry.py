@@ -135,9 +135,9 @@ class RetryAttemptContext:
         """Return True if this is the last retry attempt."""
         return self.attempt_number >= self.max_attempts
 
-    def __enter__(self) -> RetryAttemptContext:
-        """Enter context and return self for access to attempt metadata."""
-        return self
+    def __enter__(self) -> None:
+        """Enter context. Attempt metadata is available on the object itself."""
+        return None
 
     def __exit__(
         self,
