@@ -33,6 +33,82 @@ The `execute()` method **always** returns an instance of `RqcResponse` regardles
 !!! note
     If the request's `id` is not provided, a UUID is auto-generated.
 
+## Automatic Retry
+
+The RQC client automatically retries failed requests during the **create-execution phase** with exponential backoff. This handles transient failures like network errors and server overload.
+
+### What Gets Retried
+
+| Error Type | Retried? |
+|------------|----------|
+| HTTP 5xx (500, 502, 503, 504) | :white_check_mark: Yes |
+| HTTP 408 (Request Timeout) | :white_check_mark: Yes |
+| HTTP 429 (Rate Limited) | :white_check_mark: Yes |
+| Network errors (Timeout, ConnectionError) | :white_check_mark: Yes |
+| HTTP 4xx (except 408, 429) | :x: No |
+
+!!! note "Retry Scope"
+    Automatic retry only applies to the **create-execution phase** (submitting the request). The **polling phase** (waiting for results) uses a different strategy: it retries on temporary failures but respects HTTP 4xx errors.
+
+### Configuration
+
+Retry is **enabled by default** with sensible defaults. You can customize it via `CreateExecutionOptions`:
+
+```python
+from stkai import RemoteQuickCommand, RqcRequest, RqcOptions
+from stkai.rqc import CreateExecutionOptions
+
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    options=RqcOptions(
+        create_execution=CreateExecutionOptions(
+            retry_max_retries=5,        # 6 total attempts (1 + 5 retries)
+            retry_initial_delay=1.0,    # Delays: 1s, 2s, 4s, 8s, 16s
+        ),
+    ),
+)
+
+response = rqc.execute(RqcRequest(payload={"code": "..."}))
+```
+
+### Disabling Retry
+
+To disable retry (single attempt only):
+
+```python
+rqc = RemoteQuickCommand(
+    slug_name="my-quick-command",
+    options=RqcOptions(
+        create_execution=CreateExecutionOptions(retry_max_retries=0),  # No retries
+    ),
+)
+```
+
+### Global Configuration
+
+Configure retry defaults globally via `STKAI.configure()`:
+
+```python
+from stkai import STKAI
+
+STKAI.configure(
+    rqc={
+        "retry_max_retries": 5,
+        "retry_initial_delay": 1.0,
+    }
+)
+```
+
+Or via environment variables:
+
+```bash
+STKAI_RQC_RETRY_MAX_RETRIES=5
+STKAI_RQC_RETRY_INITIAL_DELAY=1.0
+```
+
+!!! tip "Retry-After Header"
+    When the server returns HTTP 429 with a `Retry-After` header, the SDK respects it (up to 60 seconds) to avoid overwhelming the server.
+
 ## Batch Execution
 
 You can send multiple RQC requests concurrently and wait for all pending responses using the `execute_many()` method. This method is also **blocking**, so it waits for all responses to finish before resuming the execution:

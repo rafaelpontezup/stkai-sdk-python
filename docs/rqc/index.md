@@ -68,6 +68,7 @@ elif response.is_timeout():
 
 | Feature | Description |
 |---------|-------------|
+| **[Automatic Retry](usage.md#automatic-retry)** | Automatic retry with exponential backoff for transient failures |
 | **[Batch Execution](usage.md#batch-execution)** | Process multiple requests concurrently with `execute_many()` |
 | **[Result Handlers](handlers.md)** | Customize how responses are processed with pluggable handlers |
 | **[Event Listeners](listeners.md)** | Monitor execution lifecycle with custom event handlers |
