@@ -90,24 +90,33 @@ class RetryAttempt:
     useful for logging and conditional logic.
 
     Attributes:
-        attempt_number: Zero-based index of the current attempt (0 = first attempt).
-        max_retries: Maximum number of retry attempts configured.
+        attempt_number: One-based index of the current attempt (1 = first attempt).
+        max_attempts: Total number of attempts (1 + max_retries).
 
     Example:
         >>> for attempt_ctx in Retrying(max_retries=3):
         ...     with attempt_ctx as attempt:
-        ...         print(f"Attempt {attempt.attempt_number + 1}/{attempt.max_retries + 1}")
+        ...         print(f"Attempt {attempt.attempt_number}/{attempt.max_attempts}")
         ...         if attempt.is_last_attempt:
         ...             print("This is the last attempt!")
     """
 
     attempt_number: int
-    max_retries: int
+    max_attempts: int
+
+    def __post_init__(self) -> None:
+        """Validate invariants."""
+        assert self.max_attempts >= 1, \
+            f"max_attempts must be >= 1, got {self.max_attempts}"
+        assert self.attempt_number >= 1, \
+            f"attempt_number must be >= 1 (1-indexed), got {self.attempt_number}"
+        assert self.attempt_number <= self.max_attempts, \
+            f"attempt_number ({self.attempt_number}) cannot exceed max_attempts ({self.max_attempts})"
 
     @property
     def is_last_attempt(self) -> bool:
         """Return True if this is the last retry attempt."""
-        return self.attempt_number >= self.max_retries
+        return self.attempt_number >= self.max_attempts
 
 
 class Retrying:
@@ -191,9 +200,19 @@ class Retrying:
         self._current_attempt = 0
         self._last_exception: Exception | None = None
 
+    @property
+    def max_attempts(self) -> int:
+        """Total number of attempts (1 original + max_retries)."""
+        return self.max_retries + 1
+
+    @property
+    def enabled(self) -> bool:
+        """Return True if retry is enabled (max_retries > 0)."""
+        return self.max_retries > 0
+
     def __iter__(self) -> Generator[_RetryContext, None, None]:
-        """Yield retry contexts for each attempt."""
-        for attempt in range(self.max_retries + 1):
+        """Yield retry contexts for each attempt (1-indexed)."""
+        for attempt in range(1, self.max_attempts + 1):
             self._current_attempt = attempt
             yield _RetryContext(self, attempt)
 
@@ -240,16 +259,16 @@ class Retrying:
             exception: The exception that triggered the retry.
         """
         self._last_exception = exception
-        sleep_time = self._calculate_wait_time(exception)
+        sleep_seconds = self._calculate_wait_time(exception)
 
         prefix = f"{self.logger_prefix} | " if self.logger_prefix else ""
         logger.warning(
-            f"{prefix}Attempt {self._current_attempt + 1}/{self.max_retries + 1} failed: {exception}"
+            f"{prefix}Attempt {self._current_attempt}/{self.max_attempts} failed: {exception}"
         )
         logger.warning(
-            f"{prefix}Retrying in {sleep_time:.1f}s..."
+            f"{prefix}Retrying in {sleep_seconds:.1f}s..."
         )
-        sleep_with_jitter(sleep_time)
+        sleep_with_jitter(sleep_seconds)
 
     def _calculate_wait_time(self, exception: Exception) -> float:
         """
@@ -268,7 +287,9 @@ class Retrying:
         Returns:
             The wait time in seconds before the next retry attempt.
         """
-        base_wait: float = self.backoff_factor * (2 ** self._current_attempt)
+        # Convert 1-indexed attempt to 0-indexed for exponential calculation
+        # Attempt 1 → 2^0, Attempt 2 → 2^1, Attempt 3 → 2^2, etc.
+        base_wait: float = self.backoff_factor * (2 ** (self._current_attempt - 1))
 
         # Extract response from either HTTPError or ServerSideRateLimitError
         response: requests.Response | None = None
@@ -370,7 +391,7 @@ class _RetryContext:
         """Enter context and return attempt metadata."""
         return RetryAttempt(
             attempt_number=self.attempt,
-            max_retries=self._retrying.max_retries,
+            max_attempts=self._retrying.max_attempts,
         )
 
     def __exit__(
@@ -398,12 +419,12 @@ class _RetryContext:
             # Don't retry - re-raise exception
             return False
 
-        # If max_retries is 0, retries are disabled - let original exception propagate
+        # If retry is disabled, let original exception propagate
         # without wrapping in MaxRetriesExceededError
-        if self._retrying.max_retries == 0:
+        if not self._retrying.enabled:
             return False
 
-        if self.attempt >= self._retrying.max_retries:
+        if self.attempt > self._retrying.max_retries:
             # Exhausted - raise MaxRetriesExceededError
             self._retrying._handle_exhausted(exc_val)
             return False  # Never reached

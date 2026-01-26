@@ -521,7 +521,7 @@ class RemoteQuickCommand:
             with attempt_ctx as attempt:
                 logger.info(
                     f"{request_id[:26]:<26} | RQC | "
-                    f"Sending request to create execution (attempt {attempt.attempt_number + 1}/{opts.max_retries + 1})..."
+                    f"Sending request to create execution (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
                 )
                 response = self.http_client.post(
                     url=url, data=input_data, timeout=opts.request_timeout

@@ -13,22 +13,24 @@ class TestRetryAttempt(unittest.TestCase):
 
     def test_is_last_attempt_false_when_not_last(self):
         """Should return False when not on last attempt."""
-        attempt = RetryAttempt(attempt_number=0, max_retries=3)
+        # max_attempts=4 means attempts 1, 2, 3, 4 (where 4 is last)
+        attempt = RetryAttempt(attempt_number=1, max_attempts=4)
         self.assertFalse(attempt.is_last_attempt)
 
-        attempt = RetryAttempt(attempt_number=2, max_retries=3)
+        attempt = RetryAttempt(attempt_number=3, max_attempts=4)
         self.assertFalse(attempt.is_last_attempt)
 
     def test_is_last_attempt_true_when_last(self):
         """Should return True when on last attempt."""
-        attempt = RetryAttempt(attempt_number=3, max_retries=3)
+        # max_attempts=4 means attempt 4 is the last
+        attempt = RetryAttempt(attempt_number=4, max_attempts=4)
         self.assertTrue(attempt.is_last_attempt)
 
     def test_is_frozen(self):
         """Should be immutable."""
-        attempt = RetryAttempt(attempt_number=0, max_retries=3)
+        attempt = RetryAttempt(attempt_number=1, max_attempts=4)
         with self.assertRaises(AttributeError):
-            attempt.attempt_number = 1  # type: ignore
+            attempt.attempt_number = 2  # type: ignore
 
 
 class TestMaxRetriesExceededError(unittest.TestCase):
@@ -359,7 +361,7 @@ class TestRetryingAttemptMetadata(unittest.TestCase):
     """Tests for attempt metadata in retry loop."""
 
     def test_attempt_number_increments(self):
-        """Should provide correct attempt number in each iteration."""
+        """Should provide correct attempt number in each iteration (1-indexed)."""
         attempt_numbers = []
 
         for attempt_ctx in Retrying(max_retries=2, retry_on_exceptions=()):
@@ -367,11 +369,11 @@ class TestRetryingAttemptMetadata(unittest.TestCase):
                 attempt_numbers.append(attempt.attempt_number)
                 break  # Exit after first attempt
 
-        self.assertEqual(attempt_numbers, [0])
+        self.assertEqual(attempt_numbers, [1])  # 1-indexed
 
     @patch("stkai._retry.sleep_with_jitter")
     def test_attempt_metadata_available_in_loop(self, mock_sleep: MagicMock):
-        """Should provide attempt metadata in the retry loop."""
+        """Should provide attempt metadata in the retry loop (1-indexed)."""
         attempts = []
 
         with self.assertRaises(MaxRetriesExceededError):
@@ -386,12 +388,13 @@ class TestRetryingAttemptMetadata(unittest.TestCase):
                     })
                     raise ValueError("Test")
 
+        # max_retries=2 → max_attempts=3 (attempts 1, 2, 3)
         self.assertEqual(
             attempts,
             [
-                {"number": 0, "is_last": False},
                 {"number": 1, "is_last": False},
-                {"number": 2, "is_last": True},
+                {"number": 2, "is_last": False},
+                {"number": 3, "is_last": True},
             ],
         )
 
