@@ -23,6 +23,7 @@ For batch execution:
     >>> responses = rqc.execute_many(requests)
 """
 
+from stkai._retry import MaxRetriesExceededError
 from stkai.rqc._event_listeners import (
     FileLoggingListener,
     # Event listener interface
@@ -53,7 +54,6 @@ from stkai.rqc._remote_quick_command import (
     # Errors
     ExecutionIdIsMissingError,
     GetResultOptions,
-    MaxRetriesExceededError,
     # Main client
     RemoteQuickCommand,
     RqcOptions,

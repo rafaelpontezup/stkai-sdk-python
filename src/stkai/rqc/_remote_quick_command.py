@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 import requests
 
 from stkai._http import HttpClient, TokenAcquisitionTimeoutError
+from stkai._retry import MaxRetriesExceededError, Retrying
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
@@ -135,22 +136,6 @@ class RqcOptions:
 # ======================
 # Errors and exceptions
 # ======================
-
-class MaxRetriesExceededError(RuntimeError):
-    """
-    Raised when the maximum number of retries is exceeded.
-
-    This exception is raised when all retry attempts to create an execution
-    have failed due to transient errors (5xx status codes or network issues).
-
-    Attributes:
-        last_exception: The last exception that caused the retry to fail.
-    """
-
-    def __init__(self, message: str, last_exception: Exception | None = None):
-        super().__init__(message)
-        self.last_exception = last_exception
-
 
 class RqcResultHandlerError(RuntimeError):
     """
@@ -524,14 +509,20 @@ class RemoteQuickCommand:
 
         request_id = request.id
         input_data = request.to_input_data()
-        max_attempts = opts.max_retries + 1
 
         # Build full URL using base_url
         url = f"{self.base_url}/v1/quick-commands/create-execution/{self.slug_name}"
 
-        for attempt in range(max_attempts):
-            try:
-                logger.info(f"{request_id[:26]:<26} | RQC | Sending request to create execution (attempt {attempt + 1}/{max_attempts})...")
+        for attempt_ctx in Retrying(
+            max_retries=opts.max_retries,
+            backoff_factor=opts.backoff_factor,
+            logger_prefix=f"{request_id[:26]:<26} | RQC",
+        ):
+            with attempt_ctx as attempt:
+                logger.info(
+                    f"{request_id[:26]:<26} | RQC | "
+                    f"Sending request to create execution (attempt {attempt.attempt_number + 1}/{opts.max_retries + 1})..."
+                )
                 response = self.http_client.post(
                     url=url, data=input_data, timeout=opts.request_timeout
                 )
@@ -550,25 +541,7 @@ class RemoteQuickCommand:
                 )
                 return execution_id
 
-            except requests.RequestException as e:
-                # Don't retry on 4xx errors
-                _response = getattr(e, "response", None)
-                if _response is not None and 400 <= _response.status_code < 500:
-                    raise
-                # Retry up to max_retries
-                if attempt < opts.max_retries:
-                    sleep_time = opts.backoff_factor * (2 ** attempt)
-                    logger.warning(f"{request_id[:26]:<26} | RQC | ⚠️ Failed to create execution: {e}")
-                    logger.warning(f"{request_id[:26]:<26} | RQC | 🔁️ Retrying to create execution in {sleep_time:.1f} seconds...")
-                    sleep_with_jitter(sleep_time)
-                else:
-                    logger.error(f"{request_id[:26]:<26} | RQC | ❌ Max retries exceeded while creating execution. Last error: {e}")
-                    raise MaxRetriesExceededError(
-                        message=f"Max retries exceeded while creating execution. Last error: {e}",
-                        last_exception=e
-                    ) from e
-
-        # It should never happen
+        # Should never reach here - Retrying raises MaxRetriesExceededError
         raise RuntimeError(
             "Unexpected error while creating execution: "
             "reached end of `_create_execution` method without returning the execution ID."

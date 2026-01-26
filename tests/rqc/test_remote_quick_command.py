@@ -312,10 +312,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
         # Validation
         self.assertEqual(result.status, RqcExecutionStatus.ERROR)
-        self.assertIn(
-            "Max retries exceeded while creating execution. Last error: Simulated connection failure",
-            result.error
-        )
+        self.assertIn("Max retries exceeded", result.error)
+        self.assertIn("Simulated connection failure", result.error)
         # Verify multiple attempts (depending on internal retry logic)
         self.assertGreaterEqual(self.http_client.post.call_count, self.rqc.options.create_execution.max_retries)
         # Should not perform polling
