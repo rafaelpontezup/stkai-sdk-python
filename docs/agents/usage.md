@@ -25,6 +25,75 @@ else:
 
 The `chat()` method is **synchronous** and blocks until the response is received.
 
+## Automatic Retry
+
+The Agent client automatically retries failed requests with exponential backoff. This handles transient failures like network errors and server overload.
+
+### What Gets Retried
+
+| Error Type | Retried? |
+|------------|----------|
+| HTTP 5xx (500, 502, 503, 504) | ✅ Yes |
+| HTTP 408 (Request Timeout) | ✅ Yes |
+| HTTP 429 (Rate Limited) | ✅ Yes |
+| Network errors (Timeout, ConnectionError) | ✅ Yes |
+| HTTP 4xx (except 408, 429) | ❌ No |
+
+### Configuration
+
+Retry is **enabled by default** with sensible defaults. You can customize it via `AgentOptions`:
+
+```python
+from stkai import Agent, ChatRequest
+from stkai.agents import AgentOptions
+
+agent = Agent(
+    agent_id="my-assistant",
+    options=AgentOptions(
+        retry_max_retries=5,        # 6 total attempts (1 + 5 retries)
+        retry_backoff_factor=1.0,   # Backoff: 1s, 2s, 4s, 8s, 16s
+    ),
+)
+
+response = agent.chat(ChatRequest(user_prompt="Hello"))
+```
+
+### Disabling Retry
+
+To disable retry (single attempt only):
+
+```python
+agent = Agent(
+    agent_id="my-assistant",
+    options=AgentOptions(retry_max_retries=0),  # No retries
+)
+```
+
+### Global Configuration
+
+Configure retry defaults globally via `STKAI.configure()`:
+
+```python
+from stkai import STKAI
+
+STKAI.configure(
+    agent={
+        "retry_max_retries": 5,
+        "retry_backoff_factor": 1.0,
+    }
+)
+```
+
+Or via environment variables:
+
+```bash
+STKAI_AGENT_RETRY_MAX_RETRIES=5
+STKAI_AGENT_RETRY_BACKOFF_FACTOR=1.0
+```
+
+!!! tip "Retry-After Header"
+    When the server returns HTTP 429 with a `Retry-After` header, the SDK respects it (up to 60 seconds) to avoid overwhelming the server.
+
 !!! info "result vs raw_result"
     - **`result`**: The processed response (by the result handler). Use this by default.
     - **`raw_result`**: The raw message from the API before any processing.
@@ -211,10 +280,10 @@ response = agent.chat(ChatRequest(user_prompt="Complex question..."))
 Inject a custom HTTP client for testing or rate limiting:
 
 ```python
-from stkai import Agent, StkCLIHttpClient, RateLimitedHttpClient
+from stkai import Agent, StkCLIHttpClient, TokenBucketRateLimitedHttpClient
 
 # Rate-limited HTTP client
-http_client = RateLimitedHttpClient(
+http_client = TokenBucketRateLimitedHttpClient(
     delegate=StkCLIHttpClient(),
     max_requests=60,
     time_window=60.0,

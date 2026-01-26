@@ -132,11 +132,13 @@ http_client = AdaptiveRateLimitedHttpClient(
     max_requests=100,
     time_window=60.0,
     min_rate_floor=0.1,      # Never below 10%
-    max_retries_on_429=3,    # Retry on 429
     penalty_factor=0.2,      # Reduce by 20% on 429
     recovery_factor=0.01,    # Increase by 1% on success
 )
 ```
+
+!!! note "429 Handling"
+    When the server returns HTTP 429, `AdaptiveRateLimitedHttpClient` applies the AIMD penalty (reduces rate) and raises `ServerSideRateLimitError`. The actual retry logic is handled by the `Retrying` class, which respects the `Retry-After` header.
 
 ## Rate Limiting
 
@@ -195,7 +197,6 @@ STKAI.configure(
         "max_requests": 100,
         "time_window": 60.0,
         "min_rate_floor": 0.1,       # Never below 10%
-        "max_retries_on_429": 3,
         "penalty_factor": 0.2,       # Reduce by 20% on 429
         "recovery_factor": 0.01,     # Increase by 1% on success
     }
@@ -214,7 +215,6 @@ STKAI_RATE_LIMIT_MAX_REQUESTS=50
 STKAI_RATE_LIMIT_TIME_WINDOW=60.0
 STKAI_RATE_LIMIT_MAX_WAIT_TIME=unlimited  # or "none", "null"
 STKAI_RATE_LIMIT_MIN_RATE_FLOOR=0.1
-STKAI_RATE_LIMIT_MAX_RETRIES_ON_429=3
 STKAI_RATE_LIMIT_PENALTY_FACTOR=0.2
 STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 ```
@@ -229,7 +229,6 @@ STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 | `time_window` | `float` | `60.0` | Time window in seconds |
 | `max_wait_time` | `float \| None` | `60.0` | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
-| `max_retries_on_429` | `int` | `3` | (adaptive) Retries on HTTP 429 |
 | `penalty_factor` | `float` | `0.2` | (adaptive) Rate reduction on 429 |
 | `recovery_factor` | `float` | `0.01` | (adaptive) Rate increase on success |
 
@@ -290,6 +289,7 @@ The `adaptive` strategy uses **Additive Increase, Multiplicative Decrease** (AIM
 │   On HTTP 429:                                                    │
 │     effective_rate *= (1 - penalty_factor)                        │
 │     (aggressive decrease)                                         │
+│     raise ServerSideRateLimitError → Retrying handles retry       │
 │                                                                   │
 │   Constraints:                                                    │
 │     • Floor: effective_rate ≥ max_requests × min_rate_floor      │
@@ -298,16 +298,39 @@ The `adaptive` strategy uses **Additive Increase, Multiplicative Decrease** (AIM
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**429 Handling:** When the server returns HTTP 429 (Too Many Requests):
+**429 Handling:** When the server returns HTTP 429 (Too Many Requests), the `AdaptiveRateLimitedHttpClient`:
 
-1. **Check `Retry-After` header** - If present and ≤ 60s, wait the specified time
-2. **Add jitter (0-30%)** - Prevents thundering herd when multiple processes retry simultaneously
-3. **Apply penalty** - Reduce effective rate by `penalty_factor`
-4. **Retry the request** - Up to `max_retries_on_429` times
-5. **Fail if exhausted** - Return error after max retries
+1. **Applies AIMD penalty** - Reduces effective rate by `penalty_factor`
+2. **Raises `ServerSideRateLimitError`** - Contains the response for `Retry-After` parsing
+
+The `Retrying` class then handles the retry:
+
+1. **Parses `Retry-After` header** - If present and ≤ 60s, uses it as wait time
+2. **Calculates wait time** - Uses max(Retry-After, exponential backoff)
+3. **Adds jitter (0-30%)** - Prevents thundering herd
+4. **Retries the request** - Up to `max_retries` times
 
 !!! note "Protection against abusive Retry-After"
-    The client ignores `Retry-After` values greater than 60 seconds to protect against buggy or malicious servers. In such cases, it falls back to the calculated wait time based on the current effective rate.
+    The `Retrying` class ignores `Retry-After` values greater than 60 seconds to protect against buggy or malicious servers. In such cases, it falls back to exponential backoff.
+
+### Exception Hierarchy
+
+The SDK provides a clear exception hierarchy for rate limiting errors:
+
+```
+RetryableError (base - automatically retried)
+├── ClientSideRateLimitError      # Base for client-side rate limit errors
+│   └── TokenAcquisitionTimeoutError     # Timeout waiting for token (max_wait_time exceeded)
+└── ServerSideRateLimitError      # HTTP 429 from server (contains response for Retry-After)
+```
+
+| Exception | Raised By | When |
+|-----------|-----------|------|
+| `TokenAcquisitionTimeoutError` | `TokenBucketRateLimitedHttpClient`, `AdaptiveRateLimitedHttpClient` | Token wait exceeds `max_wait_time` |
+| `ServerSideRateLimitError` | `AdaptiveRateLimitedHttpClient` | Server returns HTTP 429 |
+| `requests.HTTPError` | Direct from `requests` | HTTP 429 without Adaptive strategy |
+
+All exceptions inherit from `RetryableError`, which the `Retrying` class automatically retries with exponential backoff.
 
 ### Timeout Handling
 

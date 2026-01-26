@@ -64,6 +64,7 @@ if response.is_success():
 | Feature | Description |
 |---------|-------------|
 | **[Synchronous Chat](usage.md)** | Simple, blocking chat interface with automatic error handling |
+| **[Automatic Retry](usage.md#automatic-retry)** | Automatic retry with exponential backoff for transient failures |
 | **[Conversation Context](usage.md#conversation-context)** | Maintain context across multiple messages using conversation IDs |
 | **[Knowledge Sources](usage.md#knowledge-sources)** | Enrich responses with your organization's knowledge bases |
 | **[Token Tracking](usage.md#token-usage)** | Track token usage for monitoring and cost management |

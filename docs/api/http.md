@@ -24,7 +24,7 @@ Complete API reference for HTTP clients.
 
 ## Rate Limiting
 
-::: stkai.RateLimitedHttpClient
+::: stkai.TokenBucketRateLimitedHttpClient
     options:
       show_root_heading: true
 
@@ -32,7 +32,17 @@ Complete API reference for HTTP clients.
     options:
       show_root_heading: true
 
+## Exceptions
+
+::: stkai.ClientSideRateLimitError
+    options:
+      show_root_heading: true
+
 ::: stkai.TokenAcquisitionTimeoutError
+    options:
+      show_root_heading: true
+
+::: stkai.ServerSideRateLimitError
     options:
       show_root_heading: true
 

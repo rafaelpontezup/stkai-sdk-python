@@ -285,6 +285,11 @@ Settings for `Agent` clients:
 |-------|---------|---------|-------------|
 | `request_timeout` | `STKAI_AGENT_REQUEST_TIMEOUT` | 60 | HTTP timeout (seconds) |
 | `base_url` | `STKAI_AGENT_BASE_URL` | StackSpot API URL | API base URL |
+| `retry_max_retries` | `STKAI_AGENT_RETRY_MAX_RETRIES` | 3 | Max retry attempts (0 = disabled) |
+| `retry_backoff_factor` | `STKAI_AGENT_RETRY_BACKOFF_FACTOR` | 0.5 | Exponential backoff multiplier |
+
+!!! tip "Retry Behavior"
+    Retry is enabled by default. Use `retry_max_retries=3` for 4 total attempts (1 original + 3 retries). The backoff delay is calculated as `factor * 2^attempt`, so with factor 0.5: 0.5s, 1s, 2s, 4s.
 
 !!! tip "CLI Base URL"
     In CLI mode, the Agent `base_url` is automatically derived from the CLI's codebuddy URL (replacing `genai-code-buddy-api` with `genai-inference-app`). Since CLI has higher precedence than environment variables, you can override it via `STKAI.configure()`, constructor parameter (`base_url=`), or by disabling CLI override with `allow_cli_override=False`.
@@ -301,7 +306,6 @@ Settings for automatic rate limiting of HTTP requests. When enabled, `Environmen
 | `time_window` | `STKAI_RATE_LIMIT_TIME_WINDOW` | 60.0 | Time window in seconds |
 | `max_wait_time` | `STKAI_RATE_LIMIT_MAX_WAIT_TIME` | 60.0 | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `STKAI_RATE_LIMIT_MIN_RATE_FLOOR` | 0.1 | (adaptive) Min rate as fraction |
-| `max_retries_on_429` | `STKAI_RATE_LIMIT_MAX_RETRIES_ON_429` | 3 | (adaptive) Retries on HTTP 429 |
 | `penalty_factor` | `STKAI_RATE_LIMIT_PENALTY_FACTOR` | 0.2 | (adaptive) Rate reduction on 429 |
 | `recovery_factor` | `STKAI_RATE_LIMIT_RECOVERY_FACTOR` | 0.01 | (adaptive) Rate increase on success |
 
