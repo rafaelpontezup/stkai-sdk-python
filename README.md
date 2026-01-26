@@ -6,6 +6,15 @@
 
 Python SDK for [StackSpot AI](https://ai.stackspot.com/) - Execute Remote Quick Commands (RQCs) and interact with AI Agents.
 
+## Design Principles
+
+This SDK prioritizes:
+
+- **Reliability over latency** — Built-in retries, rate limiting, and fault tolerance mechanisms
+- **Predictability over throughput** — Synchronous, blocking API for straightforward debugging and reasoning
+- **Pragmatism over flexibility** — Simple, direct API with well-designed extension points
+- **Convention over configuration** — Sensible defaults and seamless StackSpot CLI integration
+
 ## Installation
 
 Install from [PyPI](https://pypi.org/project/stkai/):

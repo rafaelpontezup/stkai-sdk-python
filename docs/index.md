@@ -22,6 +22,21 @@ The `stkai` SDK provides a clean, Pythonic interface for integrating StackSpot A
 - **Rate Limiting**: Built-in rate limiting to avoid API throttling
 - **Type Safety**: Full type annotations for IDE autocompletion and static analysis
 
+## Design Philosophy
+
+This SDK is built around four key trade-offs that guide every design decision:
+
+| We favor... | Over... | Why |
+|-------------|---------|-----|
+| **Reliability** | Latency | Built-in retries, rate limiting, and fault tolerance ensure your requests succeed even under adverse conditions |
+| **Predictability** | Throughput | Synchronous, blocking API makes debugging straightforward and behavior easy to reason about |
+| **Pragmatism** | Flexibility | Simple, direct API with focused extension points (handlers, listeners) rather than overwhelming configuration options |
+| **Convention** | Configuration | Sensible defaults and seamless StackSpot CLI integration get you productive in minutes, not hours |
+
+!!! note "What this means for you"
+    If you need high-throughput async processing or maximum flexibility, this SDK may not be the best fit.
+    But if you value reliability, simplicity, and a great developer experience, you're in the right place.
+
 ## Features
 
 | Feature | Description |
