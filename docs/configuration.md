@@ -34,7 +34,7 @@ STKAI.configure(
     },
     rqc={
         "request_timeout": 60,
-        "max_retries": 5,
+        "retry_max_retries": 5,
     },
     agent={
         "request_timeout": 120,
@@ -51,7 +51,7 @@ export STKAI_AUTH_CLIENT_SECRET="your-client-secret"
 
 # RQC settings
 export STKAI_RQC_REQUEST_TIMEOUT=60
-export STKAI_RQC_MAX_RETRIES=5
+export STKAI_RQC_RETRY_MAX_RETRIES=5
 
 # Agent settings
 export STKAI_AGENT_REQUEST_TIMEOUT=120
@@ -207,8 +207,8 @@ STKAI Configuration:
   token_url ................ https://idm.stackspot.com/stackspot-dev...           default
 [rqc]
   request_timeout .......... 60                                                 ✎ user
-  max_retries .............. 5                                                  ✎ env:STKAI_RQC_MAX_RETRIES
-  backoff_factor ........... 0.5                                                  default
+  retry_max_retries ........ 5                                                  ✎ env:STKAI_RQC_RETRY_MAX_RETRIES
+  retry_backoff_factor ..... 0.5                                                  default
   poll_interval ............ 10.0                                                 default
   poll_max_duration ........ 600.0                                                default
   overload_timeout ......... 60.0                                                 default
@@ -266,8 +266,8 @@ Settings for `RemoteQuickCommand` clients:
 | Field | Env Var | Default | Description |
 |-------|---------|---------|-------------|
 | `request_timeout` | `STKAI_RQC_REQUEST_TIMEOUT` | 30 | HTTP timeout (seconds) |
-| `max_retries` | `STKAI_RQC_MAX_RETRIES` | 3 | Retry attempts for POST |
-| `backoff_factor` | `STKAI_RQC_BACKOFF_FACTOR` | 0.5 | Exponential backoff factor |
+| `retry_max_retries` | `STKAI_RQC_RETRY_MAX_RETRIES` | 3 | Max retry attempts (0 = disabled) |
+| `retry_backoff_factor` | `STKAI_RQC_RETRY_BACKOFF_FACTOR` | 0.5 | Exponential backoff multiplier |
 | `poll_interval` | `STKAI_RQC_POLL_INTERVAL` | 10.0 | Seconds between polls |
 | `poll_max_duration` | `STKAI_RQC_POLL_MAX_DURATION` | 600.0 | Max polling duration |
 | `overload_timeout` | `STKAI_RQC_OVERLOAD_TIMEOUT` | 60.0 | Max CREATED state duration |
@@ -405,7 +405,7 @@ rqc = RemoteQuickCommand(
     base_url="https://custom.api.com",  # Override API URL
     options=RqcOptions(
         create_execution=CreateExecutionOptions(
-            max_retries=10,      # Override global
+            retry_max_retries=10,      # Override global
         ),
         get_result=GetResultOptions(
             poll_interval=5.0,   # Override global
@@ -429,11 +429,11 @@ agent = Agent(
 You only need to specify the settings you want to override:
 
 ```python
-# Only override max_retries - everything else from STKAI.config
+# Only override retry_max_retries - everything else from STKAI.config
 rqc = RemoteQuickCommand(
     slug_name="my-command",
     options=RqcOptions(
-        create_execution=CreateExecutionOptions(max_retries=10),
+        create_execution=CreateExecutionOptions(retry_max_retries=10),
     ),
 )
 

@@ -54,8 +54,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             slug_name=self.slug_name,
             options=RqcOptions(
                 create_execution=CreateExecutionOptions(
-                    max_retries=3,
-                    backoff_factor=0.1,
+                    retry_max_retries=3,
+                    retry_backoff_factor=0.1,
                 ),
                 get_result=GetResultOptions(
                     poll_interval=0.01,
@@ -208,8 +208,8 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
             slug_name=self.slug_name,
             options=RqcOptions(
                 create_execution=CreateExecutionOptions(
-                    max_retries=3,
-                    backoff_factor=0.1,
+                    retry_max_retries=3,
+                    retry_backoff_factor=0.1,
                 ),
                 get_result=GetResultOptions(
                     poll_interval=0.01,
@@ -315,7 +315,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.assertIn("Max retries exceeded", result.error)
         self.assertIn("Simulated connection failure", result.error)
         # Verify multiple attempts (depending on internal retry logic)
-        self.assertGreaterEqual(self.http_client.post.call_count, self.rqc.options.create_execution.max_retries)
+        self.assertGreaterEqual(self.http_client.post.call_count, self.rqc.options.create_execution.retry_max_retries)
         # Should not perform polling
         self.http_client.get.assert_not_called()
 
@@ -542,8 +542,8 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
 
         # create_execution should be filled
         self.assertIsNotNone(resolved.create_execution)
-        self.assertEqual(resolved.create_execution.max_retries, cfg.max_retries)
-        self.assertEqual(resolved.create_execution.backoff_factor, cfg.backoff_factor)
+        self.assertEqual(resolved.create_execution.retry_max_retries, cfg.retry_max_retries)
+        self.assertEqual(resolved.create_execution.retry_backoff_factor, cfg.retry_backoff_factor)
         self.assertEqual(resolved.create_execution.request_timeout, cfg.request_timeout)
 
         # get_result should be filled
@@ -562,8 +562,8 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
         # Options with some user-provided values
         options = RqcOptions(
             create_execution=CreateExecutionOptions(
-                max_retries=99,  # User value
-                # backoff_factor and request_timeout are None -> use config
+                retry_max_retries=99,  # User value
+                # retry_backoff_factor and request_timeout are None -> use config
             ),
             get_result=GetResultOptions(
                 poll_interval=999.0,  # User value
@@ -577,12 +577,12 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
 
         # User values should be preserved
         self.assertEqual(resolved.max_workers, 50)
-        self.assertEqual(resolved.create_execution.max_retries, 99)
+        self.assertEqual(resolved.create_execution.retry_max_retries, 99)
         self.assertEqual(resolved.get_result.poll_interval, 999.0)
         self.assertEqual(resolved.get_result.poll_max_duration, 888.0)
 
         # None values should be filled from config
-        self.assertEqual(resolved.create_execution.backoff_factor, cfg.backoff_factor)
+        self.assertEqual(resolved.create_execution.retry_backoff_factor, cfg.retry_backoff_factor)
         self.assertEqual(resolved.create_execution.request_timeout, cfg.request_timeout)
         self.assertEqual(resolved.get_result.overload_timeout, cfg.overload_timeout)
         self.assertEqual(resolved.get_result.request_timeout, cfg.request_timeout)

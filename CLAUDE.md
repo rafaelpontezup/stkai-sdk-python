@@ -250,7 +250,7 @@ STKAI.configure(
 **Configuration classes:**
 - `SdkConfig`: `version`, `cli_mode` (read-only, auto-detected)
 - `AuthConfig`: `client_id`, `client_secret`, `token_url`
-- `RqcConfig`: `request_timeout`, `max_retries`, `poll_interval`, `poll_max_duration`, etc.
+- `RqcConfig`: `request_timeout`, `retry_max_retries`, `retry_backoff_factor`, `poll_interval`, `poll_max_duration`, etc.
 - `AgentConfig`: `request_timeout`, `base_url`
 - `RateLimitConfig`: `enabled`, `strategy`, `max_requests`, etc. (see [HTTP Client > Rate Limiting](#rate-limiting))
 - `ConfigEntry`: Represents a config field with its value and source (used by `explain()`)
@@ -320,7 +320,7 @@ rqc = RemoteQuickCommand(
     slug_name="my-rqc",
     base_url="https://custom.api.com",  # optional
     options=RqcOptions(
-        create_execution=CreateExecutionOptions(max_retries=10),
+        create_execution=CreateExecutionOptions(retry_max_retries=10),
     ),
 )
 

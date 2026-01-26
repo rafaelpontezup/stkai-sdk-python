@@ -345,12 +345,14 @@ class RqcConfig(OverridableConfig):
         request_timeout: HTTP request timeout in seconds for API calls.
             Env var: STKAI_RQC_REQUEST_TIMEOUT
 
-        max_retries: Maximum retry attempts for failed create-execution calls.
-            Env var: STKAI_RQC_MAX_RETRIES
+        retry_max_retries: Maximum retry attempts for failed create-execution calls.
+            Use 0 to disable retries (single attempt only).
+            Use 3 for 4 total attempts (1 original + 3 retries).
+            Env var: STKAI_RQC_RETRY_MAX_RETRIES
 
-        backoff_factor: Multiplier for exponential backoff between retries
+        retry_backoff_factor: Multiplier for exponential backoff between retries
             (delay = factor * 2^attempt).
-            Env var: STKAI_RQC_BACKOFF_FACTOR
+            Env var: STKAI_RQC_RETRY_BACKOFF_FACTOR
 
         poll_interval: Seconds to wait between polling status checks.
             Env var: STKAI_RQC_POLL_INTERVAL
@@ -373,13 +375,13 @@ class RqcConfig(OverridableConfig):
         >>> from stkai import STKAI
         >>> STKAI.config.rqc.request_timeout
         30
-        >>> STKAI.config.rqc.max_retries
+        >>> STKAI.config.rqc.retry_max_retries
         3
     """
 
     request_timeout: int = field(default=30, metadata={"env": "STKAI_RQC_REQUEST_TIMEOUT"})
-    max_retries: int = field(default=3, metadata={"env": "STKAI_RQC_MAX_RETRIES"})
-    backoff_factor: float = field(default=0.5, metadata={"env": "STKAI_RQC_BACKOFF_FACTOR"})
+    retry_max_retries: int = field(default=3, metadata={"env": "STKAI_RQC_RETRY_MAX_RETRIES"})
+    retry_backoff_factor: float = field(default=0.5, metadata={"env": "STKAI_RQC_RETRY_BACKOFF_FACTOR"})
     poll_interval: float = field(default=10.0, metadata={"env": "STKAI_RQC_POLL_INTERVAL"})
     poll_max_duration: float = field(default=600.0, metadata={"env": "STKAI_RQC_POLL_MAX_DURATION"})
     overload_timeout: float = field(default=60.0, metadata={"env": "STKAI_RQC_OVERLOAD_TIMEOUT"})
@@ -393,14 +395,14 @@ class RqcConfig(OverridableConfig):
                 "request_timeout", self.request_timeout,
                 "Must be greater than 0.", section="rqc"
             )
-        if self.max_retries < 0:
+        if self.retry_max_retries < 0:
             raise ConfigValidationError(
-                "max_retries", self.max_retries,
+                "retry_max_retries", self.retry_max_retries,
                 "Must be >= 0.", section="rqc"
             )
-        if self.backoff_factor <= 0:
+        if self.retry_backoff_factor <= 0:
             raise ConfigValidationError(
-                "backoff_factor", self.backoff_factor,
+                "retry_backoff_factor", self.retry_backoff_factor,
                 "Must be greater than 0.", section="rqc"
             )
         if self.poll_interval <= 0:

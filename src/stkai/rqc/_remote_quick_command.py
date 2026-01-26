@@ -39,12 +39,14 @@ class CreateExecutionOptions:
     Fields set to None will use values from global config (STKAI.config.rqc).
 
     Attributes:
-        max_retries: Maximum retry attempts for failed create-execution calls.
-        backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
+        retry_max_retries: Maximum retry attempts for failed create-execution calls.
+            Use 0 to disable retries (single attempt only).
+            Use 3 for 4 total attempts (1 original + 3 retries).
+        retry_backoff_factor: Multiplier for exponential backoff (delay = factor * 2^attempt).
         request_timeout: HTTP request timeout in seconds.
     """
-    max_retries: int | None = None
-    backoff_factor: float | None = None
+    retry_max_retries: int | None = None
+    retry_backoff_factor: float | None = None
     request_timeout: int | None = None
 
 
@@ -84,7 +86,7 @@ class RqcOptions:
     Example:
         >>> # Customize only what you need - rest comes from STKAI.config
         >>> options = RqcOptions(
-        ...     create_execution=CreateExecutionOptions(max_retries=5),
+        ...     create_execution=CreateExecutionOptions(retry_max_retries=5),
         ... )
         >>> rqc = RemoteQuickCommand(slug_name="my-command", options=options)
     """
@@ -108,19 +110,19 @@ class RqcOptions:
 
         Example:
             >>> options = RqcOptions(
-            ...     create_execution=CreateExecutionOptions(max_retries=5),
+            ...     create_execution=CreateExecutionOptions(retry_max_retries=5),
             ... )
             >>> resolved = options.with_defaults_from(STKAI.config.rqc)
-            >>> resolved.create_execution.max_retries  # 5 (user-defined)
-            >>> resolved.create_execution.backoff_factor  # from config
+            >>> resolved.create_execution.retry_max_retries  # 5 (user-defined)
+            >>> resolved.create_execution.retry_backoff_factor  # from config
         """
         ce = self.create_execution or CreateExecutionOptions()
         gr = self.get_result or GetResultOptions()
 
         return RqcOptions(
             create_execution=CreateExecutionOptions(
-                max_retries=ce.max_retries if ce.max_retries is not None else cfg.max_retries,
-                backoff_factor=ce.backoff_factor if ce.backoff_factor is not None else cfg.backoff_factor,
+                retry_max_retries=ce.retry_max_retries if ce.retry_max_retries is not None else cfg.retry_max_retries,
+                retry_backoff_factor=ce.retry_backoff_factor if ce.retry_backoff_factor is not None else cfg.retry_backoff_factor,
                 request_timeout=ce.request_timeout if ce.request_timeout is not None else cfg.request_timeout,
             ),
             get_result=GetResultOptions(
@@ -503,8 +505,8 @@ class RemoteQuickCommand:
         # Get options and assert for type narrowing
         opts = self.options.create_execution
         assert opts is not None, "create_execution options must be set after with_defaults_from()"
-        assert opts.max_retries is not None, "max_retries must be set after with_defaults_from()"
-        assert opts.backoff_factor is not None, "backoff_factor must be set after with_defaults_from()"
+        assert opts.retry_max_retries is not None, "retry_max_retries must be set after with_defaults_from()"
+        assert opts.retry_backoff_factor is not None, "retry_backoff_factor must be set after with_defaults_from()"
         assert opts.request_timeout is not None, "request_timeout must be set after with_defaults_from()"
 
         request_id = request.id
@@ -514,8 +516,8 @@ class RemoteQuickCommand:
         url = f"{self.base_url}/v1/quick-commands/create-execution/{self.slug_name}"
 
         for attempt_ctx in Retrying(
-            max_retries=opts.max_retries,
-            backoff_factor=opts.backoff_factor,
+            max_retries=opts.retry_max_retries,
+            backoff_factor=opts.retry_backoff_factor,
             logger_prefix=f"{request_id[:26]:<26} | RQC",
         ):
             with attempt_ctx as attempt:

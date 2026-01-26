@@ -95,8 +95,8 @@ rqc = RemoteQuickCommand(
     base_url="https://custom.api.com",  # Optional: override API URL
     options=RqcOptions(
         create_execution=CreateExecutionOptions(
-            max_retries=5,          # Custom retries (default from config)
-            backoff_factor=0.5,     # Custom backoff
+            retry_max_retries=5,          # Custom retries (default from config)
+            retry_backoff_factor=0.5,     # Custom backoff
         ),
         get_result=GetResultOptions(
             poll_interval=5.0,      # Faster polling
@@ -114,7 +114,7 @@ You can also customize just one aspect:
 rqc = RemoteQuickCommand(
     slug_name="my-quick-command",
     options=RqcOptions(
-        create_execution=CreateExecutionOptions(max_retries=10),
+        create_execution=CreateExecutionOptions(retry_max_retries=10),
     ),
 )
 
@@ -139,8 +139,8 @@ rqc = RemoteQuickCommand(
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `max_retries` | 3 | Number of retries for failed create-execution calls |
-| `backoff_factor` | 0.5 | Exponential backoff multiplier |
+| `retry_max_retries` | 3 | Max retry attempts (0 = disabled) |
+| `retry_backoff_factor` | 0.5 | Exponential backoff multiplier |
 | `request_timeout` | 30 | HTTP request timeout in seconds |
 
 #### GetResultOptions

@@ -28,8 +28,8 @@ class TestDefaults(unittest.TestCase):
     def test_rqc_defaults(self):
         """Should return sensible defaults for RQC config."""
         self.assertEqual(STKAI.config.rqc.request_timeout, 30)
-        self.assertEqual(STKAI.config.rqc.max_retries, 3)
-        self.assertEqual(STKAI.config.rqc.backoff_factor, 0.5)
+        self.assertEqual(STKAI.config.rqc.retry_max_retries, 3)
+        self.assertEqual(STKAI.config.rqc.retry_backoff_factor, 0.5)
         self.assertEqual(STKAI.config.rqc.poll_interval, 10.0)
         self.assertEqual(STKAI.config.rqc.poll_max_duration, 600.0)
         self.assertEqual(STKAI.config.rqc.overload_timeout, 60.0)
@@ -62,9 +62,9 @@ class TestSTKAIConfigure(unittest.TestCase):
 
     def test_user_rqc_values(self):
         """Should override RQC defaults with STKAI.configure()."""
-        STKAI.configure(rqc={"request_timeout": 60, "max_retries": 10})
+        STKAI.configure(rqc={"request_timeout": 60, "retry_max_retries": 10})
         self.assertEqual(STKAI.config.rqc.request_timeout, 60)
-        self.assertEqual(STKAI.config.rqc.max_retries, 10)
+        self.assertEqual(STKAI.config.rqc.retry_max_retries, 10)
         # Other values should remain default
         self.assertEqual(STKAI.config.rqc.poll_interval, 10.0)
 
@@ -117,11 +117,11 @@ class TestEnvVars(unittest.TestCase):
         STKAI.reset()  # Re-read env vars
         self.assertEqual(STKAI.config.rqc.request_timeout, 45)
 
-    @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "7"})
+    @patch.dict(os.environ, {"STKAI_RQC_RETRY_MAX_RETRIES": "7"})
     def test_rqc_env_var_int_conversion(self):
         """Should convert env var string to int."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.rqc.max_retries, 7)
+        self.assertEqual(STKAI.config.rqc.retry_max_retries, 7)
 
     @patch.dict(os.environ, {"STKAI_RQC_POLL_INTERVAL": "15.5"})
     def test_rqc_env_var_float_conversion(self):
@@ -155,12 +155,12 @@ class TestEnvVars(unittest.TestCase):
         STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=True)
         self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # user wins
 
-    @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45", "STKAI_RQC_MAX_RETRIES": "7"})
+    @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45", "STKAI_RQC_RETRY_MAX_RETRIES": "7"})
     def test_env_vars_used_as_fallback(self):
         """Env vars should be used for fields NOT provided in user()."""
         STKAI.configure(rqc={"request_timeout": 90}, allow_env_override=True)
         self.assertEqual(STKAI.config.rqc.request_timeout, 90)  # user wins
-        self.assertEqual(STKAI.config.rqc.max_retries, 7)  # env var fallback
+        self.assertEqual(STKAI.config.rqc.retry_max_retries, 7)  # env var fallback
 
     @patch.dict(os.environ, {"STKAI_RQC_REQUEST_TIMEOUT": "45"})
     def test_user_without_env_override(self):
@@ -212,8 +212,8 @@ class TestAllEnvVars(unittest.TestCase):
         {
             "STKAI_RQC_BASE_URL": "https://rqc.custom",
             "STKAI_RQC_REQUEST_TIMEOUT": "100",
-            "STKAI_RQC_MAX_RETRIES": "5",
-            "STKAI_RQC_BACKOFF_FACTOR": "1.0",
+            "STKAI_RQC_RETRY_MAX_RETRIES": "5",
+            "STKAI_RQC_RETRY_BACKOFF_FACTOR": "1.0",
             "STKAI_RQC_POLL_INTERVAL": "20.0",
             "STKAI_RQC_POLL_MAX_DURATION": "900.0",
             "STKAI_RQC_OVERLOAD_TIMEOUT": "120.0",
@@ -225,8 +225,8 @@ class TestAllEnvVars(unittest.TestCase):
         STKAI.reset()
         self.assertEqual(STKAI.config.rqc.base_url, "https://rqc.custom")
         self.assertEqual(STKAI.config.rqc.request_timeout, 100)
-        self.assertEqual(STKAI.config.rqc.max_retries, 5)
-        self.assertEqual(STKAI.config.rqc.backoff_factor, 1.0)
+        self.assertEqual(STKAI.config.rqc.retry_max_retries, 5)
+        self.assertEqual(STKAI.config.rqc.retry_backoff_factor, 1.0)
         self.assertEqual(STKAI.config.rqc.poll_interval, 20.0)
         self.assertEqual(STKAI.config.rqc.poll_max_duration, 900.0)
         self.assertEqual(STKAI.config.rqc.overload_timeout, 120.0)
@@ -261,7 +261,7 @@ class TestWithOverrides(unittest.TestCase):
         """with_overrides() should only update specified fields."""
         config = RqcConfig().with_overrides({"request_timeout": 60})
         self.assertEqual(config.request_timeout, 60)
-        self.assertEqual(config.max_retries, 3)  # unchanged
+        self.assertEqual(config.retry_max_retries, 3)  # unchanged
 
     def test_with_overrides_empty_dict(self):
         """with_overrides() with empty dict should return same instance."""
@@ -664,7 +664,7 @@ class TestCLIPrecedence(unittest.TestCase):
         STKAI.reset()
         self.assertEqual(STKAI.config.rqc.base_url, "https://cli.example.com")
         self.assertEqual(STKAI.config.rqc.request_timeout, 30)  # Default preserved
-        self.assertEqual(STKAI.config.rqc.max_retries, 3)  # Default preserved
+        self.assertEqual(STKAI.config.rqc.retry_max_retries, 3)  # Default preserved
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
@@ -721,7 +721,7 @@ class TestWithCliDefaults(unittest.TestCase):
         """Should preserve other RQC default values."""
         config = STKAIConfig().with_cli_defaults()
         self.assertEqual(config.rqc.request_timeout, 30)
-        self.assertEqual(config.rqc.max_retries, 3)
+        self.assertEqual(config.rqc.retry_max_retries, 3)
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
@@ -812,7 +812,7 @@ class TestSourceTracking(unittest.TestCase):
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.example.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10"})
+    @patch.dict(os.environ, {"STKAI_RQC_RETRY_MAX_RETRIES": "10"})
     def testsources_from_multiple_origins(self, mock_codebuddy, mock_inference):
         """Sources should track multiple origins correctly."""
         STKAI.configure(rqc={"request_timeout": 120})
@@ -820,8 +820,8 @@ class TestSourceTracking(unittest.TestCase):
         # CLI provides base_url for rqc and agent
         self.assertEqual(sources["rqc"]["base_url"], "CLI")
         self.assertEqual(sources["agent"]["base_url"], "CLI")
-        # Env var provides max_retries
-        self.assertEqual(sources["rqc"]["max_retries"], "env:STKAI_RQC_MAX_RETRIES")
+        # Env var provides retry_max_retries
+        self.assertEqual(sources["rqc"]["retry_max_retries"], "env:STKAI_RQC_RETRY_MAX_RETRIES")
         # Configure provides request_timeout
         self.assertEqual(sources["rqc"]["request_timeout"], "user")
 
@@ -895,13 +895,13 @@ class TestExplain(unittest.TestCase):
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "15"})
+    @patch.dict(os.environ, {"STKAI_RQC_RETRY_MAX_RETRIES": "15"})
     def test_explain_shows_env_source(self, mock_codebuddy, mock_inference):
         """explain() should show '✎ env:VAR_NAME' for env values."""
         STKAI.reset()
         output = self._capture_explain()
         self.assertIn("15", output)
-        self.assertIn("✎ env:STKAI_RQC_MAX_RETRIES", output)
+        self.assertIn("✎ env:STKAI_RQC_RETRY_MAX_RETRIES", output)
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
@@ -946,12 +946,12 @@ class TestExplain(unittest.TestCase):
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    @patch.dict(os.environ, {"STKAI_RQC_MAX_RETRIES": "10", "STKAI_AGENT_REQUEST_TIMEOUT": "90"})
+    @patch.dict(os.environ, {"STKAI_RQC_RETRY_MAX_RETRIES": "10", "STKAI_AGENT_REQUEST_TIMEOUT": "90"})
     def test_explain_shows_mixed_sources(self, mock_codebuddy, mock_inference):
         """explain() should show mix of default, env, CLI, and user sources."""
         STKAI.configure(
             rqc={"request_timeout": 99},  # user overrides default
-            # max_retries comes from env (10)
+            # retry_max_retries comes from env (10)
             # base_url comes from CLI (https://cli.example.com)
             # poll_interval stays default
         )
@@ -959,14 +959,14 @@ class TestExplain(unittest.TestCase):
 
         # Verify all source types are present (✎ marker for non-default)
         self.assertIn("  default", output)  # no marker for default
-        self.assertIn("✎ env:STKAI_RQC_MAX_RETRIES", output)
+        self.assertIn("✎ env:STKAI_RQC_RETRY_MAX_RETRIES", output)
         self.assertIn("✎ env:STKAI_AGENT_REQUEST_TIMEOUT", output)
         self.assertIn("✎ CLI", output)
         self.assertIn("✎ user", output)
 
         # Verify specific values
         self.assertIn("99", output)  # request_timeout from user
-        self.assertIn("10", output)  # max_retries from env
+        self.assertIn("10", output)  # retry_max_retries from env
         self.assertIn("https://cli.example.com", output)  # base_url from CLI
         self.assertIn("10.0", output)  # poll_interval from default
 
@@ -1229,23 +1229,23 @@ class TestConfigValidation(unittest.TestCase):
             RqcConfig(request_timeout=-10).validate()
         self.assertIn("request_timeout", str(ctx.exception))
 
-    def test_rqc_max_retries_cannot_be_negative(self):
-        """max_retries must be >= 0."""
+    def test_rqc_retry_max_retries_cannot_be_negative(self):
+        """retry_max_retries must be >= 0."""
         with self.assertRaises(ConfigValidationError) as ctx:
-            RqcConfig(max_retries=-1).validate()
-        self.assertIn("max_retries", str(ctx.exception))
+            RqcConfig(retry_max_retries=-1).validate()
+        self.assertIn("retry_max_retries", str(ctx.exception))
         self.assertIn(">= 0", str(ctx.exception))
 
-    def test_rqc_max_retries_zero_is_valid(self):
-        """max_retries=0 is valid (no retries)."""
-        config = RqcConfig(max_retries=0).validate()
-        self.assertEqual(config.max_retries, 0)
+    def test_rqc_retry_max_retries_zero_is_valid(self):
+        """retry_max_retries=0 is valid (no retries)."""
+        config = RqcConfig(retry_max_retries=0).validate()
+        self.assertEqual(config.retry_max_retries, 0)
 
-    def test_rqc_backoff_factor_must_be_positive(self):
-        """backoff_factor must be > 0."""
+    def test_rqc_retry_backoff_factor_must_be_positive(self):
+        """retry_backoff_factor must be > 0."""
         with self.assertRaises(ConfigValidationError) as ctx:
-            RqcConfig(backoff_factor=0).validate()
-        self.assertIn("backoff_factor", str(ctx.exception))
+            RqcConfig(retry_backoff_factor=0).validate()
+        self.assertIn("retry_backoff_factor", str(ctx.exception))
 
     def test_rqc_poll_interval_must_be_positive(self):
         """poll_interval must be > 0."""
@@ -1418,7 +1418,7 @@ class TestConfigValidation(unittest.TestCase):
     def test_configure_valid_values_pass(self, mock_codebuddy, mock_inference):
         """STKAI.configure() with valid values should succeed."""
         result = STKAI.configure(
-            rqc={"request_timeout": 60, "max_retries": 5},
+            rqc={"request_timeout": 60, "retry_max_retries": 5},
             agent={"request_timeout": 120},
             rate_limit={"enabled": True, "strategy": "adaptive", "max_requests": 50},
             allow_env_override=False,
