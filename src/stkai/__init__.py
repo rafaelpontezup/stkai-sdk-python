@@ -65,7 +65,9 @@ HTTP Client:
     - StandaloneHttpClient: HTTP client using AuthProvider for standalone auth.
     - TokenBucketRateLimitedHttpClient: HTTP client decorator with rate limiting.
     - AdaptiveRateLimitedHttpClient: HTTP client decorator with adaptive rate limiting.
-    - RateLimitTimeoutError: Exception raised when rate limiter exceeds max_wait_time.
+    - ClientSideRateLimitError: Base exception for client-side rate limiting errors.
+    - TokenAcquisitionTimeoutError: Exception raised when rate limiter exceeds max_wait_time.
+    - ServerSideRateLimitError: Exception raised when server returns HTTP 429.
 
 Retry:
     - Retrying: Context manager for retry with exponential backoff.
@@ -98,11 +100,13 @@ from stkai._config import (
 )
 from stkai._http import (
     AdaptiveRateLimitedHttpClient,
+    ClientSideRateLimitError,
     EnvironmentAwareHttpClient,
     HttpClient,
-    RateLimitTimeoutError,
+    ServerSideRateLimitError,
     StandaloneHttpClient,
     StkCLIHttpClient,
+    TokenAcquisitionTimeoutError,
     TokenBucketRateLimitedHttpClient,
 )
 from stkai._retry import (
@@ -150,7 +154,9 @@ __all__ = [
     "StandaloneHttpClient",
     "TokenBucketRateLimitedHttpClient",
     "AdaptiveRateLimitedHttpClient",
-    "RateLimitTimeoutError",
+    "ClientSideRateLimitError",
+    "TokenAcquisitionTimeoutError",
+    "ServerSideRateLimitError",
     # Retry
     "Retrying",
     "RetryableError",

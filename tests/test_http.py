@@ -9,41 +9,92 @@ import requests
 from stkai import (
     AdaptiveRateLimitedHttpClient,
     AuthProvider,
+    ClientSideRateLimitError,
     EnvironmentAwareHttpClient,
     HttpClient,
-    RateLimitTimeoutError,
+    ServerSideRateLimitError,
     StandaloneHttpClient,
     StkCLIHttpClient,
+    TokenAcquisitionTimeoutError,
     TokenBucketRateLimitedHttpClient,
 )
 
 # =============================================================================
-# RateLimitTimeoutError Tests
+# Exception Hierarchy Tests
 # =============================================================================
 
 
-class TestRateLimitTimeoutError:
-    """Tests for RateLimitTimeoutError exception."""
+class TestExceptionHierarchy:
+    """Tests for rate limit exception hierarchy."""
+
+    def test_client_side_rate_limit_error_extends_retryable_error(self):
+        """ClientSideRateLimitError should extend RetryableError."""
+        from stkai._retry import RetryableError
+
+        assert issubclass(ClientSideRateLimitError, RetryableError)
+
+    def test_rate_limit_timeout_error_extends_client_side_rate_limit_error(self):
+        """TokenAcquisitionTimeoutError should extend ClientSideRateLimitError."""
+        assert issubclass(TokenAcquisitionTimeoutError, ClientSideRateLimitError)
+
+    def test_server_side_rate_limit_error_extends_retryable_error(self):
+        """ServerSideRateLimitError should extend RetryableError."""
+        from stkai._retry import RetryableError
+
+        assert issubclass(ServerSideRateLimitError, RetryableError)
+
+    def test_server_side_rate_limit_error_not_client_side(self):
+        """ServerSideRateLimitError should NOT extend ClientSideRateLimitError."""
+        assert not issubclass(ServerSideRateLimitError, ClientSideRateLimitError)
+
+    def test_can_catch_all_client_side_errors(self):
+        """Should be able to catch all client-side rate limit errors with base class."""
+        error = TokenAcquisitionTimeoutError(waited=5.0, max_wait_time=10.0)
+
+        # Can catch with specific class
+        assert isinstance(error, TokenAcquisitionTimeoutError)
+        # Can catch with base client-side class
+        assert isinstance(error, ClientSideRateLimitError)
+
+    def test_server_side_error_contains_response(self):
+        """ServerSideRateLimitError should contain the HTTP response."""
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 429
+        mock_response.headers = {"Retry-After": "10"}
+
+        error = ServerSideRateLimitError(mock_response)
+
+        assert error.response is mock_response
+        assert error.response.status_code == 429
+
+
+# =============================================================================
+# TokenAcquisitionTimeoutError Tests
+# =============================================================================
+
+
+class TestTokenAcquisitionTimeoutError:
+    """Tests for TokenAcquisitionTimeoutError exception."""
 
     def test_error_message_contains_waited_and_max_wait_time(self):
-        error = RateLimitTimeoutError(waited=45.5, max_wait_time=60.0)
+        error = TokenAcquisitionTimeoutError(waited=45.5, max_wait_time=60.0)
 
         assert "45.50s" in str(error)
         assert "60.00s" in str(error)
         assert "Rate limit timeout" in str(error)
 
     def test_error_exposes_waited_attribute(self):
-        error = RateLimitTimeoutError(waited=30.0, max_wait_time=60.0)
+        error = TokenAcquisitionTimeoutError(waited=30.0, max_wait_time=60.0)
 
         assert error.waited == 30.0
 
     def test_error_exposes_max_wait_time_attribute(self):
-        error = RateLimitTimeoutError(waited=30.0, max_wait_time=60.0)
+        error = TokenAcquisitionTimeoutError(waited=30.0, max_wait_time=60.0)
 
         assert error.max_wait_time == 60.0
 
     def test_error_is_exception_subclass(self):
-        error = RateLimitTimeoutError(waited=10.0, max_wait_time=20.0)
+        error = TokenAcquisitionTimeoutError(waited=10.0, max_wait_time=20.0)
 
         assert isinstance(error, Exception)
 
@@ -149,7 +200,7 @@ class TestRateLimitedHttpClientTimeout:
         client.post("http://example.com", data={})
 
         # Second request should timeout waiting for token
-        with pytest.raises(RateLimitTimeoutError) as exc_info:
+        with pytest.raises(TokenAcquisitionTimeoutError) as exc_info:
             client.post("http://example.com", data={})
 
         assert exc_info.value.max_wait_time == 0.1
@@ -209,7 +260,7 @@ class TestRateLimitedHttpClientThreadIsolation:
                 client.post("http://example.com", data={})
                 with lock:
                     success_count[0] += 1
-            except RateLimitTimeoutError as e:
+            except TokenAcquisitionTimeoutError as e:
                 with lock:
                     errors.append(e)
 
@@ -312,7 +363,7 @@ class TestAdaptiveRateLimitedHttpClientTimeout:
         client.post("http://example.com", data={})
 
         # Second request should timeout
-        with pytest.raises(RateLimitTimeoutError) as exc_info:
+        with pytest.raises(TokenAcquisitionTimeoutError) as exc_info:
             client.post("http://example.com", data={})
 
         assert exc_info.value.max_wait_time == 0.1
@@ -381,15 +432,11 @@ class TestAdaptiveRateLimitedHttpClientTokenInvariant:
 class TestAdaptiveRateLimitedHttpClient429Handling:
     """Tests for 429 handling in AdaptiveRateLimitedHttpClient."""
 
-    def test_raises_http_error_on_429_and_adapts_rate(self):
-        """Test that 429 applies AIMD penalty and raises HTTPError."""
+    def test_raises_server_side_rate_limit_error_on_429_and_adapts_rate(self):
+        """Test that 429 applies AIMD penalty and raises ServerSideRateLimitError."""
         delegate = MockHttpClient()
         delegate.response.status_code = 429
         delegate.response.headers = {}
-        # Configure raise_for_status to actually raise HTTPError
-        delegate.response.raise_for_status = MagicMock(
-            side_effect=requests.HTTPError(response=delegate.response)
-        )
 
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -401,8 +448,8 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
 
         initial_effective_max = client._effective_max
 
-        # 429 should raise HTTPError (for Retrying to handle)
-        with pytest.raises(requests.HTTPError):
+        # 429 should raise ServerSideRateLimitError (for Retrying to handle)
+        with pytest.raises(ServerSideRateLimitError):
             client.post("http://example.com", data={})
 
         # Effective max should be reduced (AIMD penalty applied)
@@ -410,14 +457,11 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
         # Should have made only 1 attempt (no internal retry)
         assert len(delegate.post_calls) == 1
 
-    def test_raises_http_error_on_429_with_correct_response(self):
-        """Test that the HTTPError raised on 429 contains the response."""
+    def test_server_side_rate_limit_error_contains_response(self):
+        """Test that ServerSideRateLimitError contains the response for Retry-After parsing."""
         delegate = MockHttpClient()
         delegate.response.status_code = 429
         delegate.response.headers = {"Retry-After": "5"}
-        delegate.response.raise_for_status = MagicMock(
-            side_effect=requests.HTTPError(response=delegate.response)
-        )
 
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -426,12 +470,13 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
             max_wait_time=None,
         )
 
-        with pytest.raises(requests.HTTPError) as exc_info:
+        with pytest.raises(ServerSideRateLimitError) as exc_info:
             client.post("http://example.com", data={})
 
         # The exception should have the response attached (for Retry-After parsing)
         assert exc_info.value.response is not None
         assert exc_info.value.response.status_code == 429
+        assert exc_info.value.response.headers.get("Retry-After") == "5"
 
     def test_success_recovers_rate(self):
         """Test that successful requests trigger AIMD recovery."""

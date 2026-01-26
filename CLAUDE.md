@@ -160,7 +160,21 @@ The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, 
 | `token_bucket` | Token Bucket | Simple, predictable rate limiting |
 | `adaptive` | AIMD (Additive Increase, Multiplicative Decrease) | Dynamic environments with shared quotas |
 
-**Note:** HTTP 429 retry logic is handled by the `Retrying` class (in `_retry.py`), not the rate limiter. The adaptive strategy applies AIMD penalty on 429 responses (reduces rate) and raises `HTTPError` for `Retrying` to handle with backoff and `Retry-After` header support.
+**Note:** HTTP 429 retry logic is handled by the `Retrying` class (in `_retry.py`), not the rate limiter. The adaptive strategy applies AIMD penalty on 429 responses (reduces rate) and raises `ServerSideRateLimitError` for `Retrying` to handle with backoff and `Retry-After` header support.
+
+**Exception Hierarchy:**
+```
+RetryableError (base - automatically retried)
+├── ClientSideRateLimitError      # Base for client-side rate limit errors
+│   └── TokenAcquisitionTimeoutError     # Timeout waiting for token (max_wait_time exceeded)
+└── ServerSideRateLimitError      # HTTP 429 from server (contains response for Retry-After)
+```
+
+| Scenario | Exception | Raised By |
+|----------|-----------|-----------|
+| Token wait timeout | `TokenAcquisitionTimeoutError` | `TokenBucketRateLimitedHttpClient`, `AdaptiveRateLimitedHttpClient` |
+| Server HTTP 429 (with Adaptive) | `ServerSideRateLimitError` | `AdaptiveRateLimitedHttpClient` |
+| Server HTTP 429 (without Adaptive) | `requests.HTTPError` | Direct from `requests` |
 
 **Configuration via code:**
 ```python

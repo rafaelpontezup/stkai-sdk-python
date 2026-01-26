@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 import requests
 
-from stkai._http import HttpClient, RateLimitTimeoutError
+from stkai._http import HttpClient, TokenAcquisitionTimeoutError
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
 
 logger = logging.getLogger(__name__)
@@ -288,7 +288,7 @@ class Agent:
 
             # Determine status based on the last exception type
             status = ChatStatus.ERROR
-            if isinstance(last_exc, (requests.Timeout, RateLimitTimeoutError)):
+            if isinstance(last_exc, (requests.Timeout, TokenAcquisitionTimeoutError)):
                 status = ChatStatus.TIMEOUT
 
             return ChatResponse(
@@ -297,7 +297,7 @@ class Agent:
                 error=error_msg,
             )
 
-        except (requests.Timeout, RateLimitTimeoutError) as e:
+        except (requests.Timeout, TokenAcquisitionTimeoutError) as e:
             logger.error(
                 f"{request.id[:26]:<26} | Agent | ❌ Request timed out due to: {e}"
             )

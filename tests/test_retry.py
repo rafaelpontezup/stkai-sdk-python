@@ -520,28 +520,28 @@ class TestRetryableError(unittest.TestCase):
         self.assertTrue(retrying._should_retry(MyRetryableError("test")))
 
 
-class TestRateLimitTimeoutErrorRetry(unittest.TestCase):
-    """Tests for RateLimitTimeoutError retry behavior."""
+class TestTokenAcquisitionTimeoutErrorRetry(unittest.TestCase):
+    """Tests for TokenAcquisitionTimeoutError retry behavior."""
 
     def test_rate_limit_timeout_error_is_retryable(self):
-        """RateLimitTimeoutError should extend RetryableError."""
-        from stkai._http import RateLimitTimeoutError
+        """TokenAcquisitionTimeoutError should extend RetryableError."""
+        from stkai._http import TokenAcquisitionTimeoutError
 
-        self.assertTrue(issubclass(RateLimitTimeoutError, RetryableError))
+        self.assertTrue(issubclass(TokenAcquisitionTimeoutError, RetryableError))
 
     def test_rate_limit_timeout_error_is_automatically_retried(self):
-        """RateLimitTimeoutError should be automatically retried by Retrying."""
-        from stkai._http import RateLimitTimeoutError
+        """TokenAcquisitionTimeoutError should be automatically retried by Retrying."""
+        from stkai._http import TokenAcquisitionTimeoutError
 
         retrying = Retrying(max_retries=3)
-        error = RateLimitTimeoutError(waited=5.0, max_wait_time=10.0)
+        error = TokenAcquisitionTimeoutError(waited=5.0, max_wait_time=10.0)
 
         self.assertTrue(retrying._should_retry(error))
 
     @patch("stkai._retry.sleep_with_jitter")
     def test_rate_limit_timeout_error_retry_integration(self, mock_sleep: MagicMock):
-        """RateLimitTimeoutError should work with Retrying context manager."""
-        from stkai._http import RateLimitTimeoutError
+        """TokenAcquisitionTimeoutError should work with Retrying context manager."""
+        from stkai._http import TokenAcquisitionTimeoutError
 
         call_count = 0
 
@@ -549,12 +549,83 @@ class TestRateLimitTimeoutErrorRetry(unittest.TestCase):
             with attempt:
                 call_count += 1
                 if call_count < 3:
-                    raise RateLimitTimeoutError(waited=5.0, max_wait_time=10.0)
+                    raise TokenAcquisitionTimeoutError(waited=5.0, max_wait_time=10.0)
                 # Success on 3rd attempt
                 break
 
         self.assertEqual(call_count, 3)
         self.assertEqual(mock_sleep.call_count, 2)
+
+
+class TestServerSideRateLimitErrorRetry(unittest.TestCase):
+    """Tests for ServerSideRateLimitError retry behavior."""
+
+    def test_server_side_rate_limit_error_is_retryable(self):
+        """ServerSideRateLimitError should extend RetryableError."""
+        from stkai._http import ServerSideRateLimitError
+
+        self.assertTrue(issubclass(ServerSideRateLimitError, RetryableError))
+
+    def test_server_side_rate_limit_error_is_automatically_retried(self):
+        """ServerSideRateLimitError should be automatically retried by Retrying."""
+        from stkai._http import ServerSideRateLimitError
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.headers = {}
+
+        retrying = Retrying(max_retries=3)
+        error = ServerSideRateLimitError(mock_response)
+
+        self.assertTrue(retrying._should_retry(error))
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_server_side_rate_limit_error_retry_integration(self, mock_sleep: MagicMock):
+        """ServerSideRateLimitError should work with Retrying context manager."""
+        from stkai._http import ServerSideRateLimitError
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.headers = {}
+
+        call_count = 0
+
+        for attempt in Retrying(max_retries=2):
+            with attempt:
+                call_count += 1
+                if call_count < 3:
+                    raise ServerSideRateLimitError(mock_response)
+                # Success on 3rd attempt
+                break
+
+        self.assertEqual(call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("stkai._retry.sleep_with_jitter")
+    def test_server_side_rate_limit_error_respects_retry_after(self, mock_sleep: MagicMock):
+        """ServerSideRateLimitError should respect Retry-After header."""
+        from stkai._http import ServerSideRateLimitError
+
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.headers = {"Retry-After": "15"}
+
+        call_count = 0
+
+        for attempt in Retrying(max_retries=1, backoff_factor=0.5):
+            with attempt:
+                call_count += 1
+                if call_count < 2:
+                    raise ServerSideRateLimitError(mock_response)
+                # Success on 2nd attempt
+                break
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(mock_sleep.call_count, 1)
+
+        # Should use max(Retry-After=15, backoff=0.5) = 15
+        actual_sleep_time = mock_sleep.call_args[0][0]
+        self.assertEqual(actual_sleep_time, 15.0)
 
 
 class TestRetryingRetryAfterHeader(unittest.TestCase):

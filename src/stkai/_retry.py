@@ -258,6 +258,10 @@ class Retrying:
         For HTTP 429 responses with a valid Retry-After header, uses the
         maximum of the header value and the exponential backoff time.
 
+        Handles both:
+        - requests.HTTPError with 429 status (TokenBucket or no rate-limit scenarios)
+        - ServerSideRateLimitError (Adaptive rate-limit scenario)
+
         Args:
             exception: The exception that occurred during the attempt.
 
@@ -266,14 +270,26 @@ class Retrying:
         """
         base_wait: float = self.backoff_factor * (2 ** self._current_attempt)
 
-        # Check for Retry-After header on 429 responses
+        # Extract response from either HTTPError or ServerSideRateLimitError
+        response: requests.Response | None = None
+
         if isinstance(exception, requests.HTTPError):
-            response: requests.Response | None = getattr(exception, "response", None)
-            if response is not None and response.status_code == 429:
-                retry_after = self._parse_retry_after(response)
-                if retry_after is not None:
-                    # Use the larger of Retry-After and exponential backoff
-                    return float(max(retry_after, base_wait))
+            # Direct HTTP 429 (TokenBucket or no rate-limit decorator)
+            response = getattr(exception, "response", None)
+        else:
+            # Lazy import to avoid circular dependency
+            from stkai._http import ServerSideRateLimitError
+
+            if isinstance(exception, ServerSideRateLimitError):
+                # Wrapped 429 from AdaptiveRateLimitedHttpClient
+                response = exception.response
+
+        # Check for Retry-After header on 429 responses
+        if response is not None and response.status_code == 429:
+            retry_after = self._parse_retry_after(response)
+            if retry_after is not None:
+                # Use the larger of Retry-After and exponential backoff
+                return float(max(retry_after, base_wait))
 
         return base_wait
 

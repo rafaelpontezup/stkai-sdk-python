@@ -32,7 +32,7 @@ Complete API reference for HTTP clients.
     options:
       show_root_heading: true
 
-::: stkai.RateLimitTimeoutError
+::: stkai.TokenAcquisitionTimeoutError
     options:
       show_root_heading: true
 

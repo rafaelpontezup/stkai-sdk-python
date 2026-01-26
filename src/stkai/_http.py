@@ -51,7 +51,28 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-class RateLimitTimeoutError(RetryableError):
+class ClientSideRateLimitError(RetryableError):
+    """
+    Base exception for client-side rate limiting errors.
+
+    This is the base class for all rate limiting errors that originate
+    from the client's rate limiter (TokenBucket, Adaptive, etc.), as opposed
+    to server-side rate limiting (HTTP 429).
+
+    Extends RetryableError so all client-side rate limit errors are
+    automatically retried by the Retrying context manager.
+
+    Example:
+        >>> try:
+        ...     client.post(url, data)
+        ... except ClientSideRateLimitError as e:
+        ...     print(f"Client-side rate limit: {e}")
+    """
+
+    pass
+
+
+class TokenAcquisitionTimeoutError(ClientSideRateLimitError):
     """
     Raised when rate limiter exceeds max_wait_time waiting for a token.
 
@@ -59,10 +80,10 @@ class RateLimitTimeoutError(RetryableError):
     a rate limit token and gave up. This prevents threads from blocking
     indefinitely when rate limits are very restrictive.
 
-    Extends RetryableError so it's automatically retried by the Retrying
-    context manager, following the pattern used by Resilience4J, Polly,
-    failsafe-go, AWS SDK, and Spring Retry - where rate limit/throttling
-    exceptions are retryable by default.
+    Extends ClientSideRateLimitError (which extends RetryableError) so it's
+    automatically retried by the Retrying context manager, following the
+    pattern used by Resilience4J, Polly, failsafe-go, AWS SDK, and Spring
+    Retry - where rate limit/throttling exceptions are retryable by default.
 
     Attributes:
         waited: Time in seconds the thread waited before giving up.
@@ -71,7 +92,7 @@ class RateLimitTimeoutError(RetryableError):
     Example:
         >>> try:
         ...     client.post(url, data)
-        ... except RateLimitTimeoutError as e:
+        ... except TokenAcquisitionTimeoutError as e:
         ...     print(f"Rate limit timeout after {e.waited:.1f}s")
     """
 
@@ -81,6 +102,37 @@ class RateLimitTimeoutError(RetryableError):
         super().__init__(
             f"Rate limit timeout: waited {waited:.2f}s, max_wait_time={max_wait_time:.2f}s"
         )
+
+
+class ServerSideRateLimitError(RetryableError):
+    """
+    Raised when server returns HTTP 429 (Too Many Requests).
+
+    This exception indicates that the server has rate-limited the request.
+    It wraps the original response so the Retry-After header can be extracted
+    for calculating the appropriate wait time before retrying.
+
+    Extends RetryableError so it's automatically retried by the Retrying
+    context manager. The Retrying class will extract the Retry-After header
+    from the wrapped response to determine the wait time.
+
+    Only raised by AdaptiveRateLimitedHttpClient after applying AIMD penalty.
+    Other clients (TokenBucket, no rate-limit) let HTTPError propagate directly.
+
+    Attributes:
+        response: The original HTTP response with status code 429.
+
+    Example:
+        >>> try:
+        ...     client.post(url, data)
+        ... except ServerSideRateLimitError as e:
+        ...     retry_after = e.response.headers.get("Retry-After")
+        ...     print(f"Server rate limited. Retry after: {retry_after}s")
+    """
+
+    def __init__(self, response: requests.Response):
+        self.response = response
+        super().__init__("Server rate limit exceeded (HTTP 429)")
 
 
 # =============================================================================
@@ -651,7 +703,7 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
             waits indefinitely. Default is 60 seconds.
 
     Raises:
-        RateLimitTimeoutError: If max_wait_time is exceeded while waiting for a token.
+        TokenAcquisitionTimeoutError: If max_wait_time is exceeded while waiting for a token.
     """
 
     def __init__(
@@ -698,10 +750,10 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
         Uses Token Bucket algorithm:
         - Refills tokens based on elapsed time
         - Waits if no tokens are available
-        - Raises RateLimitTimeoutError if max_wait_time is exceeded
+        - Raises TokenAcquisitionTimeoutError if max_wait_time is exceeded
 
         Raises:
-            RateLimitTimeoutError: If waiting exceeds max_wait_time.
+            TokenAcquisitionTimeoutError: If waiting exceeds max_wait_time.
         """
         start_time = time.time()
 
@@ -728,7 +780,7 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
             if self.max_wait_time is not None:
                 total_waited = time.time() - start_time
                 if total_waited + wait_time > self.max_wait_time:
-                    raise RateLimitTimeoutError(
+                    raise TokenAcquisitionTimeoutError(
                         waited=total_waited,
                         max_wait_time=self.max_wait_time,
                     )
@@ -824,7 +876,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             waits indefinitely. Default is 60 seconds.
 
     Raises:
-        RateLimitTimeoutError: If max_wait_time is exceeded while waiting for a token.
+        TokenAcquisitionTimeoutError: If max_wait_time is exceeded while waiting for a token.
         requests.HTTPError: When server returns HTTP 429 (after AIMD penalty applied).
     """
 
@@ -887,10 +939,10 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         Acquire a token using adaptive effective_max.
 
         Uses Token Bucket algorithm with adaptive rate based on 429 responses.
-        Raises RateLimitTimeoutError if max_wait_time is exceeded.
+        Raises TokenAcquisitionTimeoutError if max_wait_time is exceeded.
 
         Raises:
-            RateLimitTimeoutError: If waiting exceeds max_wait_time.
+            TokenAcquisitionTimeoutError: If waiting exceeds max_wait_time.
         """
         start_time = time.time()
 
@@ -915,7 +967,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             if self.max_wait_time is not None:
                 total_waited = time.time() - start_time
                 if total_waited + wait_time > self.max_wait_time:
-                    raise RateLimitTimeoutError(
+                    raise TokenAcquisitionTimeoutError(
                         waited=total_waited,
                         max_wait_time=self.max_wait_time,
                     )
@@ -1013,15 +1065,15 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             The HTTP response (non-429 responses only).
 
         Raises:
-            requests.HTTPError: When server returns HTTP 429.
-            RateLimitTimeoutError: When max_wait_time is exceeded.
+            ServerSideRateLimitError: When server returns HTTP 429.
+            TokenAcquisitionTimeoutError: When max_wait_time is exceeded.
         """
         self._acquire_token()
         response = self.delegate.post(url, data, headers, timeout)
 
         if response.status_code == 429:
             self._on_rate_limited()
-            response.raise_for_status()  # Raises HTTPError → Retrying captures it
+            raise ServerSideRateLimitError(response)
 
         self._on_success()
         return response

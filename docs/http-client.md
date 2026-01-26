@@ -268,7 +268,7 @@ The `token_bucket` strategy uses a simple Token Bucket algorithm:
 │   • Tokens refill over time at: max_requests / time_window       │
 │   • Each POST request consumes 1 token                           │
 │   • When empty, requests wait until tokens available             │
-│   • If waiting exceeds max_wait_time → RateLimitTimeoutError     │
+│   • If waiting exceeds max_wait_time → TokenAcquisitionTimeoutError     │
 │   • GET requests (polling) pass through without consuming tokens │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
@@ -311,10 +311,10 @@ The `adaptive` strategy uses **Additive Increase, Multiplicative Decrease** (AIM
 
 ### Timeout Handling
 
-Both strategies raise `RateLimitTimeoutError` when a thread waits too long for a token:
+Both strategies raise `TokenAcquisitionTimeoutError` when a thread waits too long for a token:
 
 ```python
-from stkai import TokenBucketRateLimitedHttpClient, RateLimitTimeoutError, StkCLIHttpClient
+from stkai import TokenBucketRateLimitedHttpClient, TokenAcquisitionTimeoutError, StkCLIHttpClient
 
 http_client = TokenBucketRateLimitedHttpClient(
     delegate=StkCLIHttpClient(),
@@ -325,7 +325,7 @@ http_client = TokenBucketRateLimitedHttpClient(
 
 try:
     response = http_client.post(url, data=payload)
-except RateLimitTimeoutError as e:
+except TokenAcquisitionTimeoutError as e:
     print(f"Timeout after {e.waited:.1f}s (max: {e.max_wait_time}s)")
     # Handle timeout: retry later, skip request, or fail gracefully
 ```

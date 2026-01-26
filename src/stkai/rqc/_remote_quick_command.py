@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 import requests
 
-from stkai._http import HttpClient, RateLimitTimeoutError
+from stkai._http import HttpClient, TokenAcquisitionTimeoutError
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
@@ -447,7 +447,7 @@ class RemoteQuickCommand:
             )
             # Determine status: TIMEOUT if caused by HTTP timeout or rate limit timeout, ERROR otherwise
             status = RqcExecutionStatus.ERROR
-            if isinstance(e, RateLimitTimeoutError):
+            if isinstance(e, TokenAcquisitionTimeoutError):
                 status = RqcExecutionStatus.TIMEOUT
             if isinstance(e, MaxRetriesExceededError) and isinstance(e.last_exception, requests.exceptions.Timeout):
                 status = RqcExecutionStatus.TIMEOUT

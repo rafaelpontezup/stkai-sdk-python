@@ -527,7 +527,7 @@ class RateLimitConfig(OverridableConfig):
             Env var: STKAI_RATE_LIMIT_TIME_WINDOW
 
         max_wait_time: Maximum seconds to wait for a token before raising
-            RateLimitTimeoutError. None means wait indefinitely.
+            TokenAcquisitionTimeoutError. None means wait indefinitely.
             Env var: STKAI_RATE_LIMIT_MAX_WAIT_TIME
 
         min_rate_floor: (adaptive only) Minimum rate as fraction of max_requests.
