@@ -128,7 +128,7 @@ For more details on StackSpot CLI, see the [official CLI documentation](https://
 You can check CLI availability programmatically:
 
 ```python
-from stkai._cli import StkCLI
+from stkai import StkCLI
 
 if StkCLI.is_available():
     print("Running in CLI mode")

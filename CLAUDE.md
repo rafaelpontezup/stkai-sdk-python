@@ -290,7 +290,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 
 | Location | What to Export | Example |
 |----------|----------------|---------|
-| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient` |
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients, CLI | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `StkCLI`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient` |
 | `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener`, `CreateExecutionOptions`, `GetResultOptions` |
 | `stkai.agents` | Agent-specific handlers, listeners, options | `AgentOptions` (future: `AgentEventListener`, etc.) |
 
@@ -302,7 +302,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 **Import examples:**
 ```python
 # Common usage - root imports
-from stkai import RemoteQuickCommand, Agent, RqcRequest, RqcOptions, ChatRequest, STKAI, ConfigEntry
+from stkai import RemoteQuickCommand, Agent, RqcRequest, RqcOptions, ChatRequest, STKAI, StkCLI, ConfigEntry
 
 # Configuration (with rate limiting)
 STKAI.configure(

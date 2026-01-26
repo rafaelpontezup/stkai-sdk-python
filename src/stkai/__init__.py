@@ -41,6 +41,9 @@ Main Classes:
     - ChatResponse: Represents the chat response received from an Agent.
     - ChatStatus: Enum with chat response statuses.
 
+CLI:
+    - StkCLI: Abstraction for StackSpot CLI (oscli) detection and configuration.
+
 Configuration:
     - STKAI: Global SDK singleton for configuration.
     - STKAIConfig: Root configuration dataclass.
@@ -85,6 +88,7 @@ from stkai._auth import (
     ClientCredentialsAuthProvider,
     create_standalone_auth,
 )
+from stkai._cli import StkCLI
 from stkai._config import (
     STKAI,
     AgentConfig,
@@ -132,6 +136,8 @@ from stkai.rqc import (
 
 __all__ = [
     "__version__",
+    # CLI
+    "StkCLI",
     # Configuration
     "STKAI",
     "STKAIConfig",
