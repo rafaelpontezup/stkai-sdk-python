@@ -8,6 +8,7 @@ Example:
     >>> from stkai._retry import Retrying
     >>> for attempt in Retrying(max_retries=3, initial_delay=0.5):
     ...     with attempt:
+    ...         print(f"Attempt {attempt.attempt_number}/{attempt.max_attempts}")
     ...         response = http_client.post(url, data=payload)
     ...         response.raise_for_status()
     ...         return response.json()
@@ -82,27 +83,38 @@ class MaxRetriesExceededError(Exception):
 
 
 @dataclass(frozen=True)
-class RetryAttempt:
+class RetryAttemptContext:
     """
-    Represents a single retry attempt.
+    Context manager for a single retry attempt.
 
-    This dataclass provides metadata about the current attempt within a retry loop,
-    useful for logging and conditional logic.
+    This class is yielded by `Retrying.__iter__()` and implements the context
+    manager protocol to handle exceptions within the retry loop. It also provides
+    metadata about the current attempt for logging and conditional logic.
 
     Attributes:
         attempt_number: One-based index of the current attempt (1 = first attempt).
+
+    Properties:
         max_attempts: Total number of attempts (1 + max_retries).
+        is_last_attempt: True if this is the final attempt.
+
+    Behavior:
+        On success (no exception): exits normally, loop continues to natural end
+        On retryable exception: suppresses exception, loop continues
+        On non-retryable exception: re-raises exception, loop exits
+        On exhausted retries: raises MaxRetriesExceededError
 
     Example:
-        >>> for attempt_ctx in Retrying(max_retries=3):
-        ...     with attempt_ctx as attempt:
+        >>> for attempt in Retrying(max_retries=3):
+        ...     with attempt:
         ...         print(f"Attempt {attempt.attempt_number}/{attempt.max_attempts}")
-        ...         if attempt.is_last_attempt:
-        ...             print("This is the last attempt!")
+        ...         response = http_client.post(url, data=payload)
+        ...         response.raise_for_status()
+        ...         return response.json()
     """
 
+    _retrying: Retrying
     attempt_number: int
-    max_attempts: int
 
     def __post_init__(self) -> None:
         """Validate invariants."""
@@ -114,9 +126,57 @@ class RetryAttempt:
             f"attempt_number ({self.attempt_number}) cannot exceed max_attempts ({self.max_attempts})"
 
     @property
+    def max_attempts(self) -> int:
+        """Total number of attempts (1 original + max_retries)."""
+        return self._retrying.max_attempts
+
+    @property
     def is_last_attempt(self) -> bool:
         """Return True if this is the last retry attempt."""
         return self.attempt_number >= self.max_attempts
+
+    def __enter__(self) -> RetryAttemptContext:
+        """Enter context and return self for access to attempt metadata."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> bool:
+        """
+        Handle exception (if any) and decide whether to retry.
+
+        Returns:
+            True to suppress exception and continue loop (retry)
+            False to propagate exception (no retry)
+        """
+        if exc_val is None:
+            # Success - caller should break/return to exit loop
+            return False
+
+        # Only handle Exception, not BaseException (KeyboardInterrupt, etc.)
+        if not isinstance(exc_val, Exception):
+            return False
+
+        if not self._retrying._should_retry(exc_val):
+            # Don't retry - re-raise exception
+            return False
+
+        # If retry is disabled, let original exception propagate
+        # without wrapping in MaxRetriesExceededError
+        if not self._retrying.enabled:
+            return False
+
+        if self.attempt_number > self._retrying.max_retries:
+            # Exhausted - raise MaxRetriesExceededError
+            self._retrying._handle_exhausted(exc_val)
+            return False  # Never reached
+
+        # Retry - suppress exception and continue loop
+        self._retrying._handle_retry(exc_val)
+        return True  # Suppress exception
 
 
 class Retrying:
@@ -211,11 +271,11 @@ class Retrying:
         """Return True if retry is enabled (max_retries > 0)."""
         return self.max_retries > 0
 
-    def __iter__(self) -> Generator[_RetryContext, None, None]:
+    def __iter__(self) -> Generator[RetryAttemptContext, None, None]:
         """Yield retry contexts for each attempt (1-indexed)."""
         for attempt in range(1, self.max_attempts + 1):
             self._current_attempt = attempt
-            yield _RetryContext(self, attempt)
+            yield RetryAttemptContext(self, attempt)
 
     def _should_retry(self, exception: Exception) -> bool:
         """
@@ -371,65 +431,3 @@ class Retrying:
         ) from exception
 
 
-class _RetryContext:
-    """
-    Context for a single retry attempt (internal).
-
-    This class is yielded by `Retrying.__iter__()` and implements the context
-    manager protocol to handle exceptions within the retry loop.
-
-    On success (no exception): exits normally, loop continues to natural end
-    On retryable exception: suppresses exception, loop continues
-    On non-retryable exception: re-raises exception, loop exits
-    On exhausted retries: raises MaxRetriesExceededError
-    """
-
-    def __init__(self, retrying: Retrying, attempt: int):
-        self._retrying = retrying
-        self.attempt = attempt
-
-    def __enter__(self) -> RetryAttempt:
-        """Enter context and return attempt metadata."""
-        return RetryAttempt(
-            attempt_number=self.attempt,
-            max_attempts=self._retrying.max_attempts,
-        )
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object,
-    ) -> bool:
-        """
-        Handle exception (if any) and decide whether to retry.
-
-        Returns:
-            True to suppress exception and continue loop (retry)
-            False to propagate exception (no retry)
-        """
-        if exc_val is None:
-            # Success - caller should break/return to exit loop
-            return False
-
-        # Only handle Exception, not BaseException (KeyboardInterrupt, etc.)
-        if not isinstance(exc_val, Exception):
-            return False
-
-        if not self._retrying._should_retry(exc_val):
-            # Don't retry - re-raise exception
-            return False
-
-        # If retry is disabled, let original exception propagate
-        # without wrapping in MaxRetriesExceededError
-        if not self._retrying.enabled:
-            return False
-
-        if self.attempt > self._retrying.max_retries:
-            # Exhausted - raise MaxRetriesExceededError
-            self._retrying._handle_exhausted(exc_val)
-            return False  # Never reached
-
-        # Retry - suppress exception and continue loop
-        self._retrying._handle_retry(exc_val)
-        return True  # Suppress exception

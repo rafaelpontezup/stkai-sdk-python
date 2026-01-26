@@ -5,32 +5,41 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from stkai._retry import MaxRetriesExceededError, RetryableError, RetryAttempt, Retrying
+from stkai._retry import MaxRetriesExceededError, RetryableError, RetryAttemptContext, Retrying
 
 
-class TestRetryAttempt(unittest.TestCase):
-    """Tests for RetryAttempt dataclass."""
+class TestRetryAttemptContext(unittest.TestCase):
+    """Tests for RetryAttemptContext dataclass."""
 
     def test_is_last_attempt_false_when_not_last(self):
         """Should return False when not on last attempt."""
         # max_attempts=4 means attempts 1, 2, 3, 4 (where 4 is last)
-        attempt = RetryAttempt(attempt_number=1, max_attempts=4)
+        retrying = Retrying(max_retries=3)  # max_attempts=4
+        attempt = RetryAttemptContext(_retrying=retrying, attempt_number=1)
         self.assertFalse(attempt.is_last_attempt)
 
-        attempt = RetryAttempt(attempt_number=3, max_attempts=4)
+        attempt = RetryAttemptContext(_retrying=retrying, attempt_number=3)
         self.assertFalse(attempt.is_last_attempt)
 
     def test_is_last_attempt_true_when_last(self):
         """Should return True when on last attempt."""
         # max_attempts=4 means attempt 4 is the last
-        attempt = RetryAttempt(attempt_number=4, max_attempts=4)
+        retrying = Retrying(max_retries=3)  # max_attempts=4
+        attempt = RetryAttemptContext(_retrying=retrying, attempt_number=4)
         self.assertTrue(attempt.is_last_attempt)
 
     def test_is_frozen(self):
         """Should be immutable."""
-        attempt = RetryAttempt(attempt_number=1, max_attempts=4)
+        retrying = Retrying(max_retries=3)
+        attempt = RetryAttemptContext(_retrying=retrying, attempt_number=1)
         with self.assertRaises(AttributeError):
             attempt.attempt_number = 2  # type: ignore
+
+    def test_max_attempts_property(self):
+        """Should return max_attempts from Retrying."""
+        retrying = Retrying(max_retries=5)  # max_attempts=6
+        attempt = RetryAttemptContext(_retrying=retrying, attempt_number=1)
+        self.assertEqual(attempt.max_attempts, 6)
 
 
 class TestMaxRetriesExceededError(unittest.TestCase):
@@ -364,8 +373,8 @@ class TestRetryingAttemptMetadata(unittest.TestCase):
         """Should provide correct attempt number in each iteration (1-indexed)."""
         attempt_numbers = []
 
-        for attempt_ctx in Retrying(max_retries=2, retry_on_exceptions=()):
-            with attempt_ctx as attempt:
+        for attempt in Retrying(max_retries=2, retry_on_exceptions=()):
+            with attempt:
                 attempt_numbers.append(attempt.attempt_number)
                 break  # Exit after first attempt
 
@@ -377,11 +386,11 @@ class TestRetryingAttemptMetadata(unittest.TestCase):
         attempts = []
 
         with self.assertRaises(MaxRetriesExceededError):
-            for attempt_ctx in Retrying(
+            for attempt in Retrying(
                 max_retries=2,
                 retry_on_exceptions=(ValueError,),
             ):
-                with attempt_ctx as attempt:
+                with attempt:
                     attempts.append({
                         "number": attempt.attempt_number,
                         "is_last": attempt.is_last_attempt,

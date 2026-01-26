@@ -513,12 +513,12 @@ class RemoteQuickCommand:
         # Build full URL using base_url
         url = f"{self.base_url}/v1/quick-commands/create-execution/{self.slug_name}"
 
-        for attempt_ctx in Retrying(
+        for attempt in Retrying(
             max_retries=opts.retry_max_retries,
             initial_delay=opts.retry_initial_delay,
             logger_prefix=f"{request_id[:26]:<26} | RQC",
         ):
-            with attempt_ctx as attempt:
+            with attempt:
                 logger.info(
                     f"{request_id[:26]:<26} | RQC | "
                     f"Sending request to create execution (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
