@@ -211,7 +211,7 @@ STKAI Configuration:
   retry_initial_delay ...... 0.5                                                  default
   poll_interval ............ 10.0                                                 default
   poll_max_duration ........ 600.0                                                default
-  overload_timeout ......... 60.0                                                 default
+  poll_overload_timeout .... 60.0                                                 default
   max_workers .............. 8                                                    default
   base_url ................. https://cli.example.com                            ✎ CLI
 [agent]
@@ -270,7 +270,7 @@ Settings for `RemoteQuickCommand` clients:
 | `retry_initial_delay` | `STKAI_RQC_RETRY_INITIAL_DELAY` | 0.5 | Initial delay for first retry (seconds) |
 | `poll_interval` | `STKAI_RQC_POLL_INTERVAL` | 10.0 | Seconds between polls |
 | `poll_max_duration` | `STKAI_RQC_POLL_MAX_DURATION` | 600.0 | Max polling duration |
-| `overload_timeout` | `STKAI_RQC_OVERLOAD_TIMEOUT` | 60.0 | Max CREATED state duration |
+| `poll_overload_timeout` | `STKAI_RQC_POLL_OVERLOAD_TIMEOUT` | 60.0 | Max CREATED state duration |
 | `max_workers` | `STKAI_RQC_MAX_WORKERS` | 8 | Concurrent workers |
 | `base_url` | `STKAI_RQC_BASE_URL` | StackSpot API URL | API base URL |
 

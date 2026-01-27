@@ -62,12 +62,12 @@ class GetResultOptions:
     Attributes:
         poll_interval: Seconds to wait between polling status checks.
         poll_max_duration: Maximum seconds to wait before timing out.
-        overload_timeout: Maximum seconds to tolerate CREATED status before assuming server overload.
+        poll_overload_timeout: Maximum seconds to tolerate CREATED status before assuming server overload.
         request_timeout: HTTP request timeout in seconds.
     """
     poll_interval: float | None = None
     poll_max_duration: float | None = None
-    overload_timeout: float | None = None
+    poll_overload_timeout: float | None = None
     request_timeout: int | None = None
 
 
@@ -129,7 +129,7 @@ class RqcOptions:
             get_result=GetResultOptions(
                 poll_interval=gr.poll_interval if gr.poll_interval is not None else cfg.poll_interval,
                 poll_max_duration=gr.poll_max_duration if gr.poll_max_duration is not None else cfg.poll_max_duration,
-                overload_timeout=gr.overload_timeout if gr.overload_timeout is not None else cfg.overload_timeout,
+                poll_overload_timeout=gr.poll_overload_timeout if gr.poll_overload_timeout is not None else cfg.poll_overload_timeout,
                 request_timeout=gr.request_timeout if gr.request_timeout is not None else cfg.request_timeout,
             ),
             max_workers=self.max_workers if self.max_workers is not None else cfg.max_workers,
@@ -564,7 +564,7 @@ class RemoteQuickCommand:
         assert opts is not None, "get_result options must be set after with_defaults_from()"
         assert opts.poll_interval is not None, "poll_interval must be set after with_defaults_from()"
         assert opts.poll_max_duration is not None, "poll_max_duration must be set after with_defaults_from()"
-        assert opts.overload_timeout is not None, "overload_timeout must be set after with_defaults_from()"
+        assert opts.poll_overload_timeout is not None, "poll_overload_timeout must be set after with_defaults_from()"
         assert opts.request_timeout is not None, "request_timeout must be set after with_defaults_from()"
 
         start_time = time.time()
@@ -668,7 +668,7 @@ class RemoteQuickCommand:
                         created_since = time.time()
 
                     elapsed_in_created = time.time() - created_since
-                    if elapsed_in_created > opts.overload_timeout:
+                    if elapsed_in_created > opts.poll_overload_timeout:
                         raise TimeoutError(
                             f"Execution stuck in CREATED status for {elapsed_in_created:.2f}s. "
                             f"The server may be overloaded (queue backpressure)."
@@ -676,7 +676,7 @@ class RemoteQuickCommand:
 
                     logger.warning(
                         f"{execution_id} | RQC | ⚠️ Execution is still in CREATED status "
-                        f"({elapsed_in_created:.2f}s/{opts.overload_timeout}s). Possible server overload..."
+                        f"({elapsed_in_created:.2f}s/{opts.poll_overload_timeout}s). Possible server overload..."
                     )
                     sleep_with_jitter(opts.poll_interval)
                 else:

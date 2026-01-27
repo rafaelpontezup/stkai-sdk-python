@@ -362,9 +362,9 @@ class RqcConfig(OverridableConfig):
             before timing out.
             Env var: STKAI_RQC_POLL_MAX_DURATION
 
-        overload_timeout: Maximum seconds to tolerate CREATED status before
+        poll_overload_timeout: Maximum seconds to tolerate CREATED status before
             assuming server overload.
-            Env var: STKAI_RQC_OVERLOAD_TIMEOUT
+            Env var: STKAI_RQC_POLL_OVERLOAD_TIMEOUT
 
         max_workers: Maximum number of concurrent threads for execute_many().
             Env var: STKAI_RQC_MAX_WORKERS
@@ -385,7 +385,7 @@ class RqcConfig(OverridableConfig):
     retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_RQC_RETRY_INITIAL_DELAY"})
     poll_interval: float = field(default=10.0, metadata={"env": "STKAI_RQC_POLL_INTERVAL"})
     poll_max_duration: float = field(default=600.0, metadata={"env": "STKAI_RQC_POLL_MAX_DURATION"})
-    overload_timeout: float = field(default=60.0, metadata={"env": "STKAI_RQC_OVERLOAD_TIMEOUT"})
+    poll_overload_timeout: float = field(default=60.0, metadata={"env": "STKAI_RQC_POLL_OVERLOAD_TIMEOUT"})
     max_workers: int = field(default=8, metadata={"env": "STKAI_RQC_MAX_WORKERS"})
     base_url: str = field(default="https://genai-code-buddy-api.stackspot.com", metadata={"env": "STKAI_RQC_BASE_URL"})
 
@@ -416,9 +416,9 @@ class RqcConfig(OverridableConfig):
                 "poll_max_duration", self.poll_max_duration,
                 "Must be greater than 0.", section="rqc"
             )
-        if self.overload_timeout <= 0:
+        if self.poll_overload_timeout <= 0:
             raise ConfigValidationError(
-                "overload_timeout", self.overload_timeout,
+                "poll_overload_timeout", self.poll_overload_timeout,
                 "Must be greater than 0.", section="rqc"
             )
         if self.max_workers <= 0:

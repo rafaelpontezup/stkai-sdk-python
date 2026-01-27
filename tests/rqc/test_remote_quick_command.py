@@ -203,7 +203,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         self.http_client.post.return_value = post_resp
         self.http_client.get.return_value = created_resp
 
-        # Use short overload_timeout to trigger overload detection before poll_max_duration
+        # Use short poll_overload_timeout to trigger overload detection before poll_max_duration
         rqc_for_created_test = RemoteQuickCommand(
             slug_name=self.slug_name,
             options=RqcOptions(
@@ -214,7 +214,7 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
                 get_result=GetResultOptions(
                     poll_interval=0.01,
                     poll_max_duration=1.0,
-                    overload_timeout=0.05,  # Short timeout to trigger overload detection
+                    poll_overload_timeout=0.05,  # Short timeout to trigger overload detection
                 ),
             ),
             http_client=self.http_client,
@@ -550,7 +550,7 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
         self.assertIsNotNone(resolved.get_result)
         self.assertEqual(resolved.get_result.poll_interval, cfg.poll_interval)
         self.assertEqual(resolved.get_result.poll_max_duration, cfg.poll_max_duration)
-        self.assertEqual(resolved.get_result.overload_timeout, cfg.overload_timeout)
+        self.assertEqual(resolved.get_result.poll_overload_timeout, cfg.poll_overload_timeout)
         self.assertEqual(resolved.get_result.request_timeout, cfg.request_timeout)
 
     def test_with_defaults_from_preserves_user_values(self):
@@ -568,7 +568,7 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
             get_result=GetResultOptions(
                 poll_interval=999.0,  # User value
                 poll_max_duration=888.0,  # User value
-                # overload_timeout and request_timeout are None -> use config
+                # poll_overload_timeout and request_timeout are None -> use config
             ),
             max_workers=50,  # User value
         )
@@ -584,7 +584,7 @@ class TestRqcOptionsWithDefaultsFrom(unittest.TestCase):
         # None values should be filled from config
         self.assertEqual(resolved.create_execution.retry_initial_delay, cfg.retry_initial_delay)
         self.assertEqual(resolved.create_execution.request_timeout, cfg.request_timeout)
-        self.assertEqual(resolved.get_result.overload_timeout, cfg.overload_timeout)
+        self.assertEqual(resolved.get_result.poll_overload_timeout, cfg.poll_overload_timeout)
         self.assertEqual(resolved.get_result.request_timeout, cfg.request_timeout)
 
 

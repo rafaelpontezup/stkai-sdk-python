@@ -225,7 +225,7 @@ rqc = RemoteQuickCommand(
 |--------|---------|-------------|
 | `poll_interval` | 10.0 | Seconds between status checks |
 | `poll_max_duration` | 600.0 | Maximum polling duration (10 min) |
-| `overload_timeout` | 60.0 | Max seconds in CREATED status |
+| `poll_overload_timeout` | 60.0 | Max seconds in CREATED status |
 | `request_timeout` | 30 | HTTP timeout for GET requests |
 
 !!! tip "Single Source of Truth"

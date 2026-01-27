@@ -32,7 +32,7 @@ class TestDefaults(unittest.TestCase):
         self.assertEqual(STKAI.config.rqc.retry_initial_delay, 0.5)
         self.assertEqual(STKAI.config.rqc.poll_interval, 10.0)
         self.assertEqual(STKAI.config.rqc.poll_max_duration, 600.0)
-        self.assertEqual(STKAI.config.rqc.overload_timeout, 60.0)
+        self.assertEqual(STKAI.config.rqc.poll_overload_timeout, 60.0)
         self.assertEqual(STKAI.config.rqc.max_workers, 8)
         self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
 
@@ -216,7 +216,7 @@ class TestAllEnvVars(unittest.TestCase):
             "STKAI_RQC_RETRY_INITIAL_DELAY": "1.0",
             "STKAI_RQC_POLL_INTERVAL": "20.0",
             "STKAI_RQC_POLL_MAX_DURATION": "900.0",
-            "STKAI_RQC_OVERLOAD_TIMEOUT": "120.0",
+            "STKAI_RQC_POLL_OVERLOAD_TIMEOUT": "120.0",
             "STKAI_RQC_MAX_WORKERS": "16",
         },
     )
@@ -229,7 +229,7 @@ class TestAllEnvVars(unittest.TestCase):
         self.assertEqual(STKAI.config.rqc.retry_initial_delay, 1.0)
         self.assertEqual(STKAI.config.rqc.poll_interval, 20.0)
         self.assertEqual(STKAI.config.rqc.poll_max_duration, 900.0)
-        self.assertEqual(STKAI.config.rqc.overload_timeout, 120.0)
+        self.assertEqual(STKAI.config.rqc.poll_overload_timeout, 120.0)
         self.assertEqual(STKAI.config.rqc.max_workers, 16)
 
     @patch.dict(
@@ -1259,11 +1259,11 @@ class TestConfigValidation(unittest.TestCase):
             RqcConfig(poll_max_duration=0).validate()
         self.assertIn("poll_max_duration", str(ctx.exception))
 
-    def test_rqc_overload_timeout_must_be_positive(self):
-        """overload_timeout must be > 0."""
+    def test_rqc_poll_overload_timeout_must_be_positive(self):
+        """poll_overload_timeout must be > 0."""
         with self.assertRaises(ConfigValidationError) as ctx:
-            RqcConfig(overload_timeout=-1).validate()
-        self.assertIn("overload_timeout", str(ctx.exception))
+            RqcConfig(poll_overload_timeout=-1).validate()
+        self.assertIn("poll_overload_timeout", str(ctx.exception))
 
     def test_rqc_max_workers_must_be_positive(self):
         """max_workers must be > 0."""
