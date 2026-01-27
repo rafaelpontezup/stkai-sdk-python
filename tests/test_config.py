@@ -2,6 +2,7 @@
 
 import os
 import unittest
+from dataclasses import asdict
 from unittest.mock import patch
 
 from stkai._config import (
@@ -380,10 +381,106 @@ class TestRateLimitConfigDefaults(unittest.TestCase):
         rl = STKAI.config.rate_limit
         self.assertEqual(rl.max_requests, 100)
         self.assertEqual(rl.time_window, 60.0)
-        self.assertEqual(rl.max_wait_time, 60.0)
+        self.assertEqual(rl.max_wait_time, 30.0)
         self.assertEqual(rl.min_rate_floor, 0.1)
-        self.assertEqual(rl.penalty_factor, 0.2)
-        self.assertEqual(rl.recovery_factor, 0.01)
+        self.assertEqual(rl.penalty_factor, 0.3)
+        self.assertEqual(rl.recovery_factor, 0.05)
+
+
+class TestRateLimitConfigPresets(unittest.TestCase):
+    """Tests for RateLimitConfig preset methods."""
+
+    def test_conservative_preset_default_values(self):
+        """Conservative preset should have stability-focused defaults."""
+        config = RateLimitConfig.conservative_preset()
+
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.strategy, "adaptive")
+        self.assertEqual(config.max_requests, 20)
+        self.assertEqual(config.time_window, 60.0)
+        self.assertEqual(config.max_wait_time, 120.0)
+        self.assertEqual(config.min_rate_floor, 0.05)
+        self.assertEqual(config.penalty_factor, 0.5)
+        self.assertEqual(config.recovery_factor, 0.02)
+
+    def test_conservative_preset_custom_values(self):
+        """Conservative preset should accept custom max_requests and time_window."""
+        config = RateLimitConfig.conservative_preset(max_requests=50, time_window=30.0)
+
+        self.assertEqual(config.max_requests, 50)
+        self.assertEqual(config.time_window, 30.0)
+        # Other values should remain preset defaults
+        self.assertEqual(config.max_wait_time, 120.0)
+        self.assertEqual(config.penalty_factor, 0.5)
+
+    def test_balanced_preset_default_values(self):
+        """Balanced preset should have sensible middle-ground defaults."""
+        config = RateLimitConfig.balanced_preset()
+
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.strategy, "adaptive")
+        self.assertEqual(config.max_requests, 40)
+        self.assertEqual(config.time_window, 60.0)
+        self.assertEqual(config.max_wait_time, 30.0)
+        self.assertEqual(config.min_rate_floor, 0.1)
+        self.assertEqual(config.penalty_factor, 0.3)
+        self.assertEqual(config.recovery_factor, 0.05)
+
+    def test_balanced_preset_custom_values(self):
+        """Balanced preset should accept custom max_requests and time_window."""
+        config = RateLimitConfig.balanced_preset(max_requests=100, time_window=120.0)
+
+        self.assertEqual(config.max_requests, 100)
+        self.assertEqual(config.time_window, 120.0)
+        # Other values should remain preset defaults
+        self.assertEqual(config.max_wait_time, 30.0)
+        self.assertEqual(config.penalty_factor, 0.3)
+
+    def test_optimistic_preset_default_values(self):
+        """Optimistic preset should have throughput-focused defaults."""
+        config = RateLimitConfig.optimistic_preset()
+
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.strategy, "adaptive")
+        self.assertEqual(config.max_requests, 80)
+        self.assertEqual(config.time_window, 60.0)
+        self.assertEqual(config.max_wait_time, 5.0)
+        self.assertEqual(config.min_rate_floor, 0.3)
+        self.assertEqual(config.penalty_factor, 0.15)
+        self.assertEqual(config.recovery_factor, 0.1)
+
+    def test_optimistic_preset_custom_values(self):
+        """Optimistic preset should accept custom max_requests and time_window."""
+        config = RateLimitConfig.optimistic_preset(max_requests=150, time_window=60.0)
+
+        self.assertEqual(config.max_requests, 150)
+        self.assertEqual(config.time_window, 60.0)
+        # Other values should remain preset defaults
+        self.assertEqual(config.max_wait_time, 5.0)
+        self.assertEqual(config.penalty_factor, 0.15)
+
+    def test_presets_can_be_used_with_configure(self):
+        """Presets should work seamlessly with STKAI.configure() via asdict()."""
+        STKAI.reset()
+
+        # Configure using a preset (convert to dict with asdict)
+        preset = RateLimitConfig.balanced_preset(max_requests=50)
+        STKAI.configure(rate_limit=asdict(preset))
+
+        rl = STKAI.config.rate_limit
+        self.assertTrue(rl.enabled)
+        self.assertEqual(rl.strategy, "adaptive")
+        self.assertEqual(rl.max_requests, 50)
+        self.assertEqual(rl.max_wait_time, 30.0)
+
+        STKAI.reset()
+
+    def test_presets_are_valid_configs(self):
+        """All presets should pass validation."""
+        # Should not raise
+        RateLimitConfig.conservative_preset().validate()
+        RateLimitConfig.balanced_preset().validate()
+        RateLimitConfig.optimistic_preset().validate()
 
 
 class TestRateLimitConfigure(unittest.TestCase):

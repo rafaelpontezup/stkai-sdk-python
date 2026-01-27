@@ -133,7 +133,7 @@ http_client = AdaptiveRateLimitedHttpClient(
     time_window=60.0,
     min_rate_floor=0.1,      # Never below 10%
     penalty_factor=0.2,      # Reduce by 20% on 429
-    recovery_factor=0.01,    # Increase by 1% on success
+    recovery_factor=0.05,    # Increase by 5% on success
 )
 ```
 
@@ -165,6 +165,40 @@ STKAI.configure(
 rqc = RemoteQuickCommand(slug_name="my-command")
 agent = Agent(agent_id="my-agent")
 ```
+
+### Using Presets (Recommended)
+
+For most scenarios, use a preset instead of configuring each parameter manually:
+
+```python
+from dataclasses import asdict
+from stkai import STKAI, RateLimitConfig
+
+# Conservative: stability over throughput
+# Best for: critical batch jobs, CI/CD, many concurrent processes
+STKAI.configure(rate_limit=asdict(RateLimitConfig.conservative_preset(max_requests=20)))
+
+# Balanced: sensible middle-ground (recommended default)
+# Best for: general batch processing, 2-3 concurrent processes
+STKAI.configure(rate_limit=asdict(RateLimitConfig.balanced_preset(max_requests=50)))
+
+# Optimistic: throughput over stability
+# Best for: interactive/CLI usage, single process, external retry logic
+STKAI.configure(rate_limit=asdict(RateLimitConfig.optimistic_preset(max_requests=80)))
+```
+
+| Preset | `max_wait_time` | `min_rate_floor` | `penalty_factor` | `recovery_factor` |
+|--------|-----------------|------------------|------------------|-------------------|
+| `conservative_preset()` | 120s (patient) | 0.05 (5%) | 0.5 (aggressive) | 0.02 (slow) |
+| `balanced_preset()` | 30s | 0.1 (10%) | 0.3 (moderate) | 0.05 (medium) |
+| `optimistic_preset()` | 5s (fail-fast) | 0.3 (30%) | 0.15 (light) | 0.1 (fast) |
+
+!!! tip "Calculating max_requests"
+    Presets accept `max_requests` and `time_window` as parameters. Calculate based on:
+
+    - **Your API quota** (e.g., 100 req/min)
+    - **Expected concurrent processes** (e.g., ~3 processes)
+    - **Allocation per process**: `quota / processes` (e.g., 100/3 ≈ 33 req/min)
 
 ### Available Strategies
 
@@ -198,7 +232,7 @@ STKAI.configure(
         "time_window": 60.0,
         "min_rate_floor": 0.1,       # Never below 10%
         "penalty_factor": 0.2,       # Reduce by 20% on 429
-        "recovery_factor": 0.01,     # Increase by 1% on success
+        "recovery_factor": 0.05,     # Increase by 5% on success
     }
 )
 
@@ -216,7 +250,7 @@ STKAI_RATE_LIMIT_TIME_WINDOW=60.0
 STKAI_RATE_LIMIT_MAX_WAIT_TIME=unlimited  # or "none", "null"
 STKAI_RATE_LIMIT_MIN_RATE_FLOOR=0.1
 STKAI_RATE_LIMIT_PENALTY_FACTOR=0.2
-STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
+STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.05
 ```
 
 ### RateLimitConfig Fields
@@ -227,10 +261,10 @@ STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 | `strategy` | `"token_bucket"` \| `"adaptive"` | `"token_bucket"` | Rate limiting algorithm |
 | `max_requests` | `int` | `100` | Max requests per time window |
 | `time_window` | `float` | `60.0` | Time window in seconds |
-| `max_wait_time` | `float \| None` | `60.0` | Max wait for token (None = unlimited) |
+| `max_wait_time` | `float \| None` | `30.0` | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
-| `penalty_factor` | `float` | `0.2` | (adaptive) Rate reduction on 429 |
-| `recovery_factor` | `float` | `0.01` | (adaptive) Rate increase on success |
+| `penalty_factor` | `float` | `0.3` | (adaptive) Rate reduction on 429 |
+| `recovery_factor` | `float` | `0.05` | (adaptive) Rate increase on success |
 
 ### Manual Configuration
 

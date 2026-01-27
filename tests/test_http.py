@@ -134,7 +134,7 @@ class TestRateLimitedHttpClientInit:
             time_window=60.0,
         )
 
-        assert client.max_wait_time == 60.0
+        assert client.max_wait_time == 30.0
 
     def test_init_with_custom_max_wait_time(self):
         delegate = MockHttpClient()
@@ -297,7 +297,7 @@ class TestAdaptiveRateLimitedHttpClientInit:
             time_window=60.0,
         )
 
-        assert client.max_wait_time == 60.0
+        assert client.max_wait_time == 30.0
 
     def test_init_with_custom_max_wait_time(self):
         delegate = MockHttpClient()

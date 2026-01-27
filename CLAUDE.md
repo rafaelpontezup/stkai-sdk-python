@@ -218,7 +218,7 @@ STKAI_RATE_LIMIT_TIME_WINDOW=60.0
 STKAI_RATE_LIMIT_MAX_WAIT_TIME=unlimited  # or "none", "null"
 STKAI_RATE_LIMIT_MIN_RATE_FLOOR=0.1
 STKAI_RATE_LIMIT_PENALTY_FACTOR=0.2
-STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
+STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.05
 ```
 
 **RateLimitConfig fields:**
@@ -228,10 +228,25 @@ STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.01
 | `strategy` | `"token_bucket"` \| `"adaptive"` | `"token_bucket"` | Rate limiting algorithm |
 | `max_requests` | `int` | `100` | Max requests per time window |
 | `time_window` | `float` | `60.0` | Time window in seconds |
-| `max_wait_time` | `float \| None` | `60.0` | Max wait for token (None = unlimited) |
+| `max_wait_time` | `float \| None` | `30.0` | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
-| `penalty_factor` | `float` | `0.2` | (adaptive) Rate reduction on 429 |
-| `recovery_factor` | `float` | `0.01` | (adaptive) Rate increase on success |
+| `penalty_factor` | `float` | `0.3` | (adaptive) Rate reduction on 429 |
+| `recovery_factor` | `float` | `0.05` | (adaptive) Rate increase on success |
+
+**Presets:** For common scenarios, use presets instead of manual configuration:
+```python
+from dataclasses import asdict
+from stkai import STKAI, RateLimitConfig
+
+# Conservative: stability over throughput (critical jobs, many processes)
+STKAI.configure(rate_limit=asdict(RateLimitConfig.conservative_preset(max_requests=20)))
+
+# Balanced: sensible defaults (general use, 2-3 processes)
+STKAI.configure(rate_limit=asdict(RateLimitConfig.balanced_preset(max_requests=50)))
+
+# Optimistic: throughput over stability (interactive/CLI, single process)
+STKAI.configure(rate_limit=asdict(RateLimitConfig.optimistic_preset(max_requests=80)))
+```
 
 ### Configuration
 

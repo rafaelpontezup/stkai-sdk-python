@@ -151,12 +151,12 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
     Example:
         >>> from stkai._rate_limit import TokenBucketRateLimitedHttpClient
         >>> from stkai._http import StkCLIHttpClient
-        >>> # Limit to 10 requests per minute, give up after 60s waiting
+        >>> # Limit to 10 requests per minute, give up after 30s waiting
         >>> client = TokenBucketRateLimitedHttpClient(
         ...     delegate=StkCLIHttpClient(),
         ...     max_requests=10,
         ...     time_window=60.0,
-        ...     max_wait_time=60.0,
+        ...     max_wait_time=30.0,
         ... )
 
     Args:
@@ -164,7 +164,7 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
         max_requests: Maximum number of requests allowed in the time window.
         time_window: Time window in seconds for the rate limit.
         max_wait_time: Maximum time in seconds to wait for a token. If None,
-            waits indefinitely. Default is 60 seconds.
+            waits indefinitely. Default is 30 seconds.
 
     Raises:
         TokenAcquisitionTimeoutError: If max_wait_time is exceeded while waiting for a token.
@@ -175,7 +175,7 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
         delegate: HttpClient,
         max_requests: int,
         time_window: float,
-        max_wait_time: float | None = 60.0,
+        max_wait_time: float | None = 30.0,
     ):
         """
         Initialize the rate-limited HTTP client.
@@ -185,7 +185,7 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
             max_requests: Maximum number of requests allowed in the time window.
             time_window: Time window in seconds for the rate limit.
             max_wait_time: Maximum time in seconds to wait for a token.
-                If None, waits indefinitely. Default is 60 seconds.
+                If None, waits indefinitely. Default is 30 seconds.
 
         Raises:
             AssertionError: If any parameter is invalid.
@@ -327,7 +327,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         ...     max_requests=100,
         ...     time_window=60.0,
         ...     min_rate_floor=0.1,  # Never below 10 req/min
-        ...     max_wait_time=60.0,  # Give up after 60s waiting
+        ...     max_wait_time=30.0,  # Give up after 30s waiting
         ... )
 
     Args:
@@ -335,10 +335,10 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         max_requests: Maximum number of requests allowed in the time window.
         time_window: Time window in seconds for the rate limit.
         min_rate_floor: Minimum rate as fraction of max_requests (default: 0.1 = 10%).
-        penalty_factor: Rate reduction factor on 429 (default: 0.2 = -20%).
-        recovery_factor: Rate increase factor on success (default: 0.01 = +1%).
+        penalty_factor: Rate reduction factor on 429 (default: 0.3 = -30%).
+        recovery_factor: Rate increase factor on success (default: 0.05 = +5%).
         max_wait_time: Maximum time in seconds to wait for a token. If None,
-            waits indefinitely. Default is 60 seconds.
+            waits indefinitely. Default is 30 seconds.
 
     Raises:
         TokenAcquisitionTimeoutError: If max_wait_time is exceeded while waiting for a token.
@@ -351,9 +351,9 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         max_requests: int,
         time_window: float,
         min_rate_floor: float = 0.1,
-        penalty_factor: float = 0.2,
-        recovery_factor: float = 0.01,
-        max_wait_time: float | None = 60.0,
+        penalty_factor: float = 0.3,
+        recovery_factor: float = 0.05,
+        max_wait_time: float | None = 30.0,
     ):
         """
         Initialize the adaptive rate-limited HTTP client.
@@ -363,10 +363,10 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
             max_requests: Maximum number of requests allowed in the time window.
             time_window: Time window in seconds for the rate limit.
             min_rate_floor: Minimum rate as fraction of max_requests (default: 0.1 = 10%).
-            penalty_factor: Rate reduction factor on 429 (default: 0.2 = -20%).
-            recovery_factor: Rate increase factor on success (default: 0.01 = +1%).
+            penalty_factor: Rate reduction factor on 429 (default: 0.3 = -30%).
+            recovery_factor: Rate increase factor on success (default: 0.05 = +5%).
             max_wait_time: Maximum time in seconds to wait for a token.
-                If None, waits indefinitely. Default is 60 seconds.
+                If None, waits indefinitely. Default is 30 seconds.
 
         Raises:
             AssertionError: If any parameter is invalid.

@@ -574,13 +574,13 @@ class RateLimitConfig(OverridableConfig):
     time_window: float = field(default=60.0, metadata={"env": "STKAI_RATE_LIMIT_TIME_WINDOW"})
     # Special field (processed manually - can be None for "unlimited")
     max_wait_time: float | None = field(
-        default=60.0,
+        default=30.0,
         metadata={"env": "STKAI_RATE_LIMIT_MAX_WAIT_TIME", "skip": True},
     )
     # Adaptive strategy parameters (ignored if strategy != "adaptive")
     min_rate_floor: float = field(default=0.1, metadata={"env": "STKAI_RATE_LIMIT_MIN_RATE_FLOOR"})
-    penalty_factor: float = field(default=0.2, metadata={"env": "STKAI_RATE_LIMIT_PENALTY_FACTOR"})
-    recovery_factor: float = field(default=0.01, metadata={"env": "STKAI_RATE_LIMIT_RECOVERY_FACTOR"})
+    penalty_factor: float = field(default=0.3, metadata={"env": "STKAI_RATE_LIMIT_PENALTY_FACTOR"})
+    recovery_factor: float = field(default=0.05, metadata={"env": "STKAI_RATE_LIMIT_RECOVERY_FACTOR"})
 
     def with_overrides(
         self,
@@ -669,6 +669,151 @@ class RateLimitConfig(OverridableConfig):
                 "Must be greater than 0 and less than 1.", section="rate_limit"
             )
         return self
+
+    # -------------------------------------------------------------------------
+    # Presets
+    # -------------------------------------------------------------------------
+
+    @classmethod
+    def conservative_preset(
+        cls,
+        max_requests: int = 20,
+        time_window: float = 60.0,
+    ) -> RateLimitConfig:
+        """
+        Conservative rate limiting preset.
+
+        Prioritizes stability over throughput. Best for:
+        - Critical batch jobs
+        - CI/CD pipelines
+        - Scenarios with many concurrent processes
+
+        Behavior:
+        - Waits up to 120s for tokens (patient, but not forever)
+        - Aggressive penalty on 429 (halves rate)
+        - Slow recovery (2% per success)
+        - Can drop to 5% of max_requests under stress
+
+        Args:
+            max_requests: Maximum requests allowed in the time window.
+                Calculate based on your quota and expected concurrent processes.
+                Default assumes ~5 processes sharing a 100 req/min quota.
+            time_window: Time window in seconds for the rate limit.
+
+        Returns:
+            RateLimitConfig with conservative settings.
+
+        Example:
+            >>> # Quota of 100 req/min, expect ~5 processes
+            >>> config = RateLimitConfig.conservative_preset(max_requests=20)
+
+            >>> # Quota of 200 req/min, expect ~4 processes
+            >>> config = RateLimitConfig.conservative_preset(max_requests=50)
+        """
+        return cls(
+            enabled=True,
+            strategy="adaptive",
+            max_requests=max_requests,
+            time_window=time_window,
+            max_wait_time=120.0,
+            min_rate_floor=0.05,
+            penalty_factor=0.5,
+            recovery_factor=0.02,
+        )
+
+    @classmethod
+    def balanced_preset(
+        cls,
+        max_requests: int = 40,
+        time_window: float = 60.0,
+    ) -> RateLimitConfig:
+        """
+        Balanced rate limiting preset (recommended).
+
+        Sensible defaults for most use cases. Best for:
+        - General batch processing
+        - 2-3 concurrent processes
+        - When unsure which preset to use
+
+        Behavior:
+        - Waits up to 30s for tokens
+        - Moderate penalty on 429 (30% reduction)
+        - Medium recovery (5% per success)
+        - Can drop to 10% of max_requests under stress
+
+        Args:
+            max_requests: Maximum requests allowed in the time window.
+                Calculate based on your quota and expected concurrent processes.
+                Default assumes ~2-3 processes sharing a 100 req/min quota.
+            time_window: Time window in seconds for the rate limit.
+
+        Returns:
+            RateLimitConfig with balanced settings.
+
+        Example:
+            >>> # Quota of 100 req/min, expect ~2 processes
+            >>> config = RateLimitConfig.balanced_preset(max_requests=50)
+
+            >>> # Use defaults (good for typical scenarios)
+            >>> config = RateLimitConfig.balanced_preset()
+        """
+        return cls(
+            enabled=True,
+            strategy="adaptive",
+            max_requests=max_requests,
+            time_window=time_window,
+            max_wait_time=30.0,
+            min_rate_floor=0.1,
+            penalty_factor=0.3,
+            recovery_factor=0.05,
+        )
+
+    @classmethod
+    def optimistic_preset(
+        cls,
+        max_requests: int = 80,
+        time_window: float = 60.0,
+    ) -> RateLimitConfig:
+        """
+        Optimistic rate limiting preset.
+
+        Prioritizes throughput over stability. Best for:
+        - Interactive/CLI usage
+        - Single-process scenarios
+        - When external retry logic exists
+
+        Behavior:
+        - Fails fast if can't get token in 5s
+        - Light penalty on 429 (15% reduction)
+        - Fast recovery (10% per success)
+        - Never drops below 30% of max_requests
+
+        Args:
+            max_requests: Maximum requests allowed in the time window.
+                Calculate based on your quota. Default assumes single process
+                using ~80% of a 100 req/min quota.
+            time_window: Time window in seconds for the rate limit.
+
+        Returns:
+            RateLimitConfig with optimistic settings.
+
+        Example:
+            >>> # Quota of 100 req/min, single process
+            >>> config = RateLimitConfig.optimistic_preset(max_requests=80)
+
+            >>> # Quota of 200 req/min, want maximum throughput
+            >>> config = RateLimitConfig.optimistic_preset(max_requests=180)
+        """
+        return cls(
+            enabled=True,
+            strategy="adaptive",
+            max_requests=max_requests,
+            time_window=time_window,
+            max_wait_time=5.0,
+            min_rate_floor=0.3,
+            penalty_factor=0.15,
+            recovery_factor=0.1,
+        )
 
 
 @dataclass(frozen=True)
