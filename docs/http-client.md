@@ -142,7 +142,328 @@ http_client = AdaptiveRateLimitedHttpClient(
 
 ## Rate Limiting
 
-The SDK supports automatic rate limiting that applies to all HTTP requests (both RQC and Agents).
+### Why Rate Limiting Matters for StackSpot AI
+
+Agents and Remote Quick Commands (RQCs) make calls to LLM models that have **shared quotas** and **costs per request**. Without proper rate control:
+
+- **HTTP 429 errors** flood your logs and waste retry cycles
+- **Service degradation** affects other teams sharing the same quota
+- **Unexpected costs** from runaway batch jobs
+- **Thundering herd** when multiple processes start simultaneously
+
+Rate limiting is especially important for:
+
+| Scenario | Risk Without Rate Limiting |
+|----------|---------------------------|
+| Batch processing (e.g., processing 1000 files) | Burst of requests exhausts quota in seconds |
+| Multiple CI/CD pipelines | Pipelines compete for shared quota |
+| Microservices with multiple replicas | Each replica thinks it has full quota |
+| Development + Production sharing quota | Dev experiments impact production |
+
+### Strategies: Token Bucket vs Adaptive
+
+The SDK offers two rate limiting strategies, each suited for different scenarios.
+
+#### Token Bucket Strategy
+
+**When to use:**
+
+- You have a **fixed, known quota** (e.g., "100 requests/minute")
+- Your process runs **alone** or has a **dedicated quota allocation**
+- You want **predictable, simple** rate limiting
+
+**How it works:**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                      Token Bucket Algorithm                       │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│   Bucket: [●●●●●○○○○○]  (5 tokens available, 5 used)             │
+│                                                                   │
+│   • Tokens refill over time at: max_requests / time_window       │
+│   • Each POST request consumes 1 token                           │
+│   • When empty, requests wait until tokens available             │
+│   • If waiting exceeds max_wait_time → TokenAcquisitionTimeoutError     │
+│   • GET requests (polling) pass through without consuming tokens │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Points of attention:**
+
+- Does **not react to HTTP 429** from the server — it only controls outgoing rate
+- If your quota is shared with other processes, you may still get 429s
+- Best combined with retry logic (which the SDK provides automatically)
+
+#### Adaptive Strategy (AIMD)
+
+**When to use:**
+
+- **Multiple processes** share the same quota
+- Your **quota is unpredictable** or varies over time
+- You want the SDK to **automatically adjust** based on server feedback
+
+**How it works:**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         AIMD Algorithm                            │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│   On SUCCESS:                                                     │
+│     effective_rate += max_requests × recovery_factor              │
+│     (gradual increase)                                            │
+│                                                                   │
+│   On HTTP 429:                                                    │
+│     effective_rate *= (1 - penalty_factor)                        │
+│     (aggressive decrease)                                         │
+│     raise ServerSideRateLimitError → Retrying handles retry       │
+│                                                                   │
+│   Constraints:                                                    │
+│     • Floor: effective_rate ≥ max_requests × min_rate_floor      │
+│     • Ceiling: effective_rate ≤ max_requests                     │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Points of attention:**
+
+- **Convergence time**: After a 429, it takes several successful requests to recover full rate
+- **Cold start**: Starts at `max_requests` and decreases on first 429 — may cause initial burst
+- `recovery_factor` too low = slow recovery after 429 spike
+- `penalty_factor` too low = doesn't back off enough, keeps hitting 429s
+
+**429 Handling:** When the server returns HTTP 429 (Too Many Requests), the `AdaptiveRateLimitedHttpClient`:
+
+1. **Applies AIMD penalty** - Reduces effective rate by `penalty_factor`
+2. **Raises `ServerSideRateLimitError`** - Contains the response for `Retry-After` parsing
+
+The `Retrying` class then handles the retry:
+
+1. **Parses `Retry-After` header** - If present and ≤ 60s, uses it as wait time
+2. **Calculates wait time** - Uses max(Retry-After, exponential backoff)
+3. **Adds jitter (0-30%)** - Prevents thundering herd
+4. **Retries the request** - Up to `max_retries` times
+
+!!! note "Protection against abusive Retry-After"
+    The `Retrying` class ignores `Retry-After` values greater than 60 seconds to protect against buggy or malicious servers. In such cases, it falls back to exponential backoff.
+
+#### Strategy Comparison
+
+| Scenario | Recommended Strategy | Why |
+|----------|---------------------|-----|
+| Single process, known quota | `token_bucket` | Simple, predictable, no overhead |
+| Multiple processes sharing quota | `adaptive` | Automatically adjusts based on 429s |
+| API returns 429 frequently | `adaptive` | Learns from server feedback |
+| Stable workload, dedicated quota | `token_bucket` | No need for dynamic adjustment |
+| CI/CD with variable load | `adaptive` | Handles concurrent pipeline runs |
+
+### Presets (Adaptive Strategy)
+
+Presets provide pre-tuned configurations for the `adaptive` strategy. Instead of manually tuning `penalty_factor`, `recovery_factor`, etc., choose a preset that matches your use case:
+
+```python
+from dataclasses import asdict
+from stkai import STKAI, RateLimitConfig
+
+# Conservative: stability over throughput
+STKAI.configure(rate_limit=asdict(RateLimitConfig.conservative_preset(max_requests=20)))
+
+# Balanced: sensible middle-ground (recommended for most cases)
+STKAI.configure(rate_limit=asdict(RateLimitConfig.balanced_preset(max_requests=50)))
+
+# Optimistic: throughput over stability
+STKAI.configure(rate_limit=asdict(RateLimitConfig.optimistic_preset(max_requests=80)))
+```
+
+#### Preset Comparison
+
+| Preset | `max_wait_time` | `min_rate_floor` | `penalty_factor` | `recovery_factor` |
+|--------|-----------------|------------------|------------------|-------------------|
+| `conservative_preset()` | 120s (patient) | 0.05 (5%) | 0.5 (aggressive) | 0.02 (slow) |
+| `balanced_preset()` | 30s | 0.1 (10%) | 0.3 (moderate) | 0.05 (medium) |
+| `optimistic_preset()` | 5s (fail-fast) | 0.3 (30%) | 0.15 (light) | 0.1 (fast) |
+
+#### When to Use Each Preset
+
+**Conservative** — Stability over throughput
+
+- Critical batch jobs that **cannot fail**
+- Many concurrent processes (5+) sharing quota
+- Jobs that run overnight and can afford to be slow
+- When 429 errors have significant business impact
+
+**Balanced** — Sensible default
+
+- General batch processing
+- 2-3 concurrent processes sharing quota
+- When you want reasonable throughput with good stability
+- **Recommended starting point** for most applications
+
+**Optimistic** — Throughput over stability
+
+- Interactive CLI tools that need fast feedback
+- Single process with dedicated quota
+- When you have external retry logic or can tolerate failures
+- Short-lived scripts where waiting is unacceptable
+
+#### Calculating max_requests
+
+Presets accept `max_requests` and `time_window` as parameters. Calculate based on your environment:
+
+```
+max_requests = (API quota) / (number of concurrent processes)
+```
+
+**Example:** Your team has a quota of 100 req/min. You run 3 batch jobs concurrently:
+
+```python
+# Each process gets ~33 req/min
+STKAI.configure(rate_limit=asdict(
+    RateLimitConfig.balanced_preset(max_requests=33)
+))
+```
+
+!!! warning "Be conservative with the division"
+    It's better to underestimate than overestimate. If unsure, divide by a higher number. You can always increase later.
+
+### Practical Scenarios
+
+#### Scenario 1: CI/CD Pipeline (Single Process)
+
+A GitHub Actions job that processes code files. Runs alone, predictable workload.
+
+```python
+from stkai import STKAI
+
+# Simple token bucket - we know we're the only consumer
+STKAI.configure(
+    rate_limit={
+        "enabled": True,
+        "strategy": "token_bucket",
+        "max_requests": 60,      # Our full quota
+        "time_window": 60.0,
+        "max_wait_time": 120.0,  # Patient - job can wait
+    }
+)
+```
+
+#### Scenario 2: Multiple Batch Jobs Sharing Quota
+
+Three Python processes running simultaneously, each processing different data. They share a 100 req/min quota.
+
+```python
+from dataclasses import asdict
+from stkai import STKAI, RateLimitConfig
+
+# Adaptive with conservative settings - let processes coordinate via 429s
+STKAI.configure(rate_limit=asdict(
+    RateLimitConfig.conservative_preset(
+        max_requests=30,  # 100 / 3 ≈ 33, round down for safety
+    )
+))
+```
+
+#### Scenario 3: Interactive CLI Tool
+
+A developer tool that needs fast feedback. User is waiting for response.
+
+```python
+from dataclasses import asdict
+from stkai import STKAI, RateLimitConfig
+
+# Optimistic - fail fast, let user retry manually
+STKAI.configure(rate_limit=asdict(
+    RateLimitConfig.optimistic_preset(
+        max_requests=50,
+    )
+))
+```
+
+#### Scenario 4: Batch Processing with execute_many()
+
+Processing 500 files using `execute_many()` with 8 workers. Note that all workers share the same rate limiter.
+
+```python
+from dataclasses import asdict
+from stkai import STKAI, RateLimitConfig, RemoteQuickCommand
+
+STKAI.configure(rate_limit=asdict(
+    RateLimitConfig.balanced_preset(max_requests=40)
+))
+
+rqc = RemoteQuickCommand(
+    slug_name="analyze-code",
+    max_workers=8,  # 8 threads, but all share the same rate limiter
+)
+
+# The rate limiter ensures we don't exceed 40 req/min
+# regardless of how many workers are active
+responses = rqc.execute_many(requests)
+```
+
+### Important Considerations
+
+#### Rate Limiting Only Applies to POST Requests
+
+The SDK only rate-limits POST requests (which create executions). GET requests (used for polling) are **not** rate-limited:
+
+```
+POST /executions → Rate limited (consumes token)
+GET /executions/{id} → NOT rate limited (polling is free)
+```
+
+This means your effective quota consumption depends on how many **new executions** you create, not on polling frequency.
+
+#### Multiple Processes = Divide the Quota
+
+Rate limiting is **per-process**. If you have 3 processes, each needs its own allocation:
+
+```python
+# WRONG: Each process thinks it has full quota
+STKAI.configure(rate_limit={"max_requests": 100})  # All 3 processes do this!
+
+# RIGHT: Divide quota among processes
+STKAI.configure(rate_limit={"max_requests": 33})   # 100 / 3
+```
+
+#### max_wait_time Can Block Your Application
+
+If `max_wait_time` is too high, threads may block for a long time waiting for tokens:
+
+```python
+# This can block a thread for up to 5 minutes!
+STKAI.configure(rate_limit={"max_wait_time": 300})
+
+# Better: fail faster and let retry logic handle it
+STKAI.configure(rate_limit={"max_wait_time": 30})
+```
+
+#### Rate Limiter is Per-Instance
+
+Each `RemoteQuickCommand` or `Agent` instance has its own rate limiter (via its `HttpClient`). They don't share state by default:
+
+```python
+# These have SEPARATE rate limiters - combined they may exceed quota!
+rqc1 = RemoteQuickCommand(slug_name="command-1")
+rqc2 = RemoteQuickCommand(slug_name="command-2")
+agent = Agent(agent_id="my-agent")
+```
+
+**To share a rate limiter**, pass the same `HttpClient` instance:
+
+```python
+from stkai import RemoteQuickCommand, Agent, EnvironmentAwareHttpClient
+
+# Create a single HTTP client (rate limiter included via STKAI.configure)
+shared_client = EnvironmentAwareHttpClient()
+
+# All instances share the same rate limiter
+rqc1 = RemoteQuickCommand(slug_name="command-1", http_client=shared_client)
+rqc2 = RemoteQuickCommand(slug_name="command-2", http_client=shared_client)
+agent = Agent(agent_id="my-agent", http_client=shared_client)
+```
 
 ### Global Configuration (Recommended)
 
@@ -165,47 +486,6 @@ STKAI.configure(
 rqc = RemoteQuickCommand(slug_name="my-command")
 agent = Agent(agent_id="my-agent")
 ```
-
-### Using Presets (Recommended)
-
-For most scenarios, use a preset instead of configuring each parameter manually:
-
-```python
-from dataclasses import asdict
-from stkai import STKAI, RateLimitConfig
-
-# Conservative: stability over throughput
-# Best for: critical batch jobs, CI/CD, many concurrent processes
-STKAI.configure(rate_limit=asdict(RateLimitConfig.conservative_preset(max_requests=20)))
-
-# Balanced: sensible middle-ground (recommended default)
-# Best for: general batch processing, 2-3 concurrent processes
-STKAI.configure(rate_limit=asdict(RateLimitConfig.balanced_preset(max_requests=50)))
-
-# Optimistic: throughput over stability
-# Best for: interactive/CLI usage, single process, external retry logic
-STKAI.configure(rate_limit=asdict(RateLimitConfig.optimistic_preset(max_requests=80)))
-```
-
-| Preset | `max_wait_time` | `min_rate_floor` | `penalty_factor` | `recovery_factor` |
-|--------|-----------------|------------------|------------------|-------------------|
-| `conservative_preset()` | 120s (patient) | 0.05 (5%) | 0.5 (aggressive) | 0.02 (slow) |
-| `balanced_preset()` | 30s | 0.1 (10%) | 0.3 (moderate) | 0.05 (medium) |
-| `optimistic_preset()` | 5s (fail-fast) | 0.3 (30%) | 0.15 (light) | 0.1 (fast) |
-
-!!! tip "Calculating max_requests"
-    Presets accept `max_requests` and `time_window` as parameters. Calculate based on:
-
-    - **Your API quota** (e.g., 100 req/min)
-    - **Expected concurrent processes** (e.g., ~3 processes)
-    - **Allocation per process**: `quota / processes` (e.g., 100/3 ≈ 33 req/min)
-
-### Available Strategies
-
-| Strategy | Algorithm | Best For |
-|----------|-----------|----------|
-| `token_bucket` | Fixed Token Bucket | Known, stable rate limits |
-| `adaptive` | AIMD + 429 handling | Shared quotas, unpredictable limits |
 
 ### Configuration via Code
 
@@ -287,66 +567,6 @@ rqc = RemoteQuickCommand(
 )
 ```
 
-### How Token Bucket Works
-
-The `token_bucket` strategy uses a simple Token Bucket algorithm:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      Token Bucket Algorithm                       │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│   Bucket: [●●●●●○○○○○]  (5 tokens available, 5 used)             │
-│                                                                   │
-│   • Tokens refill over time at: max_requests / time_window       │
-│   • Each POST request consumes 1 token                           │
-│   • When empty, requests wait until tokens available             │
-│   • If waiting exceeds max_wait_time → TokenAcquisitionTimeoutError     │
-│   • GET requests (polling) pass through without consuming tokens │
-│                                                                   │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-### How Adaptive (AIMD) Works
-
-The `adaptive` strategy uses **Additive Increase, Multiplicative Decrease** (AIMD):
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                         AIMD Algorithm                            │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│   On SUCCESS:                                                     │
-│     effective_rate += max_requests × recovery_factor              │
-│     (gradual increase)                                            │
-│                                                                   │
-│   On HTTP 429:                                                    │
-│     effective_rate *= (1 - penalty_factor)                        │
-│     (aggressive decrease)                                         │
-│     raise ServerSideRateLimitError → Retrying handles retry       │
-│                                                                   │
-│   Constraints:                                                    │
-│     • Floor: effective_rate ≥ max_requests × min_rate_floor      │
-│     • Ceiling: effective_rate ≤ max_requests                     │
-│                                                                   │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-**429 Handling:** When the server returns HTTP 429 (Too Many Requests), the `AdaptiveRateLimitedHttpClient`:
-
-1. **Applies AIMD penalty** - Reduces effective rate by `penalty_factor`
-2. **Raises `ServerSideRateLimitError`** - Contains the response for `Retry-After` parsing
-
-The `Retrying` class then handles the retry:
-
-1. **Parses `Retry-After` header** - If present and ≤ 60s, uses it as wait time
-2. **Calculates wait time** - Uses max(Retry-After, exponential backoff)
-3. **Adds jitter (0-30%)** - Prevents thundering herd
-4. **Retries the request** - Up to `max_retries` times
-
-!!! note "Protection against abusive Retry-After"
-    The `Retrying` class ignores `Retry-After` values greater than 60 seconds to protect against buggy or malicious servers. In such cases, it falls back to exponential backoff.
-
 ### Exception Hierarchy
 
 The SDK provides a clear exception hierarchy for rate limiting errors:
@@ -395,16 +615,6 @@ except TokenAcquisitionTimeoutError as e:
 
 !!! tip "Choosing max_wait_time"
     A good rule of thumb is to set `max_wait_time` equal to `time_window`. This ensures at least one full rate limit cycle can complete before timing out.
-
-### When to Use Which Strategy
-
-| Scenario | Recommended Strategy |
-|----------|---------------------|
-| Single client, known API limit | `token_bucket` |
-| Multiple clients sharing quota | `adaptive` |
-| API returns 429 frequently | `adaptive` |
-| Predictable, stable workload | `token_bucket` |
-| CI/CD with variable load | `adaptive` |
 
 ### Thread Safety
 
