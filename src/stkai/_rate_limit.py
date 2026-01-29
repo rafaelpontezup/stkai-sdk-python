@@ -44,6 +44,7 @@ import requests
 
 from stkai._http import HttpClient
 from stkai._retry import RetryableError
+from stkai._utils import sleep_with_jitter
 
 logger = logging.getLogger(__name__)
 
@@ -403,6 +404,12 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         self._last_refill = time.time()
         self._lock = threading.Lock()
 
+        # Deterministic per-process RNG for structural jitter
+        # Same process = same sequence (deterministic for debugging)
+        # Different processes = different sequences (desynchronization)
+        seed = hash((socket.gethostname(), os.getpid()))
+        self._rng = random.Random(seed)
+
     def _acquire_token(self) -> None:
         """
         Acquire a token using adaptive effective_max.
@@ -441,7 +448,8 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
                         max_wait_time=self.max_wait_time,
                     )
 
-            time.sleep(wait_time)
+            # Sleep with jitter to prevent thundering herd
+            sleep_with_jitter(wait_time, jitter_factor=0.15)
 
     def _on_success(self) -> None:
         """
@@ -449,9 +457,14 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
 
         Gradually recovers the effective rate after successful requests,
         up to the original max_requests ceiling.
+
+        Uses jittered recovery factor (±15%) to desynchronize processes
+        and prevent collective oscillations.
         """
         with self._lock:
-            recovery = self.max_requests * self.recovery_factor
+            # Jitter ±15% on recovery to desynchronize processes
+            jittered_factor = self.recovery_factor * self._rng.uniform(0.85, 1.15)
+            recovery = self.max_requests * jittered_factor
             self._effective_max = min(
                 float(self.max_requests),
                 self._effective_max + recovery
@@ -464,15 +477,21 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         Reduces the effective rate to adapt to server-side rate limits,
         but never below the configured floor.
 
+        Uses jittered penalty factor (±15%) to desynchronize processes
+        and prevent collective oscillations.
+
         Also clamps _tokens to maintain Token Bucket invariant: tokens <= effective_max.
         Without this, after penalization the tokens could exceed the new effective_max,
         breaking the bucket's capacity constraint.
         """
         with self._lock:
+            # Jitter ±15% on penalty to desynchronize processes
+            jittered_penalty = self.penalty_factor * self._rng.uniform(0.85, 1.15)
+
             old_max = self._effective_max
             self._effective_max = max(
                 self._min_effective,
-                self._effective_max * (1 - self.penalty_factor)
+                self._effective_max * (1 - jittered_penalty)
             )
             # Clamp tokens to maintain invariant: tokens <= effective_max
             self._tokens = min(self._tokens, self._effective_max)

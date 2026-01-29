@@ -212,17 +212,26 @@ The SDK offers two rate limiting strategies, each suited for different scenarios
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │   On SUCCESS:                                                     │
-│     effective_rate += max_requests × recovery_factor              │
-│     (gradual increase)                                            │
+│     effective_rate += max_requests × recovery_factor × jitter    │
+│     (gradual increase, jittered ±15%)                            │
 │                                                                   │
 │   On HTTP 429:                                                    │
-│     effective_rate *= (1 - penalty_factor)                        │
-│     (aggressive decrease)                                         │
+│     effective_rate *= (1 - penalty_factor × jitter)              │
+│     (aggressive decrease, jittered ±15%)                         │
 │     raise ServerSideRateLimitError → Retrying handles retry       │
+│                                                                   │
+│   On TOKEN WAIT:                                                  │
+│     sleep(wait_time × jitter)                                     │
+│     (sleep jitter ±15% to spread workers)                        │
 │                                                                   │
 │   Constraints:                                                    │
 │     • Floor: effective_rate ≥ max_requests × min_rate_floor      │
 │     • Ceiling: effective_rate ≤ max_requests                     │
+│                                                                   │
+│   Anti-Thundering Herd:                                           │
+│     • Structural jitter: penalty/recovery vary ±15% per process  │
+│     • Sleep jitter: token wait varies ±15%                       │
+│     • Deterministic RNG per process (hostname+pid seed)          │
 │                                                                   │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -254,11 +263,11 @@ The `Retrying` class then handles the retry:
 | Scenario | Recommended Strategy | Why |
 |----------|---------------------|-----|
 | Single process, known quota | `token_bucket` | Simple, predictable, no overhead |
-| Multiple processes sharing quota | `adaptive` | Automatically adjusts based on 429s |
+| Multiple processes sharing quota | `adaptive` | Automatically adjusts based on 429s + jitter prevents sync |
 | API returns 429 frequently | `adaptive` | Learns from server feedback |
 | Stable workload, dedicated quota | `token_bucket` | No need for dynamic adjustment |
-| CI/CD with variable load | `adaptive` | Handles concurrent pipeline runs |
-| RQC with many processes, shared quota | `congestion_controlled` | Preventive backpressure + jitter |
+| CI/CD with variable load | `adaptive` | Handles concurrent pipeline runs with jitter desync |
+| RQC with many processes (5+), shared quota | `congestion_controlled` | Preventive backpressure + concurrency control |
 
 #### Congestion Controlled Strategy (EXPERIMENTAL)
 
@@ -470,13 +479,15 @@ The congestion controller was designed for workflows where POST is **fast** (jus
 
 **Q: What is "structural jitter" and why does it matter?**
 
-When multiple processes share a quota and use identical AIMD parameters, they tend to synchronize: all reduce rate on 429, all recover at the same rate, all hit the ceiling together, repeat. Structural jitter adds ±20% variation to `penalty_factor` and `recovery_factor` per process (using a deterministic seed based on hostname+pid). This desynchronizes processes, preventing thundering herd effects.
+When multiple processes share a quota and use identical AIMD parameters, they tend to synchronize: all reduce rate on 429, all recover at the same rate, all hit the ceiling together, repeat. Structural jitter adds variation to `penalty_factor` and `recovery_factor` per process (using a deterministic seed based on hostname+pid). This desynchronizes processes, preventing thundering herd effects.
+
+Both `adaptive` (±15%) and `congestion_controlled` (±20%) strategies include structural jitter. The `adaptive` strategy also adds sleep jitter (±15%) when waiting for tokens.
 
 **Q: How do I choose between `adaptive` and `congestion_controlled`?**
 
 | Criterion | Use `adaptive` | Use `congestion_controlled` |
 |-----------|---------------|----------------------------|
-| Number of processes | 1-3 | 4+ |
+| Number of processes | 1-4 | 5+ |
 | Need preventive backpressure | No | Yes |
 | Latency is meaningful signal | No | Yes (RQC) |
 | Workflow | Agent::chat() or simple | RQC execute_many() |

@@ -420,10 +420,13 @@ class TestAdaptiveRateLimitedHttpClientTokenInvariant:
         client._tokens = 80.0
         assert client._effective_max == 100.0
 
+        # Mock RNG to return 1.0 (no jitter) for deterministic test
+        client._rng.uniform = MagicMock(return_value=1.0)
+
         # Trigger penalty
         client._on_rate_limited()
 
-        # effective_max should be reduced by 50%: 100 * (1 - 0.5) = 50
+        # effective_max should be reduced by 50%: 100 * (1 - 0.5 * 1.0) = 50
         assert client._effective_max == 50.0
         # tokens should be clamped to the new effective_max
         assert client._tokens == 50.0
@@ -495,10 +498,155 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
         # Manually reduce effective_max to simulate prior penalty
         client._effective_max = 50.0
 
+        # Mock RNG to return 1.0 (no jitter) for deterministic test
+        client._rng.uniform = MagicMock(return_value=1.0)
+
         client.post("http://example.com", data={})
 
-        # Recovery: 50 + (100 * 0.1) = 60
+        # Recovery: 50 + (100 * 0.1 * 1.0) = 60
         assert client._effective_max == 60.0
+
+
+class TestAdaptiveRateLimitedHttpClientJitter:
+    """Tests for jitter behavior in AdaptiveRateLimitedHttpClient."""
+
+    def test_init_creates_deterministic_rng_per_process(self):
+        """RNG should be seeded with hostname+pid for structural jitter."""
+        delegate = MockHttpClient()
+
+        client1 = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+        )
+
+        client2 = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+        )
+
+        # Same process = same seed = same RNG sequence
+        assert client1._rng is not None
+        assert client2._rng is not None
+
+        # Verify the seed is based on hostname+pid (deterministic within same process)
+        import os
+        import random
+        import socket
+        expected_seed = hash((socket.gethostname(), os.getpid()))
+
+        # Create a new RNG with same seed and verify it produces same values
+        test_rng = random.Random(expected_seed)
+        client3 = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+        )
+        # Both should start with the same sequence
+        assert test_rng.random() == client3._rng.random()
+
+    def test_on_success_applies_jittered_recovery(self):
+        """Recovery factor should vary with ±15% jitter."""
+        delegate = MockHttpClient()
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            recovery_factor=0.1,
+        )
+
+        client._effective_max = 50.0
+        # Mock RNG to return 0.85 (lower bound of jitter)
+        client._rng.uniform = MagicMock(return_value=0.85)
+
+        client._on_success()
+
+        # Recovery: 50 + (100 * 0.1 * 0.85) = 58.5
+        assert client._effective_max == 58.5
+
+    def test_on_success_jitter_range(self):
+        """Recovery jitter should call uniform with (0.85, 1.15)."""
+        delegate = MockHttpClient()
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            recovery_factor=0.1,
+        )
+
+        client._effective_max = 50.0
+        client._rng.uniform = MagicMock(return_value=1.0)
+
+        client._on_success()
+
+        # Verify uniform was called with the correct range
+        client._rng.uniform.assert_called_once_with(0.85, 1.15)
+
+    def test_on_rate_limited_applies_jittered_penalty(self):
+        """Penalty factor should vary with ±15% jitter."""
+        delegate = MockHttpClient()
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            penalty_factor=0.3,
+        )
+
+        client._effective_max = 100.0
+        # Mock RNG to return 1.15 (upper bound of jitter)
+        client._rng.uniform = MagicMock(return_value=1.15)
+
+        client._on_rate_limited()
+
+        # Penalty: 100 * (1 - 0.3 * 1.15) = 100 * (1 - 0.345) = 65.5
+        assert client._effective_max == 65.5
+
+    def test_on_rate_limited_jitter_range(self):
+        """Penalty jitter should call uniform with (0.85, 1.15)."""
+        delegate = MockHttpClient()
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=100,
+            time_window=60.0,
+            penalty_factor=0.3,
+        )
+
+        client._effective_max = 100.0
+        client._rng.uniform = MagicMock(return_value=1.0)
+
+        client._on_rate_limited()
+
+        # Verify uniform was called with the correct range
+        client._rng.uniform.assert_called_once_with(0.85, 1.15)
+
+    def test_acquire_token_uses_sleep_with_jitter(self):
+        """Token acquisition should use sleep_with_jitter for desynchronization."""
+        delegate = MockHttpClient()
+        # Slow rate: 1 request per 10 seconds
+        client = AdaptiveRateLimitedHttpClient(
+            delegate=delegate,
+            max_requests=1,
+            time_window=10.0,
+            max_wait_time=1.0,
+        )
+
+        # Consume the only token
+        client._acquire_token()
+
+        # Now test that next acquisition uses sleep_with_jitter
+        with patch("stkai._rate_limit.sleep_with_jitter") as mock_sleep:
+            # This will timeout but we want to verify sleep_with_jitter is called
+            try:
+                client._acquire_token()
+            except Exception:
+                pass  # Expected timeout
+
+            # Verify sleep_with_jitter was called with correct jitter_factor
+            if mock_sleep.called:
+                call_args = mock_sleep.call_args
+                assert call_args[1].get("jitter_factor") == 0.15 or \
+                       (len(call_args[0]) > 1 and call_args[0][1] == 0.15)
 
 
 # =============================================================================

@@ -164,8 +164,10 @@ The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, 
 | Strategy | Algorithm | Use Case |
 |----------|-----------|----------|
 | `token_bucket` | Token Bucket | Simple, predictable rate limiting |
-| `adaptive` | AIMD (Additive Increase, Multiplicative Decrease) | Dynamic environments with shared quotas |
+| `adaptive` | AIMD + Jitter (±15% on penalty/recovery/sleep) | Dynamic environments with shared quotas |
 | `congestion_controlled` | AIMD + Concurrency + Latency EMA | (EXPERIMENTAL) RQC with multiple processes, NOT for Agent |
+
+**Note on `adaptive` jitter:** The adaptive strategy applies ±15% jitter to penalty_factor, recovery_factor, and token wait sleep times. This desynchronizes processes sharing a quota, preventing thundering herd effects and synchronized oscillations. Each process has a deterministic RNG seeded with hostname+pid.
 
 **Note:** HTTP 429 retry logic is handled by the `Retrying` class (in `_retry.py`), not the rate limiter. The adaptive strategy applies AIMD penalty on 429 responses (reduces rate) and raises `ServerSideRateLimitError` for `Retrying` to handle with backoff and `Retry-After` header support.
 
