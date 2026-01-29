@@ -258,6 +258,233 @@ The `Retrying` class then handles the retry:
 | API returns 429 frequently | `adaptive` | Learns from server feedback |
 | Stable workload, dedicated quota | `token_bucket` | No need for dynamic adjustment |
 | CI/CD with variable load | `adaptive` | Handles concurrent pipeline runs |
+| RQC with many processes, shared quota | `congestion_controlled` | Preventive backpressure + jitter |
+
+#### Congestion Controlled Strategy (EXPERIMENTAL)
+
+!!! warning "Experimental Feature"
+    This strategy is **experimental** and only available via programmatic configuration. It is **not** exposed through `STKAI.configure()` or environment variables. Use it when you understand the trade-offs and have validated it for your use case.
+
+**When to use:**
+
+- **Multiple processes** on different machines sharing the same API quota
+- **RemoteQuickCommand** workflows (fast POST + long polling)
+- You need **preventive backpressure** based on latency, not just reactive 429 handling
+- You want to avoid **thundering herd** effects across processes
+
+**When NOT to use:**
+
+- **Agent::chat()** or any LLM-direct requests with inherently high latency
+- Single process scenarios (use `token_bucket` or `adaptive` instead)
+- When you need predictable, simple behavior
+
+##### Mental Model
+
+Unlike simple rate limiters, `CongestionControlledHttpClient` is a **congestion controller** inspired by TCP and AWS SDK. It uses three control dimensions:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Congestion Controller                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   1. RATE (Token Bucket + AIMD)                                             │
+│      ─────────────────────────                                              │
+│      Controls average request rate. Adapts via AIMD:                        │
+│      • Success → rate increases gradually (additive)                        │
+│      • HTTP 429 → rate decreases aggressively (multiplicative)              │
+│                                                                              │
+│   2. CONCURRENCY (Adaptive Semaphore)                                       │
+│      ────────────────────────────────                                       │
+│      Limits in-flight requests. Key insight:                                │
+│                                                                              │
+│          pressure = rate × latency                                          │
+│                                                                              │
+│      High latency → reduce concurrency BEFORE getting 429s                  │
+│      (preventive backpressure)                                              │
+│                                                                              │
+│   3. LATENCY (EMA Tracking)                                                 │
+│      ──────────────────────                                                 │
+│      Tracks system pressure via Exponential Moving Average.                 │
+│      Filters noise, detects sustained trends.                               │
+│                                                                              │
+│   + STRUCTURAL JITTER (Anti-Thundering Herd)                                │
+│     ────────────────────────────────────────                                │
+│     Each process has deterministic RNG (hostname+pid seed).                 │
+│     Recovery/penalty factors vary ±20% across processes.                    │
+│     Prevents synchronized oscillations.                                     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+##### Why It Works for RemoteQuickCommand
+
+The RQC workflow has two phases:
+
+```
+[POST create-execution] ──► [GET poll] ──► [GET poll] ──► [GET poll] ──► Result
+      ~200ms                   ~5s          ~5s           ~5s
+         ↑
+    Rate Limited              NOT Rate Limited
+    (fast, releases          (polling is free)
+     semaphore quickly)
+```
+
+- **POST is fast**: Semaphore is held briefly (~200ms), then released
+- **Polling is free**: GET requests bypass rate limiting entirely
+- **Latency is meaningful**: Slow POST = server congestion signal
+- **Jitter prevents sync**: Multiple processes don't oscillate together
+
+##### Why It Does NOT Work for Agent::chat()
+
+```
+[POST chat] ════════════════════════════════════════════════════════► Result
+                           10-30 seconds (LLM processing)
+                                    ↑
+                           Semaphore held THE ENTIRE TIME!
+```
+
+- **POST is slow**: Semaphore held for 10-30s (LLM processing time)
+- **High latency is NORMAL**: Not a congestion signal, just how LLMs work
+- **Concurrency limit = bottleneck**: With `max_concurrency=5`, only 5 chats can run at once
+
+**Impact example** (8 workers, each chat ~15s):
+
+| Configuration | Total Time (8 chats) | Degradation |
+|---------------|---------------------|-------------|
+| No rate limit | ~18s | - |
+| CongestionControlled (max_concurrency=5) | ~32s | +78% slower |
+
+##### Programmatic Configuration
+
+!!! warning "Disable Global Rate Limiting"
+    When using `CongestionControlledHttpClient`, you must **not** enable rate limiting via `STKAI.configure()`. The congestion controller has its own built-in rate limiting. Using both would result in double rate limiting and unexpected behavior.
+
+```python
+from stkai import STKAI, RemoteQuickCommand, EnvironmentAwareHttpClient
+from stkai._rate_limit import CongestionControlledHttpClient
+
+# IMPORTANT: Ensure global rate limiting is disabled
+STKAI.configure(
+    rate_limit={"enabled": False}  # Congestion controller handles rate limiting
+)
+
+# Create the congestion-controlled client manually
+http_client = CongestionControlledHttpClient(
+    delegate=EnvironmentAwareHttpClient(),
+    max_requests=100,           # Token bucket capacity
+    time_window=60.0,           # Window in seconds
+    min_rate_floor=0.1,         # Never below 10% of max
+    penalty_factor=0.3,         # Reduce by 30% on 429
+    recovery_factor=0.05,       # Increase by 5% on success
+    max_wait_time=30.0,         # Timeout waiting for token
+    max_concurrency=5,          # Max in-flight requests
+    latency_alpha=0.2,          # EMA smoothing factor
+)
+
+# Use with RQC
+rqc = RemoteQuickCommand(
+    slug_name="my-command",
+    http_client=http_client,
+)
+
+# Works well with execute_many()
+results = rqc.execute_many(requests)  # 8 workers default
+```
+
+##### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `max_requests` | `int` | - | Token bucket capacity (requests per window) |
+| `time_window` | `float` | - | Time window in seconds |
+| `min_rate_floor` | `float` | `0.1` | Minimum rate as fraction of max (10%) |
+| `penalty_factor` | `float` | `0.3` | Rate reduction on 429 (×0.7) |
+| `recovery_factor` | `float` | `0.05` | Rate increase on success (+5%) |
+| `max_wait_time` | `float\|None` | `30.0` | Max wait for token (None = unlimited) |
+| `max_concurrency` | `int` | `5` | Max concurrent in-flight requests |
+| `latency_alpha` | `float` | `0.2` | EMA smoothing (0.1=stable, 0.5=reactive) |
+
+##### Tuning for Your Environment
+
+**Conservative (many processes, tight quota):**
+
+```python
+CongestionControlledHttpClient(
+    delegate=EnvironmentAwareHttpClient(),
+    max_requests=30,            # Lower capacity
+    time_window=60.0,
+    min_rate_floor=0.2,         # Higher floor (20%)
+    penalty_factor=0.4,         # More aggressive penalty
+    recovery_factor=0.03,       # Slower recovery
+    max_wait_time=60.0,         # Patient
+    max_concurrency=3,          # Very conservative
+)
+```
+
+**Optimistic (few processes, generous quota):**
+
+```python
+CongestionControlledHttpClient(
+    delegate=EnvironmentAwareHttpClient(),
+    max_requests=100,
+    time_window=60.0,
+    min_rate_floor=0.1,
+    penalty_factor=0.2,         # Lighter penalty
+    recovery_factor=0.1,        # Faster recovery
+    max_wait_time=30.0,
+    max_concurrency=10,         # More aggressive
+)
+```
+
+##### Decision Matrix
+
+| Scenario | Strategy | Why |
+|----------|----------|-----|
+| RQC, 1 process | `token_bucket` or `adaptive` | Simpler, no concurrency control needed |
+| RQC, N processes, shared quota | `congestion_controlled` | Jitter + preventive backpressure |
+| Agent::chat(), any scenario | `adaptive` | High latency is normal for LLMs |
+| Debugging/development | `token_bucket` | Predictable behavior |
+| Production RQC with strict quota | `congestion_controlled` | Maximum stability |
+
+##### FAQ
+
+**Q: Why does CongestionControlledHttpClient use a semaphore if Token Bucket already limits rate?**
+
+Token Bucket limits **average rate** (requests per time window), but doesn't limit **concurrent requests**. Imagine 8 workers sending requests simultaneously: Token Bucket allows all 8 to fire at once, then waits. The semaphore (`max_concurrency`) limits **in-flight requests**, spreading them over time. This prevents burst spikes that overwhelm the server.
+
+**Q: What is the relationship between `max_workers` in RQC and `max_concurrency`?**
+
+They are independent. `max_workers` (default 8) defines how many threads can execute RQC requests in parallel. `max_concurrency` (default 5) limits how many POST requests can be in-flight simultaneously. If `max_workers > max_concurrency`, some workers will wait for the semaphore. For RQC this is fine because POST is fast (~200ms) and most time is spent polling (which is not rate limited).
+
+**Q: Why is `latency_alpha` important?**
+
+`latency_alpha` controls EMA (Exponential Moving Average) smoothing. It determines how the controller reacts to latency changes:
+- **Low alpha (0.1)**: Stable, ignores noise, slow to detect real changes
+- **High alpha (0.5)**: Reactive, detects changes fast, but noisy
+
+Think of it as a noise filter. Lower = more filtering.
+
+**Q: Why doesn't CongestionControlled work well for Agent::chat()?**
+
+The congestion controller was designed for workflows where POST is **fast** (just scheduling work) and results come via polling. In `Agent::chat()`, the POST **is** the LLM call - it takes 10-30 seconds. The semaphore is held the entire time, becoming a bottleneck. Additionally, high latency is **normal** for LLMs, not a congestion signal.
+
+**Q: What is "structural jitter" and why does it matter?**
+
+When multiple processes share a quota and use identical AIMD parameters, they tend to synchronize: all reduce rate on 429, all recover at the same rate, all hit the ceiling together, repeat. Structural jitter adds ±20% variation to `penalty_factor` and `recovery_factor` per process (using a deterministic seed based on hostname+pid). This desynchronizes processes, preventing thundering herd effects.
+
+**Q: How do I choose between `adaptive` and `congestion_controlled`?**
+
+| Criterion | Use `adaptive` | Use `congestion_controlled` |
+|-----------|---------------|----------------------------|
+| Number of processes | 1-3 | 4+ |
+| Need preventive backpressure | No | Yes |
+| Latency is meaningful signal | No | Yes (RQC) |
+| Workflow | Agent::chat() or simple | RQC execute_many() |
+| Complexity tolerance | Low | Higher |
+
+**Q: Can I use CongestionControlled with STKAI.configure()?**
+
+No. This strategy is **experimental** and only available via programmatic configuration. You must create the `CongestionControlledHttpClient` manually and pass it to `RemoteQuickCommand`. Make sure to disable global rate limiting (`rate_limit={"enabled": False}`) to avoid double rate limiting.
 
 ### Presets (Adaptive Strategy)
 

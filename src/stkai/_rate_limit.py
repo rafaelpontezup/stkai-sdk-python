@@ -32,6 +32,10 @@ Example (Adaptive):
 """
 
 import logging
+import math
+import os
+import random
+import socket
 import threading
 import time
 from typing import Any, override
@@ -542,3 +546,446 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
 
         self._on_success()
         return response
+
+
+class CongestionControlledHttpClient(HttpClient):
+    """
+    Adaptive, best-effort HTTP client with congestion control semantics.
+
+    MENTAL MODEL
+    ------------
+    This client is not a simple rate limiter. It behaves as a local,
+    feedback-driven congestion controller inspired by TCP and the AWS SDK.
+
+    The system continuously balances three interacting signals:
+
+    1. Rate (Token Bucket)
+       -------------------
+       A token bucket limits the *average* request rate over a time window.
+       The effective bucket capacity (`_effective_max`) is adaptive and
+       governed by an AIMD (Additive Increase / Multiplicative Decrease)
+       algorithm.
+
+       - On success: the effective rate increases slowly (additive recovery)
+       - On HTTP 429: the effective rate decreases aggressively (multiplicative penalty)
+
+       This allows the client to probe available capacity while reacting
+       quickly to server-side throttling.
+
+    2. Concurrency (In-flight Requests)
+       --------------------------------
+       A semaphore limits the number of concurrent in-flight requests.
+       Concurrency starts conservatively and adapts based on observed latency.
+
+       The key insight is:
+           pressure = rate × latency
+
+       High latency implies that the system is saturated even if no explicit
+       rate limit has been hit yet. By adjusting concurrency based on latency,
+       the client applies *preventive backpressure* instead of only reacting
+       after receiving HTTP 429 responses.
+
+    3. Latency (Feedback Signal)
+       -------------------------
+       Request latency is tracked using an EMA (EWMA), providing a stable,
+       low-noise signal of system pressure.
+
+       Latency is intentionally used as a first-class control signal:
+       - rising latency → reduce concurrency
+       - stable/low latency → cautiously increase concurrency
+
+       This allows the client to avoid overload before server-side rate
+       limiting triggers.
+
+    THREADING AND CONSISTENCY MODEL
+    -------------------------------
+    The client is designed for multi-threaded and multi-process environments,
+    but it does NOT attempt global coordination or strict synchronization.
+
+    Important design choices:
+    - Token accounting and AIMD state are protected by a lock
+    - Semaphore operations are thread-safe by definition
+    - Concurrency recomputation is intentionally not strictly thread-safe
+
+    This system favors:
+        eventual consistency
+        over
+        strong consistency
+
+    Occasional overshoot or undershoot is expected and acceptable. The
+    feedback loop (latency + 429 responses) continuously corrects the system.
+
+    Avoiding heavy synchronization improves stability and throughput under
+    contention.
+
+    MULTI-PROCESS BEHAVIOR
+    ---------------------
+    Each process runs an independent controller with identical configuration
+    but slightly different dynamics.
+
+    Structural jitter (randomized recovery/penalty factors and probabilistic
+    concurrency growth) ensures that multiple processes do not synchronize
+    their control decisions, preventing collective oscillations and thundering
+    herd effects.
+
+    This is a deliberate "best-effort" strategy. No distributed quota sharing
+    or cross-process coordination is attempted.
+
+    ERROR HANDLING AND RETRY
+    -----------------------
+    This client intentionally separates concerns:
+    - Rate limiting and adaptation are handled here
+    - Retry behavior is expected to be handled by the caller
+
+    On HTTP 429:
+    - The effective rate is penalized immediately
+    - A specific exception is raised
+    - Retry logic (including Retry-After handling) is delegated upward
+
+    This mirrors patterns used by libraries such as AWS SDK, Polly, and
+    Resilience4J.
+
+    SUMMARY
+    -------
+    This client is a self-tuning, feedback-driven controller designed to:
+    - Prevent overload before it happens
+    - React quickly when overload is detected
+    - Remain stable under concurrency and partial failures
+    - Behave reasonably in shared-quota, multi-process environments
+
+    It prioritizes system stability, adaptability, and operational safety
+    over rigid guarantees or maximal throughput.
+    """
+
+    def __init__(
+        self,
+        delegate: HttpClient,
+        max_requests: int,
+        time_window: float,
+        min_rate_floor: float = 0.1,
+        penalty_factor: float = 0.3,
+        recovery_factor: float = 0.05,
+        max_wait_time: float | None = 30.0,
+        max_concurrency: int = 5,
+        latency_alpha: float = 0.2,
+    ):
+        """
+        Initialize the adaptive rate-limited HTTP client.
+
+        All parameters are intentionally static configuration inputs.
+        The system dynamically adapts its behavior at runtime using
+        feedback (latency and HTTP 429 responses).
+
+        Args:
+            delegate: Underlying HTTP client responsible for actual I/O.
+            max_requests: Upper bound for requests per time window.
+            time_window: Duration (seconds) of the rate limit window.
+            min_rate_floor: Minimum effective rate as a fraction of max_requests.
+            penalty_factor: Multiplicative decrease applied on HTTP 429.
+            recovery_factor: Additive increase applied on successful requests.
+            max_wait_time: Maximum time to wait for a rate-limit token.
+            max_concurrency: Upper bound for in-flight requests.
+            latency_alpha: EMA smoothing factor for latency tracking.
+
+        Raises:
+            AssertionError: If any parameter is invalid.
+        """
+        assert delegate is not None, "Delegate HTTP client is required."
+        assert max_requests is not None, "max_requests cannot be None."
+        assert max_requests > 0, "max_requests must be greater than 0."
+        assert time_window is not None, "time_window cannot be None."
+        assert time_window > 0, "time_window must be greater than 0."
+        assert min_rate_floor is not None, "min_rate_floor cannot be None."
+        assert 0 < min_rate_floor <= 1, "min_rate_floor must be between 0 (exclusive) and 1 (inclusive)."
+        assert penalty_factor is not None, "penalty_factor cannot be None."
+        assert 0 < penalty_factor < 1, "penalty_factor must be between 0 and 1 (exclusive)."
+        assert recovery_factor is not None, "recovery_factor cannot be None."
+        assert 0 < recovery_factor < 1, "recovery_factor must be between 0 and 1 (exclusive)."
+        assert max_wait_time is None or max_wait_time > 0, "max_wait_time must be > 0 or None."
+        assert max_concurrency is not None, "max_concurrency cannot be None."
+        assert max_concurrency >= 1, "max_concurrency must be at least 1."
+        assert latency_alpha is not None, "latency_alpha cannot be None."
+        assert 0 < latency_alpha < 1, "latency_alpha must be between 0 and 1 (exclusive)."
+
+        self.delegate = delegate
+        self.max_requests = max_requests
+        self.time_window = time_window
+        self.min_rate_floor = min_rate_floor
+        self.penalty_factor = penalty_factor
+        self.recovery_factor = recovery_factor
+        self.max_wait_time = max_wait_time
+        self.max_concurrency = max_concurrency
+
+        # Token bucket state
+        self._effective_max = float(max_requests)
+        self._min_effective = max_requests * min_rate_floor
+        self._tokens = float(max_requests)
+        self._last_refill = time.monotonic()
+
+        # Concurrency control (start conservatively)
+        self._concurrency_limit = 1
+        self._semaphore = threading.Semaphore(1)
+
+        # Latency tracking (EMA)
+        self._latency_ema: float | None = None
+        self._latency_alpha = latency_alpha
+
+        # Synchronization
+        self._lock = threading.Lock()
+
+        # Deterministic per-process RNG (structural jitter)
+        seed = hash((socket.gethostname(), os.getpid()))
+        self._rng = random.Random(seed)
+
+    # ------------------------------------------------------------------
+    # Token Bucket
+    # ------------------------------------------------------------------
+
+    def _acquire_token(self) -> None:
+        """
+        Acquire a token from the adaptive token bucket.
+
+        This method enforces the *average* request rate over time.
+        It blocks until a token becomes available or until max_wait_time
+        is exceeded.
+
+        Token refill rate depends on `_effective_max`, which is continuously
+        adjusted by AIMD feedback.
+        """
+        start = time.monotonic()
+
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                elapsed = now - self._last_refill
+                refill_rate = self._effective_max / self.time_window
+
+                self._tokens = min(
+                    self._effective_max,
+                    self._tokens + elapsed * refill_rate,
+                )
+                self._last_refill = now
+
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+
+                wait_time = (1.0 - self._tokens) / refill_rate
+
+            if self.max_wait_time is not None:
+                waited = time.monotonic() - start
+                if waited + wait_time > self.max_wait_time:
+                    raise TokenAcquisitionTimeoutError(waited, self.max_wait_time)
+
+            time.sleep(wait_time)
+
+    # ------------------------------------------------------------------
+    # Concurrency control
+    # ------------------------------------------------------------------
+
+    def _acquire_concurrency(self) -> None:
+        """
+        Acquire a concurrency slot.
+
+        This limits the number of in-flight requests and acts as a
+        preventive backpressure mechanism based on observed latency.
+        """
+        self._semaphore.acquire()
+
+    def _release_concurrency(self) -> None:
+        """
+        Release a previously acquired concurrency slot.
+
+        Always called in a `finally` block to avoid leakage even
+        in the presence of exceptions.
+        """
+        self._semaphore.release()
+
+    # ------------------------------------------------------------------
+    # Latency tracking
+    # ------------------------------------------------------------------
+
+    def _record_latency(self, latency: float) -> None:
+        """
+        Record request latency using an Exponential Moving Average (EMA).
+
+        EMA provides a low-noise approximation of system pressure,
+        favoring recent samples while retaining historical stability.
+        """
+        with self._lock:
+            if self._latency_ema is None:
+                self._latency_ema = latency
+            else:
+                self._latency_ema = (
+                    self._latency_alpha * latency
+                    + (1.0 - self._latency_alpha) * self._latency_ema
+                )
+
+    # ------------------------------------------------------------------
+    # AIMD reactions
+    # ------------------------------------------------------------------
+
+    def _on_success(self) -> None:
+        """
+        Apply additive recovery after a successful request.
+
+        Recovery is intentionally slow and jittered to:
+        - avoid overshoot
+        - prevent synchronization across processes
+        - probe available capacity gradually
+        """
+        with self._lock:
+            recovery = self.max_requests * (
+                self.recovery_factor * self._rng.uniform(0.7, 1.1)
+            )
+            self._effective_max = min(
+                float(self.max_requests),
+                self._effective_max + recovery,
+            )
+
+    def _on_rate_limited(self) -> None:
+        """
+        Apply multiplicative penalty after receiving HTTP 429.
+
+        Penalty is aggressive and immediate, reflecting a clear
+        server-side signal of overload.
+        """
+        with self._lock:
+            penalty = self.penalty_factor * self._rng.uniform(0.8, 1.2)
+
+            old = self._effective_max
+            self._effective_max = max(
+                self._min_effective,
+                self._effective_max * (1.0 - penalty),
+            )
+
+            # Clamp tokens to maintain bucket invariant
+            self._tokens = min(self._tokens, self._effective_max)
+
+            logger.warning(
+                "Rate limited: effective_max reduced from %.1f to %.1f",
+                old,
+                self._effective_max,
+            )
+
+    # ------------------------------------------------------------------
+    # Adaptive concurrency
+    # ------------------------------------------------------------------
+
+    def _recompute_concurrency(self) -> None:
+        """
+        Recompute the desired concurrency level based on observed latency.
+
+        NOTE ON THREAD SAFETY:
+        ----------------------
+        This method is intentionally NOT strictly thread-safe.
+
+        Multiple threads may enter this method concurrently and observe or
+        update `_concurrency_limit` at roughly the same time.
+
+        This is acceptable and intentional for the following reasons:
+        - `_concurrency_limit` is a soft control target, not a strict invariant
+        - `threading.Semaphore` operations (acquire/release) are thread-safe
+        - Occasional overshoot or undershoot is tolerated by the control loop
+        - Latency feedback and AIMD corrections converge the system over time
+
+        In other words, this method favors eventual consistency and low
+        synchronization overhead over strong consistency, which is appropriate
+        for adaptive congestion control algorithms.
+
+        Adding a global lock here would increase contention and reduce stability
+        under high concurrency without providing meaningful correctness gains.
+        """
+        if self._latency_ema is None:
+            return
+
+        rate_per_sec = self._effective_max / self.time_window
+        target = rate_per_sec * self._latency_ema
+
+        target = max(1, int(math.ceil(target)))
+        target = min(target, self.max_concurrency)
+
+        if target == self._concurrency_limit:
+            return
+
+        if target < self._concurrency_limit:
+            # Shrink immediately
+            shrink = self._concurrency_limit - target
+            for _ in range(shrink):
+                self._semaphore.acquire(blocking=False)
+            self._concurrency_limit = target
+
+        else:
+            # Grow slowly and probabilistically to avoid synchronization
+            if self._rng.random() < 0.7:
+                return
+            self._semaphore.release()
+            self._concurrency_limit += 1
+
+    # ------------------------------------------------------------------
+    # Public POST method (original semantics preserved)
+    # ------------------------------------------------------------------
+
+    @override
+    def post(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Entry point for rate-limited POST requests.
+
+        This method ties together all control loops:
+        - token bucket (rate)
+        - semaphore (concurrency)
+        - latency measurement
+        - AIMD feedback
+
+        It represents a single control cycle of the system.
+        """
+        self._acquire_concurrency()
+        start = time.monotonic()
+
+        try:
+            self._acquire_token()
+            response = self.delegate.post(url, data, headers, timeout)
+
+            latency = time.monotonic() - start
+            self._record_latency(latency)
+
+            if response.status_code == 429:
+                self._on_rate_limited()
+                self._recompute_concurrency()
+                raise ServerSideRateLimitError(response)
+
+            self._on_success()
+            self._recompute_concurrency()
+            return response
+
+        finally:
+            self._release_concurrency()
+
+    @override
+    def get(
+            self,
+            url: str,
+            headers: dict[str, str] | None = None,
+            timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Delegate GET request without rate limiting.
+
+        GET requests (typically polling) are not rate-limited as they
+        usually don't count against API rate limits.
+
+        Args:
+            url: The full URL to request.
+            headers: Additional headers to include.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response.
+        """
+        return self.delegate.get(url, headers, timeout)

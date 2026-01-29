@@ -154,6 +154,7 @@ mypy src
 - `StandaloneHttpClient`: Uses `AuthProvider` for standalone authentication.
 - `TokenBucketRateLimitedHttpClient`: Decorator with Token Bucket rate limiting.
 - `AdaptiveRateLimitedHttpClient`: Decorator with adaptive AIMD rate limiting.
+- `CongestionControlledHttpClient`: (EXPERIMENTAL) Congestion controller with rate + concurrency + latency tracking.
 
 #### Rate Limiting
 
@@ -164,8 +165,11 @@ The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, 
 |----------|-----------|----------|
 | `token_bucket` | Token Bucket | Simple, predictable rate limiting |
 | `adaptive` | AIMD (Additive Increase, Multiplicative Decrease) | Dynamic environments with shared quotas |
+| `congestion_controlled` | AIMD + Concurrency + Latency EMA | (EXPERIMENTAL) RQC with multiple processes, NOT for Agent |
 
 **Note:** HTTP 429 retry logic is handled by the `Retrying` class (in `_retry.py`), not the rate limiter. The adaptive strategy applies AIMD penalty on 429 responses (reduces rate) and raises `ServerSideRateLimitError` for `Retrying` to handle with backoff and `Retry-After` header support.
+
+**Note on `congestion_controlled`:** This is an EXPERIMENTAL strategy only available via programmatic configuration (not via `STKAI.configure()` or env vars). It adds concurrency control (semaphore) and latency tracking (EMA) on top of AIMD. Designed for RQC workflows with fast POST (~200ms) + long polling. **NOT recommended for Agent::chat()** where POST takes 10-30s (LLM processing) — the concurrency semaphore becomes a bottleneck.
 
 **Exception Hierarchy:**
 ```
