@@ -209,7 +209,7 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
 
         # Token bucket state
         self._tokens = float(max_requests)
-        self._last_refill = time.time()
+        self._last_refill = time.monotonic()
         self._lock = threading.Lock()
 
     def _acquire_token(self) -> None:
@@ -224,11 +224,11 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
         Raises:
             TokenAcquisitionTimeoutError: If waiting exceeds max_wait_time.
         """
-        start_time = time.time()
+        start_time = time.monotonic()
 
         while True:
             with self._lock:
-                now = time.time()
+                now = time.monotonic()
                 # Refill tokens based on elapsed time
                 elapsed_since_refill = now - self._last_refill
                 refill_rate = self.max_requests / self.time_window
@@ -247,7 +247,7 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
 
             # Check timeout before sleeping
             if self.max_wait_time is not None:
-                total_waited = time.time() - start_time
+                total_waited = time.monotonic() - start_time
                 if total_waited + wait_time > self.max_wait_time:
                     raise TokenAcquisitionTimeoutError(
                         waited=total_waited,
@@ -401,7 +401,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         self._effective_max = float(max_requests)
         self._min_effective = max_requests * min_rate_floor
         self._tokens = float(max_requests)
-        self._last_refill = time.time()
+        self._last_refill = time.monotonic()
         self._lock = threading.Lock()
 
         # Deterministic per-process RNG for structural jitter
@@ -420,11 +420,11 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         Raises:
             TokenAcquisitionTimeoutError: If waiting exceeds max_wait_time.
         """
-        start_time = time.time()
+        start_time = time.monotonic()
 
         while True:
             with self._lock:
-                now = time.time()
+                now = time.monotonic()
                 elapsed_since_refill = now - self._last_refill
                 refill_rate = self._effective_max / self.time_window
                 self._tokens = min(
@@ -441,7 +441,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
 
             # Check timeout before sleeping
             if self.max_wait_time is not None:
-                total_waited = time.time() - start_time
+                total_waited = time.monotonic() - start_time
                 if total_waited + wait_time > self.max_wait_time:
                     raise TokenAcquisitionTimeoutError(
                         waited=total_waited,
