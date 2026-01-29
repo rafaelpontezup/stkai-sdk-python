@@ -576,6 +576,9 @@ class CongestionControlledHttpClient(HttpClient):
     This client is not a simple rate limiter. It behaves as a local,
     feedback-driven congestion controller inspired by TCP and the AWS SDK.
 
+    For a detailed comparison with AWS SDK's adaptive retry mode, see:
+        docs/internal/aws-sdk-comparison.md
+
     The system continuously balances three interacting signals:
 
     1. Rate (Token Bucket)
