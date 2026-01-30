@@ -255,11 +255,6 @@ class Agent:
         assert self.options.retry_initial_delay is not None, \
             "🌀 Sanity check | retry_initial_delay must be set after with_defaults_from()"
 
-        logger.info(
-            f"{request.id[:26]:<26} | Agent | "
-            f"Sending message to agent '{self.agent_id}'..."
-        )
-
         try:
             for attempt in Retrying(
                 max_retries=self.options.retry_max_retries,
@@ -267,6 +262,10 @@ class Agent:
                 logger_prefix=f"{request.id[:26]:<26} | Agent",
             ):
                 with attempt:
+                    logger.info(
+                        f"{request.id[:26]:<26} | Agent | "
+                        f"Sending message to agent '{self.agent_id}' (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
+                    )
                     return self._do_chat(
                         request=request,
                         result_handler=result_handler
