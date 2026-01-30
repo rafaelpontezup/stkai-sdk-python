@@ -389,8 +389,13 @@ class RemoteQuickCommand:
         )
 
         logger.info(
-            f"{request.id[:26]:<26} | RQC | 🛜 Execution finished with status: {response.status}"
+            f"{request.id[:26]:<26} | RQC | 🛜 Execution finished."
         )
+        if response.is_completed():
+            logger.info(f"{request.id[:26]:<26} | RQC |    └ with status = {response.status}")
+        else:
+            logger.info(f"{request.id[:26]:<26} | RQC |    ├ with status = {response.status}")
+            logger.info(f"{request.id[:26]:<26} | RQC |    └ with error message = \"{response.error}\"")
 
         assert response.request is request, \
             "🌀 Sanity check | Unexpected mismatch: response do not reference its corresponding request."
