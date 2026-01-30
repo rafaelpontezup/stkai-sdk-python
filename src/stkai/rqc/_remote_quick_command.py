@@ -427,83 +427,69 @@ class RemoteQuickCommand:
         event_context: dict[str, Any] = {}
 
         # Notify listeners: before execute
-        self._notify_listeners("on_before_execute", request=request, context=event_context)
+        self._notify_listeners(
+            "on_before_execute",
+            request=request, context=event_context
+        )
 
-        # Phase-1: Try to create the remote execution
-        error_response = None
+        response = None
         try:
-            execution_id = self._create_execution(request=request)
-            # Notify status change: PENDING → CREATED (execution created successfully)
-            self._notify_listeners(
-                "on_status_change",
-                request=request,
-                old_status=RqcExecutionStatus.PENDING,
-                new_status=RqcExecutionStatus.CREATED,
-                context=event_context,
-            )
-        except Exception as e:
-            error_status = RqcExecutionStatus.from_exception(e)
-            error_msg = f"Failed to create execution: {e}"
-            if isinstance(e, requests.HTTPError) and e.response is not None:
-                error_msg = f"Failed to create execution due to an HTTP error {e.response.status_code}: {e.response.text}"
-            logger.error(
-                f"{request.id[:26]:<26} | RQC | ❌ {error_msg}",
-                exc_info=logger.isEnabledFor(logging.DEBUG)
-            )
-            # Notify status change: PENDING → ERROR or TIMEOUT
-            self._notify_listeners(
-                "on_status_change",
-                request=request,
-                old_status=RqcExecutionStatus.PENDING,
-                new_status=error_status,
-                context=event_context,
-            )
-            # Finish the workflow here
-            error_response = RqcResponse(
-                request=request,
-                status=error_status,
-                error=error_msg,
-            )
-            return error_response
-        finally:
-            # Notify listeners: after execute (in case of error)
+            # Phase-1: Create execution
+            execution_id, error_response = self._create_execution(request=request, context=event_context)
             if error_response:
-                self._notify_listeners(
-                    "on_after_execute",
-                    request=request, response=error_response, context=event_context
-                )
+                response = error_response
+                return response
 
-        assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
-        assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_submitted()` method called?"
-        assert execution_id == request.execution_id, "🌀 Sanity check | RQC-Request's `execution_id` and response's `execution_id` are different."
+            # Sanity checks after Phase-1
+            assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
+            assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_submitted()` method called?"
+            assert execution_id == request.execution_id, "🌀 Sanity check | RQC-Request's `execution_id` and response's `execution_id` are different."
 
-        # Phase-2: Poll for status
-        if not result_handler:
-            from stkai.rqc._handlers import DEFAULT_RESULT_HANDLER
-            result_handler = DEFAULT_RESULT_HANDLER
+            # Phase-2: Poll
+            if not result_handler:
+                from stkai.rqc._handlers import DEFAULT_RESULT_HANDLER
+                result_handler = DEFAULT_RESULT_HANDLER
 
-        poll_response = None
-        try:
-            poll_response = self._poll_until_done(
+            response = self._poll_until_done(
                 request=request, handler=result_handler, context=event_context
             )
+
+            # Sanity check after Phase-2
+            assert response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
+            return response
         finally:
-            # Notify listeners: after execute (always called)
+            # Single point of notification: on_after_execute (always called)
             self._notify_listeners(
                 "on_after_execute",
-                request=request, response=poll_response, context=event_context
+                request=request, response=response, context=event_context
             )
-
-        assert poll_response, "🌀 Sanity check | RQC-Response was not created during the polling phase."
-        return poll_response
 
     # ======================
     # Internals
     # ======================
 
-    def _create_execution(self, request: RqcRequest) -> str:
-        """Creates an RQC execution via POST with retries and exponential backoff."""
+    def _create_execution(
+        self,
+        request: RqcRequest,
+        context: dict[str, Any],
+    ) -> tuple[str | None, RqcResponse | None]:
+        """
+        Creates an RQC execution via POST with retries and exponential backoff.
+
+        This method follows the same pattern as `_poll_until_done()`: it receives
+        the event context, dispatches status change events, and encapsulates
+        exceptions into an error response.
+
+        Args:
+            request: The RqcRequest instance to create execution for.
+            context: Shared event context for listeners.
+
+        Returns:
+            (execution_id, None) on success - execution was created
+            (None, error_response) on failure - contains error details
+        """
         assert request, "🌀 Sanity check | RQC-Request not provided to create-execution phase."
+        assert context is not None, "🌀 Sanity check | Event context not provided to create-execution phase."
 
         # Get options and assert for type narrowing
         opts = self.options.create_execution
@@ -518,39 +504,75 @@ class RemoteQuickCommand:
         # Build full URL using base_url
         url = f"{self.base_url}/v1/quick-commands/create-execution/{self.slug_name}"
 
-        for attempt in Retrying(
-            max_retries=opts.retry_max_retries,
-            initial_delay=opts.retry_initial_delay,
-            logger_prefix=f"{request_id[:26]:<26} | RQC",
-        ):
-            with attempt:
-                logger.info(
-                    f"{request_id[:26]:<26} | RQC | "
-                    f"Sending request to create execution (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
-                )
-                response = self.http_client.post(
-                    url=url, data=input_data, timeout=opts.request_timeout
-                )
-                assert isinstance(response, requests.Response), \
-                    f"🌀 Sanity check | Object returned by `post` method is not an instance of `requests.Response`. ({response.__class__})"
+        try:
+            for attempt in Retrying(
+                max_retries=opts.retry_max_retries,
+                initial_delay=opts.retry_initial_delay,
+                logger_prefix=f"{request_id[:26]:<26} | RQC",
+            ):
+                with attempt:
+                    logger.info(
+                        f"{request_id[:26]:<26} | RQC | "
+                        f"Sending request to create execution (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
+                    )
+                    response = self.http_client.post(
+                        url=url, data=input_data, timeout=opts.request_timeout
+                    )
+                    assert isinstance(response, requests.Response), \
+                        f"🌀 Sanity check | Object returned by `post` method is not an instance of `requests.Response`. ({response.__class__})"
 
-                response.raise_for_status()
-                execution_id: str = response.json()
-                if not execution_id:
-                    raise ExecutionIdIsMissingError("No `execution_id` returned in the create execution response by server.")
+                    response.raise_for_status()
+                    execution_id: str = response.json()
+                    if not execution_id:
+                        raise ExecutionIdIsMissingError("No `execution_id` returned in the create execution response by server.")
 
-                # Registers create execution response on its request
-                request.mark_as_submitted(execution_id=execution_id)
-                logger.info(
-                    f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created ({execution_id})"
-                )
-                return execution_id
+                    # Registers create execution response on its request
+                    request.mark_as_submitted(execution_id=execution_id)
+                    logger.info(
+                        f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created ({execution_id})"
+                    )
 
-        # Should never reach here - Retrying raises MaxRetriesExceededError
-        raise RuntimeError(
-            "Unexpected error while creating execution: "
-            "reached end of `_create_execution` method without returning the execution ID."
-        )
+                    # Notify status change: PENDING → CREATED (execution created successfully)
+                    self._notify_listeners(
+                        "on_status_change",
+                        request=request,
+                        old_status=RqcExecutionStatus.PENDING,
+                        new_status=RqcExecutionStatus.CREATED,
+                        context=context,
+                    )
+                    return (execution_id, None)
+
+            # Should never reach here - Retrying raises MaxRetriesExceededError
+            raise RuntimeError(
+                "Unexpected error while creating execution: "
+                "reached end of `_create_execution` method without returning the execution ID."
+            )
+
+        except Exception as e:
+            error_status = RqcExecutionStatus.from_exception(e)
+            error_msg = f"Failed to create execution: {e}"
+            if isinstance(e, requests.HTTPError) and e.response is not None:
+                error_msg = f"Failed to create execution due to an HTTP error {e.response.status_code}: {e.response.text}"
+            logger.error(
+                f"{request_id[:26]:<26} | RQC | ❌ {error_msg}",
+                exc_info=logger.isEnabledFor(logging.DEBUG)
+            )
+
+            # Notify status change: PENDING → ERROR or TIMEOUT
+            self._notify_listeners(
+                "on_status_change",
+                request=request,
+                old_status=RqcExecutionStatus.PENDING,
+                new_status=error_status,
+                context=context,
+            )
+
+            error_response = RqcResponse(
+                request=request,
+                status=error_status,
+                error=error_msg,
+            )
+            return (None, error_response)
 
     def _poll_until_done(
         self,
