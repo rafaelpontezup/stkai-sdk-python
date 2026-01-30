@@ -350,6 +350,11 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         requests.HTTPError: When server returns HTTP 429 (after AIMD penalty applied).
     """
 
+    # Structural jitter applied to AIMD factors and sleep times.
+    # ±20% desynchronizes processes sharing a quota, preventing
+    # thundering herd effects and synchronized oscillations.
+    _JITTER_PERCENT = 0.20
+
     def __init__(
         self,
         delegate: HttpClient,
@@ -449,7 +454,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
                     )
 
             # Sleep with jitter to prevent thundering herd
-            sleep_with_jitter(wait_time, jitter_factor=0.15)
+            sleep_with_jitter(wait_time, jitter_factor=self._JITTER_PERCENT)
 
     def _on_success(self) -> None:
         """
@@ -458,13 +463,12 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         Gradually recovers the effective rate after successful requests,
         up to the original max_requests ceiling.
 
-        Uses jittered recovery factor (±15%) to desynchronize processes
+        Uses jittered recovery factor to desynchronize processes
         and prevent collective oscillations.
         """
         with self._lock:
-            # Jitter ±15% on recovery to desynchronize processes
-            jittered_factor = self.recovery_factor * self._rng.uniform(0.85, 1.15)
-            recovery = self.max_requests * jittered_factor
+            jitter = self._rng.uniform(1.0 - self._JITTER_PERCENT, 1.0 + self._JITTER_PERCENT)
+            recovery = self.max_requests * self.recovery_factor * jitter
             self._effective_max = min(
                 float(self.max_requests),
                 self._effective_max + recovery
@@ -477,7 +481,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         Reduces the effective rate to adapt to server-side rate limits,
         but never below the configured floor.
 
-        Uses jittered penalty factor (±15%) to desynchronize processes
+        Uses jittered penalty factor to desynchronize processes
         and prevent collective oscillations.
 
         Also clamps _tokens to maintain Token Bucket invariant: tokens <= effective_max.
@@ -485,13 +489,13 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         breaking the bucket's capacity constraint.
         """
         with self._lock:
-            # Jitter ±15% on penalty to desynchronize processes
-            jittered_penalty = self.penalty_factor * self._rng.uniform(0.85, 1.15)
+            jitter = self._rng.uniform(1.0 - self._JITTER_PERCENT, 1.0 + self._JITTER_PERCENT)
+            jittered_penalty = self.penalty_factor * jitter
 
             old_max = self._effective_max
             self._effective_max = max(
                 self._min_effective,
-                self._effective_max * (1 - jittered_penalty)
+                self._effective_max * (1.0 - jittered_penalty)
             )
             # Clamp tokens to maintain invariant: tokens <= effective_max
             self._tokens = min(self._tokens, self._effective_max)
@@ -679,6 +683,15 @@ class CongestionControlledHttpClient(HttpClient):
     over rigid guarantees or maximal throughput.
     """
 
+    # Structural jitter applied to AIMD factors (±20%).
+    # Desynchronizes processes sharing a quota, preventing thundering
+    # herd effects and synchronized oscillations.
+    _JITTER_PERCENT = 0.20
+
+    # Probability of increasing concurrency on each successful request.
+    # Low probability (30%) ensures slow, cautious growth.
+    _CONCURRENCY_GROWTH_PROBABILITY = 0.30
+
     def __init__(
         self,
         delegate: HttpClient,
@@ -857,9 +870,8 @@ class CongestionControlledHttpClient(HttpClient):
         - probe available capacity gradually
         """
         with self._lock:
-            recovery = self.max_requests * (
-                self.recovery_factor * self._rng.uniform(0.7, 1.1)
-            )
+            jitter = self._rng.uniform(1.0 - self._JITTER_PERCENT, 1.0 + self._JITTER_PERCENT)
+            recovery = self.max_requests * self.recovery_factor * jitter
             self._effective_max = min(
                 float(self.max_requests),
                 self._effective_max + recovery,
@@ -873,7 +885,11 @@ class CongestionControlledHttpClient(HttpClient):
         server-side signal of overload.
         """
         with self._lock:
-            penalty = self.penalty_factor * self._rng.uniform(0.8, 1.2)
+            jitter = self._rng.uniform(
+                1.0 - self._JITTER_PERCENT,
+                1.0 + self._JITTER_PERCENT,
+            )
+            penalty = self.penalty_factor * jitter
 
             old = self._effective_max
             self._effective_max = max(
@@ -939,7 +955,7 @@ class CongestionControlledHttpClient(HttpClient):
 
         else:
             # Grow slowly and probabilistically to avoid synchronization
-            if self._rng.random() < 0.7:
+            if self._rng.random() >= self._CONCURRENCY_GROWTH_PROBABILITY:
                 return
             self._semaphore.release()
             self._concurrency_limit += 1

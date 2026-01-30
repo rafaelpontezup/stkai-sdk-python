@@ -548,7 +548,7 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         assert test_rng.random() == client3._rng.random()
 
     def test_on_success_applies_jittered_recovery(self):
-        """Recovery factor should vary with ±15% jitter."""
+        """Recovery factor should vary with ±20% jitter."""
         delegate = MockHttpClient()
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -558,16 +558,16 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         )
 
         client._effective_max = 50.0
-        # Mock RNG to return 0.85 (lower bound of jitter)
-        client._rng.uniform = MagicMock(return_value=0.85)
+        # Mock RNG to return 0.8 (lower bound of ±20% jitter)
+        client._rng.uniform = MagicMock(return_value=0.8)
 
         client._on_success()
 
-        # Recovery: 50 + (100 * 0.1 * 0.85) = 58.5
-        assert client._effective_max == 58.5
+        # Recovery: 50 + (100 * 0.1 * 0.8) = 58.0
+        assert client._effective_max == 58.0
 
     def test_on_success_jitter_range(self):
-        """Recovery jitter should call uniform with (0.85, 1.15)."""
+        """Recovery jitter should call uniform with (0.8, 1.2) for ±20%."""
         delegate = MockHttpClient()
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -582,10 +582,10 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         client._on_success()
 
         # Verify uniform was called with the correct range
-        client._rng.uniform.assert_called_once_with(0.85, 1.15)
+        client._rng.uniform.assert_called_once_with(0.8, 1.2)
 
     def test_on_rate_limited_applies_jittered_penalty(self):
-        """Penalty factor should vary with ±15% jitter."""
+        """Penalty factor should vary with ±20% jitter."""
         delegate = MockHttpClient()
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -595,16 +595,16 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         )
 
         client._effective_max = 100.0
-        # Mock RNG to return 1.15 (upper bound of jitter)
-        client._rng.uniform = MagicMock(return_value=1.15)
+        # Mock RNG to return 1.2 (upper bound of ±20% jitter)
+        client._rng.uniform = MagicMock(return_value=1.2)
 
         client._on_rate_limited()
 
-        # Penalty: 100 * (1 - 0.3 * 1.15) = 100 * (1 - 0.345) = 65.5
-        assert client._effective_max == 65.5
+        # Penalty: 100 * (1 - 0.3 * 1.2) = 100 * (1 - 0.36) = 64.0
+        assert client._effective_max == 64.0
 
     def test_on_rate_limited_jitter_range(self):
-        """Penalty jitter should call uniform with (0.85, 1.15)."""
+        """Penalty jitter should call uniform with (0.8, 1.2) for ±20%."""
         delegate = MockHttpClient()
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -619,7 +619,7 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         client._on_rate_limited()
 
         # Verify uniform was called with the correct range
-        client._rng.uniform.assert_called_once_with(0.85, 1.15)
+        client._rng.uniform.assert_called_once_with(0.8, 1.2)
 
     def test_acquire_token_uses_sleep_with_jitter(self):
         """Token acquisition should use sleep_with_jitter for desynchronization."""
@@ -643,8 +643,8 @@ class TestAdaptiveRateLimitedHttpClientJitter:
             except Exception:
                 pass  # Expected timeout
 
-            # Verify sleep_with_jitter was called with correct jitter_factor
+            # Verify sleep_with_jitter was called with correct jitter_factor (±20%)
             if mock_sleep.called:
                 call_args = mock_sleep.call_args
-                assert call_args[1].get("jitter_factor") == 0.15 or \
-                       (len(call_args[0]) > 1 and call_args[0][1] == 0.15)
+                assert call_args[1].get("jitter_factor") == 0.20 or \
+                       (len(call_args[0]) > 1 and call_args[0][1] == 0.20)

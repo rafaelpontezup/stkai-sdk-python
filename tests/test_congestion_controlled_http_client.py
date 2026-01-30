@@ -853,7 +853,7 @@ class TestCongestionControlledHttpClientConcurrencyRecomputation:
         assert client._concurrency_limit == 1
 
     def test_recompute_grows_probabilistically(self):
-        """Growth only happens when random() >= 0.7 (30% chance)."""
+        """Growth only happens when random() < 0.30 (30% chance)."""
         delegate = MockHttpClient()
         client = CongestionControlledHttpClient(
             delegate=delegate,
@@ -866,18 +866,18 @@ class TestCongestionControlledHttpClientConcurrencyRecomputation:
         client._concurrency_limit = 1
         client._latency_ema = 5.0  # target = 1 * 5 = 5
 
-        # Force growth by making RNG return high value (>= 0.7)
-        # In the code: if self._rng.random() < 0.7: return (no growth)
-        # So we need >= 0.7 to grow
-        client._rng.random = MagicMock(return_value=0.8)
+        # Force growth by making RNG return low value (< 0.30)
+        # In the code: if self._rng.random() >= 0.30: return (no growth)
+        # So we need < 0.30 to grow
+        client._rng.random = MagicMock(return_value=0.2)
 
         client._recompute_concurrency()
 
         # Should grow by 1
         assert client._concurrency_limit == 2
 
-    def test_recompute_does_not_grow_with_low_random(self):
-        """Growth is skipped when random() < 0.7 (70% chance)."""
+    def test_recompute_does_not_grow_with_high_random(self):
+        """Growth is skipped when random() >= 0.30 (70% chance)."""
         delegate = MockHttpClient()
         client = CongestionControlledHttpClient(
             delegate=delegate,
@@ -889,8 +889,8 @@ class TestCongestionControlledHttpClientConcurrencyRecomputation:
         client._concurrency_limit = 1
         client._latency_ema = 5.0
 
-        # Prevent growth with low random value (< 0.7)
-        # In the code: if self._rng.random() < 0.7: return (no growth)
+        # Prevent growth with high random value (>= 0.30)
+        # In the code: if self._rng.random() >= 0.30: return (no growth)
         client._rng.random = MagicMock(return_value=0.5)
 
         client._recompute_concurrency()
