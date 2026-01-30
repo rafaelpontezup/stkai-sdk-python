@@ -50,6 +50,123 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Jitter Abstraction
+# =============================================================================
+
+
+class Jitter:
+    """
+    Structural jitter for desynchronizing processes sharing a quota.
+
+    Uses a per-process seeded RNG to ensure:
+    - Same process = deterministic sequence (reproducible for debugging)
+    - Different processes = different sequences (desynchronization)
+
+    The jitter factor determines the range of random variation applied
+    to values. A factor of 0.20 means values will be multiplied by a
+    random number in the range [0.80, 1.20] (±20%).
+
+    Example:
+        >>> jitter = Jitter(factor=0.20)
+        >>> # Apply jitter to a value
+        >>> jittered = jitter.apply(100.0)  # Returns ~80-120
+        >>> # Or use multiplication syntax
+        >>> jittered = 100.0 * jitter  # Same effect
+
+    Args:
+        factor: Jitter factor (default: 0.20 = ±20%).
+        rng: Optional RNG for testing. If None, creates a per-process seeded RNG.
+    """
+
+    def __init__(self, factor: float = 0.20, rng: random.Random | None = None):
+        """
+        Initialize the jitter generator.
+
+        Args:
+            factor: Jitter factor as a fraction (e.g., 0.20 for ±20%).
+            rng: Optional RNG for dependency injection in tests.
+                 If None, creates a deterministic per-process RNG.
+        """
+        assert factor >= 0, "factor must be non-negative"
+        assert factor < 1, "factor must be less than 1"
+
+        self.factor = factor
+        self._rng = rng or self._create_process_local_rng()
+
+    @staticmethod
+    def _create_process_local_rng() -> random.Random:
+        """
+        Create a deterministic RNG seeded with hostname and PID.
+
+        This ensures:
+        - Same process = same random sequence (deterministic)
+        - Different processes = different sequences (desynchronization)
+        """
+        seed = hash((socket.gethostname(), os.getpid()))
+        return random.Random(seed)
+
+    def next(self) -> float:
+        """
+        Return a random jitter value in [1-factor, 1+factor].
+
+        Each call returns a new random value. Use this when you need
+        the raw jitter multiplier.
+
+        Returns:
+            A random value in the range [1-factor, 1+factor].
+        """
+        return self._rng.uniform(1.0 - self.factor, 1.0 + self.factor)
+
+    def random(self) -> float:
+        """
+        Return a random value in [0, 1).
+
+        Use this for probabilistic decisions that don't need the jitter factor.
+        Each call returns a new random value.
+
+        Returns:
+            A random value in the range [0, 1).
+        """
+        return self._rng.random()
+
+    def apply(self, value: float) -> float:
+        """
+        Multiply value by a jittered factor.
+
+        Args:
+            value: The value to apply jitter to.
+
+        Returns:
+            The value multiplied by a random factor in [1-factor, 1+factor].
+        """
+        return value * self.next()
+
+    def __mul__(self, other: float) -> float:
+        """
+        Support: jitter * value
+
+        Args:
+            other: The value to multiply.
+
+        Returns:
+            The jittered value.
+        """
+        return self.apply(other)
+
+    def __rmul__(self, other: float) -> float:
+        """
+        Support: value * jitter
+
+        Args:
+            other: The value to multiply.
+
+        Returns:
+            The jittered value.
+        """
+        return self.apply(other)
+
+
+# =============================================================================
 # Exceptions
 # =============================================================================
 
@@ -353,7 +470,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
     # Structural jitter applied to AIMD factors and sleep times.
     # ±20% desynchronizes processes sharing a quota, preventing
     # thundering herd effects and synchronized oscillations.
-    _JITTER_PERCENT = 0.20
+    _JITTER_FACTOR = 0.20
 
     def __init__(
         self,
@@ -409,11 +526,8 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         self._last_refill = time.monotonic()
         self._lock = threading.Lock()
 
-        # Deterministic per-process RNG for structural jitter
-        # Same process = same sequence (deterministic for debugging)
-        # Different processes = different sequences (desynchronization)
-        seed = hash((socket.gethostname(), os.getpid()))
-        self._rng = random.Random(seed)
+        # Structural jitter for desynchronizing processes
+        self._jitter = Jitter(factor=self._JITTER_FACTOR)
 
     def _acquire_token(self) -> None:
         """
@@ -454,7 +568,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
                     )
 
             # Sleep with jitter to prevent thundering herd
-            sleep_with_jitter(wait_time, jitter_factor=self._JITTER_PERCENT)
+            sleep_with_jitter(wait_time, jitter_factor=self._JITTER_FACTOR)
 
     def _on_success(self) -> None:
         """
@@ -467,8 +581,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         and prevent collective oscillations.
         """
         with self._lock:
-            jitter = self._rng.uniform(1.0 - self._JITTER_PERCENT, 1.0 + self._JITTER_PERCENT)
-            recovery = self.max_requests * self.recovery_factor * jitter
+            recovery = self.max_requests * self.recovery_factor * self._jitter
             self._effective_max = min(
                 float(self.max_requests),
                 self._effective_max + recovery
@@ -489,8 +602,7 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         breaking the bucket's capacity constraint.
         """
         with self._lock:
-            jitter = self._rng.uniform(1.0 - self._JITTER_PERCENT, 1.0 + self._JITTER_PERCENT)
-            jittered_penalty = self.penalty_factor * jitter
+            jittered_penalty = self.penalty_factor * self._jitter
 
             old_max = self._effective_max
             self._effective_max = max(
@@ -686,7 +798,7 @@ class CongestionControlledHttpClient(HttpClient):
     # Structural jitter applied to AIMD factors (±20%).
     # Desynchronizes processes sharing a quota, preventing thundering
     # herd effects and synchronized oscillations.
-    _JITTER_PERCENT = 0.20
+    _JITTER_FACTOR = 0.20
 
     # Probability of increasing concurrency on each successful request.
     # Low probability (30%) ensures slow, cautious growth.
@@ -768,9 +880,8 @@ class CongestionControlledHttpClient(HttpClient):
         # Synchronization
         self._lock = threading.Lock()
 
-        # Deterministic per-process RNG (structural jitter)
-        seed = hash((socket.gethostname(), os.getpid()))
-        self._rng = random.Random(seed)
+        # Structural jitter for desynchronizing processes
+        self._jitter = Jitter(factor=self._JITTER_FACTOR)
 
     # ------------------------------------------------------------------
     # Token Bucket
@@ -870,8 +981,7 @@ class CongestionControlledHttpClient(HttpClient):
         - probe available capacity gradually
         """
         with self._lock:
-            jitter = self._rng.uniform(1.0 - self._JITTER_PERCENT, 1.0 + self._JITTER_PERCENT)
-            recovery = self.max_requests * self.recovery_factor * jitter
+            recovery = self.max_requests * self.recovery_factor * self._jitter
             self._effective_max = min(
                 float(self.max_requests),
                 self._effective_max + recovery,
@@ -885,11 +995,7 @@ class CongestionControlledHttpClient(HttpClient):
         server-side signal of overload.
         """
         with self._lock:
-            jitter = self._rng.uniform(
-                1.0 - self._JITTER_PERCENT,
-                1.0 + self._JITTER_PERCENT,
-            )
-            penalty = self.penalty_factor * jitter
+            penalty = self.penalty_factor * self._jitter
 
             old = self._effective_max
             self._effective_max = max(
@@ -955,7 +1061,7 @@ class CongestionControlledHttpClient(HttpClient):
 
         else:
             # Grow slowly and probabilistically to avoid synchronization
-            if self._rng.random() >= self._CONCURRENCY_GROWTH_PROBABILITY:
+            if self._jitter.random() >= self._CONCURRENCY_GROWTH_PROBABILITY:
                 return
             self._semaphore.release()
             self._concurrency_limit += 1

@@ -14,6 +14,7 @@ from stkai import (
     TokenAcquisitionTimeoutError,
     TokenBucketRateLimitedHttpClient,
 )
+from stkai._rate_limit import Jitter
 
 # =============================================================================
 # Exception Hierarchy Tests
@@ -62,6 +63,153 @@ class TestExceptionHierarchy:
 
         assert error.response is mock_response
         assert error.response.status_code == 429
+
+
+# =============================================================================
+# Jitter Tests
+# =============================================================================
+
+
+class TestJitter:
+    """Tests for the Jitter class."""
+
+    def test_init_with_default_factor(self):
+        """Should use 0.20 (±20%) as default factor."""
+        jitter = Jitter()
+        assert jitter.factor == 0.20
+
+    def test_init_with_custom_factor(self):
+        """Should accept custom factor."""
+        jitter = Jitter(factor=0.10)
+        assert jitter.factor == 0.10
+
+    def test_init_fails_with_negative_factor(self):
+        """Factor must be non-negative."""
+        with pytest.raises(AssertionError, match="factor must be non-negative"):
+            Jitter(factor=-0.1)
+
+    def test_init_fails_with_factor_greater_than_or_equal_to_one(self):
+        """Factor must be less than 1."""
+        with pytest.raises(AssertionError, match="factor must be less than 1"):
+            Jitter(factor=1.0)
+
+    def test_init_with_custom_rng(self):
+        """Should accept custom RNG for testing."""
+        import random
+        custom_rng = random.Random(42)
+        jitter = Jitter(rng=custom_rng)
+        assert jitter._rng is custom_rng
+
+    def test_init_creates_process_local_rng_by_default(self):
+        """Should create a deterministic per-process RNG when no RNG provided."""
+        import os
+        import random
+        import socket
+
+        jitter = Jitter()
+
+        expected_seed = hash((socket.gethostname(), os.getpid()))
+        test_rng = random.Random(expected_seed)
+
+        # Both should produce the same sequence
+        assert jitter._rng.random() == test_rng.random()
+
+    def test_next_returns_value_in_range(self):
+        """next() should return a value in [1-factor, 1+factor]."""
+        import random
+        rng = random.Random(42)
+        jitter = Jitter(factor=0.20, rng=rng)
+
+        for _ in range(100):
+            m = jitter.next()
+            assert 0.80 <= m <= 1.20
+
+    def test_random_returns_value_in_range(self):
+        """random() should return a value in [0, 1)."""
+        import random
+        rng = random.Random(42)
+        jitter = Jitter(factor=0.20, rng=rng)
+
+        for _ in range(100):
+            r = jitter.random()
+            assert 0.0 <= r < 1.0
+
+    def test_random_ignores_factor(self):
+        """random() should not be affected by factor."""
+        import random
+        rng1 = random.Random(42)
+        rng2 = random.Random(42)
+
+        jitter_small = Jitter(factor=0.10, rng=rng1)
+        jitter_large = Jitter(factor=0.50, rng=rng2)
+
+        # Both should produce the same random() values since factor is ignored
+        for _ in range(10):
+            assert jitter_small.random() == jitter_large.random()
+
+    def test_apply_jitters_value(self):
+        """Apply should multiply value by jitter factor."""
+        import random
+        rng = random.Random(42)
+        jitter = Jitter(factor=0.20, rng=rng)
+
+        value = 100.0
+        jittered = jitter.apply(value)
+
+        # Should be in range [80, 120]
+        assert 80.0 <= jittered <= 120.0
+
+    def test_apply_with_mock_rng(self):
+        """Apply should use the correct calculation."""
+        mock_rng = MagicMock()
+        mock_rng.uniform = MagicMock(return_value=0.9)
+
+        jitter = Jitter(factor=0.20, rng=mock_rng)
+        result = jitter.apply(100.0)
+
+        assert result == 90.0  # 100 * 0.9
+        mock_rng.uniform.assert_called_once_with(0.8, 1.2)
+
+    def test_mul_operator(self):
+        """jitter * value should work."""
+        import random
+        rng = random.Random(42)
+        jitter = Jitter(factor=0.20, rng=rng)
+
+        value = 100.0
+        jittered = jitter * value
+
+        assert 80.0 <= jittered <= 120.0
+
+    def test_rmul_operator(self):
+        """value * jitter should work."""
+        import random
+        rng = random.Random(42)
+        jitter = Jitter(factor=0.20, rng=rng)
+
+        value = 100.0
+        jittered = value * jitter
+
+        assert 80.0 <= jittered <= 120.0
+
+    def test_each_call_produces_new_value(self):
+        """Each next/apply call should produce a new random value."""
+        import random
+        rng = random.Random(42)
+        jitter = Jitter(factor=0.20, rng=rng)
+
+        values = [jitter.next() for _ in range(10)]
+
+        # Should have variation (not all the same)
+        assert len(set(values)) > 1
+
+    def test_zero_factor_produces_no_jitter(self):
+        """Factor of 0 should produce exactly the input value."""
+        jitter = Jitter(factor=0.0)
+
+        for _ in range(10):
+            assert jitter.apply(100.0) == 100.0
+            assert jitter.next() == 1.0
 
 
 # =============================================================================
@@ -421,8 +569,8 @@ class TestAdaptiveRateLimitedHttpClientTokenInvariant:
         client._tokens = 80.0
         assert client._effective_max == 100.0
 
-        # Mock RNG to return 1.0 (no jitter) for deterministic test
-        client._rng.uniform = MagicMock(return_value=1.0)
+        # Mock Jitter to return multiplier of 1.0 (no jitter) for deterministic test
+        client._jitter.next = MagicMock(return_value=1.0)
 
         # Trigger penalty
         client._on_rate_limited()
@@ -499,8 +647,8 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
         # Manually reduce effective_max to simulate prior penalty
         client._effective_max = 50.0
 
-        # Mock RNG to return 1.0 (no jitter) for deterministic test
-        client._rng.uniform = MagicMock(return_value=1.0)
+        # Mock Jitter to return multiplier of 1.0 (no jitter) for deterministic test
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client.post("http://example.com", data={})
 
@@ -511,8 +659,8 @@ class TestAdaptiveRateLimitedHttpClient429Handling:
 class TestAdaptiveRateLimitedHttpClientJitter:
     """Tests for jitter behavior in AdaptiveRateLimitedHttpClient."""
 
-    def test_init_creates_deterministic_rng_per_process(self):
-        """RNG should be seeded with hostname+pid for structural jitter."""
+    def test_init_creates_jitter_with_deterministic_rng(self):
+        """Jitter should use a per-process seeded RNG for structural jitter."""
         delegate = MockHttpClient()
 
         client1 = AdaptiveRateLimitedHttpClient(
@@ -527,9 +675,9 @@ class TestAdaptiveRateLimitedHttpClientJitter:
             time_window=60.0,
         )
 
-        # Same process = same seed = same RNG sequence
-        assert client1._rng is not None
-        assert client2._rng is not None
+        # Both should have Jitter instances
+        assert client1._jitter is not None
+        assert client2._jitter is not None
 
         # Verify the seed is based on hostname+pid (deterministic within same process)
         import os
@@ -545,7 +693,7 @@ class TestAdaptiveRateLimitedHttpClientJitter:
             time_window=60.0,
         )
         # Both should start with the same sequence
-        assert test_rng.random() == client3._rng.random()
+        assert test_rng.random() == client3._jitter.random()
 
     def test_on_success_applies_jittered_recovery(self):
         """Recovery factor should vary with ±20% jitter."""
@@ -558,16 +706,16 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         )
 
         client._effective_max = 50.0
-        # Mock RNG to return 0.8 (lower bound of ±20% jitter)
-        client._rng.uniform = MagicMock(return_value=0.8)
+        # Mock Jitter's RNG to return 0.8 (lower bound of ±20% jitter)
+        client._jitter.next = MagicMock(return_value=0.8)
 
         client._on_success()
 
         # Recovery: 50 + (100 * 0.1 * 0.8) = 58.0
         assert client._effective_max == 58.0
 
-    def test_on_success_jitter_range(self):
-        """Recovery jitter should call uniform with (0.8, 1.2) for ±20%."""
+    def test_on_success_uses_jitter(self):
+        """Recovery should use jitter for desynchronization."""
         delegate = MockHttpClient()
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -577,12 +725,12 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         )
 
         client._effective_max = 50.0
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client._on_success()
 
-        # Verify uniform was called with the correct range
-        client._rng.uniform.assert_called_once_with(0.8, 1.2)
+        # Verify jitter was used
+        client._jitter.next.assert_called_once()
 
     def test_on_rate_limited_applies_jittered_penalty(self):
         """Penalty factor should vary with ±20% jitter."""
@@ -595,16 +743,16 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         )
 
         client._effective_max = 100.0
-        # Mock RNG to return 1.2 (upper bound of ±20% jitter)
-        client._rng.uniform = MagicMock(return_value=1.2)
+        # Mock Jitter's RNG to return 1.2 (upper bound of ±20% jitter)
+        client._jitter.next = MagicMock(return_value=1.2)
 
         client._on_rate_limited()
 
         # Penalty: 100 * (1 - 0.3 * 1.2) = 100 * (1 - 0.36) = 64.0
         assert client._effective_max == 64.0
 
-    def test_on_rate_limited_jitter_range(self):
-        """Penalty jitter should call uniform with (0.8, 1.2) for ±20%."""
+    def test_on_rate_limited_uses_jitter(self):
+        """Penalty should use jitter for desynchronization."""
         delegate = MockHttpClient()
         client = AdaptiveRateLimitedHttpClient(
             delegate=delegate,
@@ -614,12 +762,12 @@ class TestAdaptiveRateLimitedHttpClientJitter:
         )
 
         client._effective_max = 100.0
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client._on_rate_limited()
 
-        # Verify uniform was called with the correct range
-        client._rng.uniform.assert_called_once_with(0.8, 1.2)
+        # Verify jitter was used
+        client._jitter.next.assert_called_once()
 
     def test_acquire_token_uses_sleep_with_jitter(self):
         """Token acquisition should use sleep_with_jitter for desynchronization."""

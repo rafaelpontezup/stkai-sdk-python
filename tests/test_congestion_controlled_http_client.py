@@ -149,8 +149,8 @@ class TestCongestionControlledHttpClientInit:
 
         assert client._latency_ema is None
 
-    def test_init_creates_deterministic_rng_per_process(self):
-        """RNG should be seeded with hostname+pid for structural jitter."""
+    def test_init_creates_jitter_with_deterministic_rng(self):
+        """Jitter should use a per-process seeded RNG for structural jitter."""
         delegate = MockHttpClient()
 
         client1 = CongestionControlledHttpClient(
@@ -165,10 +165,9 @@ class TestCongestionControlledHttpClientInit:
             time_window=60.0,
         )
 
-        # Same process = same seed = same RNG sequence
-        # Both clients should produce identical sequences when reset to same state
-        assert client1._rng is not None
-        assert client2._rng is not None
+        # Both should have Jitter instances
+        assert client1._jitter is not None
+        assert client2._jitter is not None
 
         # Verify the seed is based on hostname+pid (deterministic within same process)
         import os
@@ -184,7 +183,7 @@ class TestCongestionControlledHttpClientInit:
             time_window=60.0,
         )
         # Both should start with the same sequence
-        assert test_rng.random() == client3._rng.random()
+        assert test_rng.random() == client3._jitter.random()
 
 
 class TestCongestionControlledHttpClientInitValidation:
@@ -695,8 +694,8 @@ class TestCongestionControlledHttpClientAIMD:
         # Reduce effective_max to simulate prior penalty
         client._effective_max = 50.0
 
-        # Mock RNG to return 1.0 (no jitter)
-        client._rng.uniform = MagicMock(return_value=1.0)
+        # Mock Jitter's RNG to return 1.0 (no jitter)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client._on_success()
 
@@ -713,7 +712,7 @@ class TestCongestionControlledHttpClientAIMD:
         )
 
         client._effective_max = 90.0
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client._on_success()
 
@@ -730,7 +729,7 @@ class TestCongestionControlledHttpClientAIMD:
         )
 
         client._effective_max = 50.0
-        client._rng.uniform = MagicMock(return_value=0.8)  # 80% of base
+        client._jitter.next = MagicMock(return_value=0.8)  # 80% of base
 
         client._on_success()
 
@@ -747,7 +746,7 @@ class TestCongestionControlledHttpClientAIMD:
         )
 
         client._effective_max = 100.0
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client._on_rate_limited()
 
@@ -765,7 +764,7 @@ class TestCongestionControlledHttpClientAIMD:
         )
 
         client._effective_max = 15.0
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client._on_rate_limited()
 
@@ -784,7 +783,7 @@ class TestCongestionControlledHttpClientAIMD:
 
         client._effective_max = 100.0
         client._tokens = 80.0
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client._on_rate_limited()
 
@@ -803,7 +802,7 @@ class TestCongestionControlledHttpClientAIMD:
         )
 
         client._effective_max = 100.0
-        client._rng.uniform = MagicMock(return_value=1.2)  # 120% of base penalty
+        client._jitter.next = MagicMock(return_value=1.2)  # 120% of base penalty
 
         client._on_rate_limited()
 
@@ -866,10 +865,10 @@ class TestCongestionControlledHttpClientConcurrencyRecomputation:
         client._concurrency_limit = 1
         client._latency_ema = 5.0  # target = 1 * 5 = 5
 
-        # Force growth by making RNG return low value (< 0.30)
-        # In the code: if self._rng.random() >= 0.30: return (no growth)
+        # Force growth by making random() return low value (< 0.30)
+        # In the code: if self._jitter.random() >= 0.30: return (no growth)
         # So we need < 0.30 to grow
-        client._rng.random = MagicMock(return_value=0.2)
+        client._jitter.random = MagicMock(return_value=0.2)
 
         client._recompute_concurrency()
 
@@ -890,8 +889,8 @@ class TestCongestionControlledHttpClientConcurrencyRecomputation:
         client._latency_ema = 5.0
 
         # Prevent growth with high random value (>= 0.30)
-        # In the code: if self._rng.random() >= 0.30: return (no growth)
-        client._rng.random = MagicMock(return_value=0.5)
+        # In the code: if self._jitter.random() >= 0.30: return (no growth)
+        client._jitter.random = MagicMock(return_value=0.5)
 
         client._recompute_concurrency()
 
@@ -948,7 +947,7 @@ class TestCongestionControlledHttpClient429Handling:
             time_window=60.0,
             penalty_factor=0.5,
         )
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         initial_effective_max = client._effective_max
 
@@ -1013,7 +1012,7 @@ class TestCongestionControlledHttpClientSuccessFlow:
             recovery_factor=0.1,
         )
         client._effective_max = 50.0
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         client.post("http://example.com", data={})
 
@@ -1180,7 +1179,7 @@ class TestCongestionControlledHttpClientIntegration:
             penalty_factor=0.5,
             recovery_factor=0.1,
         )
-        client._rng.uniform = MagicMock(return_value=1.0)
+        client._jitter.next = MagicMock(return_value=1.0)
 
         # Apply penalty
         client._on_rate_limited()
