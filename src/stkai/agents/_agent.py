@@ -272,7 +272,7 @@ class Agent:
                     )
 
                     assert response, "🌀 Sanity check | Chat-Response was not created while sending the message."
-                    assert response.request is request, "🌀 Sanity check | Unexpected mismatch: response do not reference its corresponding request."
+                    assert response.request is request, "🌀 Sanity check | Unexpected mismatch: response does not reference its corresponding request."
                     return response
 
             # Should never reach here - Retrying raises MaxRetriesExceededError
