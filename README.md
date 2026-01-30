@@ -66,7 +66,7 @@ else:
     print(response.error_with_details())
 ```
 
-### RQC Batch Processing
+### Remote Quick Commands | Batch Processing
 
 Process multiple requests concurrently with thread pool execution:
 

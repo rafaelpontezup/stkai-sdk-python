@@ -1,6 +1,9 @@
 # Rate Limiting
 
-When making many requests to AI Agents, you may need to limit the request rate to avoid overwhelming the StackSpot AI API or hitting rate limits.
+When making many requests to AI Agents, you may need to control the request rate to avoid overwhelming the StackSpot AI API or hitting server-side rate limits.
+
+!!! note "Terminology: Rate Limiting vs Throttling"
+    The SDK uses "rate limiting" terminology, but the actual behavior is **throttling** — requests are delayed (queued) rather than immediately rejected. This proactive approach maximizes successful requests. See [HTTP Client > Terminology](../http-client.md#terminology-rate-limiting-vs-throttling) for details.
 
 ## Global Configuration (Recommended)
 

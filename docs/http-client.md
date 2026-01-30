@@ -142,6 +142,44 @@ http_client = AdaptiveRateLimitedHttpClient(
 
 ## Rate Limiting
 
+### Terminology: Rate Limiting vs Throttling
+
+The SDK uses "rate limiting" terminology, but the actual behavior is closer to **throttling**:
+
+| Concept | Side | Behavior | Philosophy |
+|---------|------|----------|------------|
+| **Rate Limiting** | Server | Rejects requests exceeding the limit (HTTP 429) | Reactive/Punitive |
+| **Throttling** | Client | Delays requests to stay under the limit | Proactive/Preventive |
+
+**Why "Rate Limiting" terminology?**
+
+1. **Industry convention**: AWS SDK, Google Cloud, and other popular SDKs use "rate limit" for client-side features
+2. **Discoverability**: Developers search for "rate limiting" when facing quota issues
+3. **Problem alignment**: The problem being solved is "don't violate the server's rate limit"
+
+**The actual behavior is hybrid:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       Client-Side Rate Control Behavior                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   1. THROTTLING (Primary)                                                   │
+│      Delays requests by waiting for tokens in a queue.                      │
+│      Requests are NOT rejected — they wait their turn.                      │
+│                                                                              │
+│   2. REJECTION (Secondary)                                                  │
+│      Raises exceptions when:                                                │
+│      • Wait time exceeds max_wait_time → TokenAcquisitionTimeoutError       │
+│      • Server returns HTTP 429 → ServerSideRateLimitError (adaptive only)  │
+│                                                                              │
+│   This means: requests wait in queue first, exceptions are last resort.     │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+This hybrid approach maximizes successful requests while providing clear failure modes when limits can't be respected.
+
 ### Why Rate Limiting Matters for StackSpot AI
 
 Agents and Remote Quick Commands (RQCs) make calls to LLM models that have **shared quotas** and **costs per request**. Without proper rate control:

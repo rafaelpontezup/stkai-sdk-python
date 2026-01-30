@@ -158,6 +158,8 @@ mypy src
 
 #### Rate Limiting
 
+**Terminology note:** The SDK uses "rate limiting" terminology, but the implementations are technically **throttling** (proactive client-side control that delays requests) rather than rate limiting (reactive server-side rejection). The SDK uses "rate limiting" because it's the industry-standard term developers search for. The behavior is hybrid: **throttling** (delays requests waiting for tokens) + **rejection** (exceptions when `max_wait_time` exceeded or server returns 429).
+
 The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, `EnvironmentAwareHttpClient` automatically wraps HTTP requests with rate limiting.
 
 **Available strategies:**
