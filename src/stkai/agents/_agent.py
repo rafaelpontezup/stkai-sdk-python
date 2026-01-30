@@ -266,10 +266,14 @@ class Agent:
                         f"{request.id[:26]:<26} | Agent | "
                         f"Sending message to agent '{self.agent_id}' (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
                     )
-                    return self._do_chat(
+                    response = self._do_chat(
                         request=request,
                         result_handler=result_handler
                     )
+
+                    assert response, "🌀 Sanity check | Chat-Response was not created while sending the message."
+                    assert response.request is request, "🌀 Sanity check | Unexpected mismatch: response do not reference its corresponding request."
+                    return response
 
             # Should never reach here - Retrying raises MaxRetriesExceededError
             raise RuntimeError(
@@ -330,8 +334,10 @@ class Agent:
             data=payload,
             timeout=self.options.request_timeout,
         )
-        http_response.raise_for_status()
+        assert isinstance(http_response, requests.Response), \
+            f"🌀 Sanity check | Object returned by `post` method is not an instance of `requests.Response`. ({http_response.__class__})"
 
+        http_response.raise_for_status()
         response_data = http_response.json()
         raw_message = response_data.get("message")
 
