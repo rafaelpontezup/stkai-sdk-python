@@ -154,7 +154,7 @@ mypy src
 - `StandaloneHttpClient`: Uses `AuthProvider` for standalone authentication.
 - `TokenBucketRateLimitedHttpClient`: Decorator with Token Bucket rate limiting.
 - `AdaptiveRateLimitedHttpClient`: Decorator with adaptive AIMD rate limiting.
-- `CongestionControlledHttpClient`: (EXPERIMENTAL) Congestion controller with rate + concurrency + latency tracking.
+- `CongestionAwareHttpClient`: (EXPERIMENTAL) Latency-based concurrency control using Little's Law.
 
 #### Rate Limiting
 
@@ -167,13 +167,26 @@ The SDK supports automatic rate limiting via `STKAI.configure()`. When enabled, 
 |----------|-----------|----------|
 | `token_bucket` | Token Bucket | Simple, predictable rate limiting |
 | `adaptive` | AIMD + Jitter (±20% on penalty/recovery/sleep) | Dynamic environments with shared quotas |
-| `congestion_controlled` | AIMD + Concurrency + Latency EMA | (EXPERIMENTAL) RQC with multiple processes, NOT for Agent |
 
 **Note on `adaptive` jitter:** The adaptive strategy applies ±20% jitter to penalty_factor, recovery_factor, and token wait sleep times. This desynchronizes processes sharing a quota, preventing thundering herd effects and synchronized oscillations. Each process has a deterministic RNG seeded with hostname+pid.
 
 **Note:** HTTP 429 retry logic is handled by the `Retrying` class (in `_retry.py`), not the rate limiter. The adaptive strategy applies AIMD penalty on 429 responses (reduces rate) and raises `ServerSideRateLimitError` for `Retrying` to handle with backoff and `Retry-After` header support.
 
-**Note on `congestion_controlled`:** This is an EXPERIMENTAL strategy only available via programmatic configuration (not via `STKAI.configure()` or env vars). It adds concurrency control (semaphore) and latency tracking (EMA) on top of AIMD. Designed for RQC workflows with fast POST (~200ms) + long polling. **NOT recommended for Agent::chat()** where POST takes 10-30s (LLM processing) — the concurrency semaphore becomes a bottleneck.
+**Note on `CongestionAwareHttpClient` (EXPERIMENTAL):** This is an experimental decorator that adds latency-based concurrency control using Little's Law (`pressure = throughput × latency`). It is designed to be composed with rate limiters:
+
+```python
+# Composition: RateLimiter wraps CongestionAware wraps HttpClient
+base = StkCLIHttpClient()
+congestion = CongestionAwareHttpClient(delegate=base, pressure_threshold=2.0)
+client = AdaptiveRateLimitedHttpClient(delegate=congestion, max_requests=100)
+```
+
+**When to consider:** This decorator MAY be useful when:
+1. The server degrades gracefully (latency increases before returning 429s)
+2. You want standalone concurrency control without rate limiting
+3. Long-running requests where concurrency matters more than rate
+
+**Caveat:** In most scenarios with API quotas, the AIMD rate limiter (`adaptive`) reacts to 429 responses faster than latency-based detection can detect congestion. Simulations showed that combining `CongestionAwareHttpClient` with `AdaptiveRateLimitedHttpClient` provides minimal additional benefit over using `adaptive` alone.
 
 **Exception Hierarchy:**
 ```
@@ -236,7 +249,7 @@ STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.05
 | `strategy` | `"token_bucket"` \| `"adaptive"` | `"token_bucket"` | Rate limiting algorithm |
 | `max_requests` | `int` | `100` | Max requests per time window |
 | `time_window` | `float` | `60.0` | Time window in seconds |
-| `max_wait_time` | `float \| None` | `30.0` | Max wait for token (None = unlimited) |
+| `max_wait_time` | `float \| None` | `45.0` | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
 | `penalty_factor` | `float` | `0.3` | (adaptive) Rate reduction on 429 |
 | `recovery_factor` | `float` | `0.05` | (adaptive) Rate increase on success |
@@ -249,7 +262,7 @@ from stkai import STKAI, RateLimitConfig
 # Conservative: stability over throughput (critical jobs, many processes)
 STKAI.configure(rate_limit=asdict(RateLimitConfig.conservative_preset(max_requests=20)))
 
-# Balanced: sensible defaults (general use, 2-3 processes)
+# Balanced: sensible defaults (general use, 2-5 processes)
 STKAI.configure(rate_limit=asdict(RateLimitConfig.balanced_preset(max_requests=50)))
 
 # Optimistic: throughput over stability (interactive/CLI, single process)

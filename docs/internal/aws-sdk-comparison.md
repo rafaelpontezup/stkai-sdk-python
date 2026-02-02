@@ -1,5 +1,7 @@
 # Comparison: CongestionControlledHttpClient vs AWS SDK Adaptive Retry
 
+> **HISTORICAL DOCUMENT** - `CongestionControlledHttpClient` was removed from the SDK after simulations showed that combining rate limiting (AIMD) with latency-based concurrency control provided minimal benefit over AIMD alone. The AIMD rate limiter reacts to 429 responses faster than latency-based detection can detect congestion. See `CongestionAwareHttpClient` for the simplified experimental alternative.
+
 > **Internal Documentation** - This is a private reference document for development decisions. Not intended for public documentation.
 
 ## Executive Summary
@@ -101,7 +103,7 @@ Rate
 |---------|-------------------|-------------------------------|
 | Min Fill Rate | `0.5` tokens/sec | `min_rate_floor × max_requests / time_window` |
 | Blocking | Waits with condition variable | Waits with `time.sleep()` |
-| Timeout | Implicit (no explicit timeout) | `max_wait_time` (default 30s) |
+| Timeout | Implicit (no explicit timeout) | `max_wait_time` (default 45s) |
 | Thread Safety | Lock + Condition variable | Lock only |
 
 #### AWS Token Bucket (from `bucket.py`)
@@ -194,6 +196,7 @@ def _record_latency(self, latency: float):
 ```
 
 **Key Insight:** AWS measures **throughput** (requests/second), we measure **latency** (seconds/request). Both use EMA smoothing but with inverted alpha:
+
 - AWS: `0.8` weight on new sample (more reactive)
 - Us: `0.2` weight on new sample (more stable)
 
@@ -469,22 +472,139 @@ def delay_amount(self, context):
 
 ---
 
+## Simulation Results: Why CongestionControlled Was Removed
+
+The following simulations were run to validate the rate limiting strategies. The results led to the decision to **remove `CongestionControlledHttpClient`** from the SDK.
+
+### Simulation Setup
+
+**Server** (simulated StackSpot AI API):
+
+- **Shared quota**: 100 req/min across ALL clients (429 when exceeded)
+- **Base latency**: 200ms (RQC POST request at idle server)
+- **Latency under load**: Uses M/M/1 queuing theory — latency increases as server approaches capacity:
+
+| Server Utilization | Latency |
+|-------------------|---------|
+| 0% (idle) | 200ms |
+| 50% (moderate) | 400ms |
+| 80% (high load) | 1000ms |
+| 95% (near capacity) | 4000ms |
+
+**Clients**:
+
+- **Processes**: 1, 2, 3, 5, 7, 10 concurrent processes
+- **Workers per process**: 8 (mirrors SDK's default `max_workers` for RQC)
+- **Arrival pattern**: Poisson distribution (realistic traffic)
+- **Retry**: Exponential backoff (3 retries, 0.5s initial delay, respects `Retry-After`)
+
+**Strategies tested**:
+
+| Strategy | Configuration | Notes |
+|----------|---------------|-------|
+| `none` | No rate limiting | Baseline — retry only |
+| `token_bucket(33)` | 33 req/min fixed | **Manual config**: 100÷3 = 33 (works well for up to 3 processes sharing quota) |
+| `optimistic` | AIMD, max_wait=20s, min_floor=30% | Single process / interactive |
+| `balanced` | AIMD, max_wait=45s, min_floor=10% | General use (2-5 processes) |
+| `conservative` | AIMD, max_wait=120s, min_floor=5% | Critical jobs (many processes) |
+| `congestion_controlled` | AIMD + Semaphore + Latency EMA | **Removed** — see results below |
+
+> **Note on Token Bucket(33)**: This is a **manual configuration** where you divide the shared quota by the expected number of processes. It works well when you know exactly how many processes will run, but doesn't adapt if that number changes. The adaptive strategies (optimistic/balanced/conservative) handle this automatically via AIMD feedback.
+
+### Graph 1: Success Rate vs Server Load
+
+![Success Rate vs Server Load](images/graph_01_success_rate_vs_server_load.png)
+
+**What it shows**: Success rate (Y-axis) as the number of concurrent processes increases (X-axis).
+
+**Key insights**:
+
+- **Without rate limiting (`none`)**: Success rate drops dramatically as contention increases (from 95% at 1 process to ~40% at 10 processes)
+- **Token Bucket (33 req/min)**: Maintains high success rate (~95%) by limiting each process to 1/3 of quota
+- **Adaptive strategies (optimistic/balanced/conservative)**: All maintain 90%+ success rate through AIMD feedback
+- **Congestion Controlled**: Performance nearly identical to Adaptive — no significant improvement
+
+### Graph 2: Failure Breakdown by Type
+
+![Failure Breakdown](images/graph_03_failure_breakdown.png)
+
+**What it shows**: Breakdown of failure types (429 rejections, timeouts, client-side rate limit) per strategy.
+
+**Key insights**:
+
+- **No rate limiting**: Almost all failures are 429s (server rejection)
+- **Token Bucket**: Almost zero failures (but low throughput)
+- **Adaptive**: Some 429s (triggers AIMD), minimal client-side timeouts
+- **Congestion Controlled**: Same failure profile as Adaptive — latency-based detection didn't prevent more 429s
+
+### Graph 3: Efficiency Score
+
+![Efficiency Score](images/graph_04_efficiency_score.png)
+
+**What it shows**: Efficiency metric combining success rate and throughput. Higher is better.
+
+**Key insights**:
+
+- **Balanced preset**: Best efficiency across 2-5 processes (the common case)
+- **Conservative preset**: Better at high contention (7-10 processes)
+- **Optimistic preset**: Best for single process / interactive use
+- **Congestion Controlled**: No efficiency advantage over Adaptive
+
+### Why CongestionControlled Was Removed
+
+The simulations revealed that **AIMD rate limiting alone provides sufficient backpressure**:
+
+1. **AIMD reacts faster than latency detection**: When a 429 occurs, AIMD reduces rate immediately. Latency-based detection would need several requests to detect rising latency — by then, AIMD has already adjusted.
+
+2. **No measurable improvement**: Congestion Controlled had the same success rate, failure profile, and efficiency as Adaptive strategies.
+
+3. **Added complexity**: Maintaining two mechanisms (rate + concurrency) that do the same thing adds code complexity without benefit.
+
+4. **Composition still possible**: If users want latency-based concurrency control, they can compose `CongestionAwareHttpClient` with `AdaptiveRateLimitedHttpClient`. This keeps the SDK simple while allowing advanced use cases.
+
+### What Remains: CongestionAwareHttpClient (EXPERIMENTAL)
+
+For users who want latency-based concurrency control (without rate limiting), `CongestionAwareHttpClient` remains available as an **experimental** decorator:
+
+```python
+from stkai import CongestionAwareHttpClient, EnvironmentAwareHttpClient
+
+# Wrap your HTTP client with latency-based concurrency control
+http_client = CongestionAwareHttpClient(
+    delegate=EnvironmentAwareHttpClient(),
+    max_concurrency=8,
+    pressure_threshold=2.0,  # shrink when pressure > threshold
+)
+```
+
+**Use case**: Server overload scenarios where you want to reduce concurrency based on observed latency, without full rate limiting.
+
+---
+
 ## Conclusion
 
-Our `CongestionControlledHttpClient` is **inspired by** AWS SDK's adaptive retry but is **architecturally different**:
+Our `CongestionControlledHttpClient` was **inspired by** AWS SDK's adaptive retry mode:
 
-1. **Same penalty factor** (30%) - we match AWS exactly here
-2. **We add concurrency control** - AWS doesn't have this (our biggest differentiator)
-3. **We use latency for prevention** - AWS reacts to throughput/throttling
-4. **We lack circuit breaker** - AWS has Retry Quota protection
-5. **Different recovery curves** - CUBIC vs linear (both valid)
+| What We Shared | What AWS Has Extra |
+|----------------|-------------------|
+| Same penalty factor (30%) | Circuit breaker (Retry Quota) |
+| Token Bucket algorithm | CUBIC recovery (faster near peak) |
+| 429-only penalty (not 5xx) | Granular error classification |
 
-Our implementation is **more sophisticated for the RQC use case** (fast POST + long polling), where:
-- Concurrency control matters (multiple processes)
-- Latency is a meaningful signal (fast POST ~200ms)
-- Preventive backpressure beats reactive throttling
+| What We Had Extra | Result |
+|-------------------|--------|
+| Concurrency control (Semaphore) | ❌ Removed — AIMD alone is sufficient |
+| Latency-based prevention | ❌ Removed — reacts slower than AIMD |
+| Little's Law integration | ❌ Removed — elegant but unnecessary |
 
-**Recommendation:** Consider adding a circuit breaker layer (similar to AWS Retry Quota) if we need protection against sustained outages. The cost-based model (5 tokens normal, 10 tokens timeout) is elegant.
+**Key Lesson**: AIMD rate limiting already provides proactive backpressure. Adding latency-based concurrency control on top adds complexity without measurable benefit. The simulations proved this conclusively.
+
+**What Remains**:
+
+- **AdaptiveRateLimitedHttpClient**: AIMD rate limiting with presets (optimistic, balanced, conservative)
+- **CongestionAwareHttpClient** (EXPERIMENTAL): Standalone latency-based concurrency control for edge cases
+
+**Future Consideration**: A circuit breaker layer (similar to AWS Retry Quota) could add value for sustained outage protection. The cost-based model (5 tokens normal, 10 tokens timeout) is elegant.
 
 ---
 

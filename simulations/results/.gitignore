@@ -1,0 +1,4 @@
+# Ignore all results (generated files)
+*.png
+*.csv
+*.json

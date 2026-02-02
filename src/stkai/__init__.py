@@ -68,7 +68,7 @@ HTTP Client:
     - StandaloneHttpClient: HTTP client using AuthProvider for standalone auth.
     - TokenBucketRateLimitedHttpClient: HTTP client decorator with rate limiting.
     - AdaptiveRateLimitedHttpClient: HTTP client decorator with adaptive rate limiting.
-    - CongestionControlledHttpClient: HTTP client decorator with congestion control (EXPERIMENTAL).
+    - CongestionAwareHttpClient: HTTP client decorator with latency-based concurrency control (EXPERIMENTAL).
     - ClientSideRateLimitError: Base exception for client-side rate limiting errors.
     - TokenAcquisitionTimeoutError: Exception raised when rate limiter exceeds max_wait_time.
     - ServerSideRateLimitError: Exception raised when server returns HTTP 429.
@@ -112,7 +112,7 @@ from stkai._http import (
 from stkai._rate_limit import (
     AdaptiveRateLimitedHttpClient,
     ClientSideRateLimitError,
-    CongestionControlledHttpClient,
+    CongestionAwareHttpClient,
     ServerSideRateLimitError,
     TokenAcquisitionTimeoutError,
     TokenBucketRateLimitedHttpClient,
@@ -164,7 +164,7 @@ __all__ = [
     "StandaloneHttpClient",
     "TokenBucketRateLimitedHttpClient",
     "AdaptiveRateLimitedHttpClient",
-    "CongestionControlledHttpClient",
+    "CongestionAwareHttpClient",
     "ClientSideRateLimitError",
     "TokenAcquisitionTimeoutError",
     "ServerSideRateLimitError",

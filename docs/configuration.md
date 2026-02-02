@@ -304,7 +304,7 @@ Settings for automatic rate limiting of HTTP requests. When enabled, `Environmen
 | `strategy` | `STKAI_RATE_LIMIT_STRATEGY` | `"token_bucket"` | Algorithm: `"token_bucket"` or `"adaptive"` |
 | `max_requests` | `STKAI_RATE_LIMIT_MAX_REQUESTS` | 100 | Max requests per time window |
 | `time_window` | `STKAI_RATE_LIMIT_TIME_WINDOW` | 60.0 | Time window in seconds |
-| `max_wait_time` | `STKAI_RATE_LIMIT_MAX_WAIT_TIME` | 30.0 | Max wait for token (None = unlimited) |
+| `max_wait_time` | `STKAI_RATE_LIMIT_MAX_WAIT_TIME` | 45.0 | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `STKAI_RATE_LIMIT_MIN_RATE_FLOOR` | 0.1 | (adaptive) Min rate as fraction |
 | `penalty_factor` | `STKAI_RATE_LIMIT_PENALTY_FACTOR` | 0.3 | (adaptive) Rate reduction on 429 |
 | `recovery_factor` | `STKAI_RATE_LIMIT_RECOVERY_FACTOR` | 0.05 | (adaptive) Rate increase on success |
@@ -316,8 +316,8 @@ For common scenarios, use presets instead of configuring each field manually:
 | Preset | Use Case | `max_wait_time` | `penalty_factor` | `recovery_factor` |
 |--------|----------|-----------------|------------------|-------------------|
 | `conservative_preset()` | Critical batch jobs, many processes | 120s | 0.5 (aggressive) | 0.02 (slow) |
-| `balanced_preset()` | General use, 2-3 processes | 30s | 0.3 (moderate) | 0.05 (medium) |
-| `optimistic_preset()` | Interactive/CLI, single process | 5s | 0.15 (light) | 0.1 (fast) |
+| `balanced_preset()` | General use, 2-5 processes | 45s | 0.3 (moderate) | 0.05 (medium) |
+| `optimistic_preset()` | Interactive/CLI, single process | 20s | 0.15 (light) | 0.1 (fast) |
 
 ```python
 from dataclasses import asdict
@@ -326,7 +326,7 @@ from stkai import STKAI, RateLimitConfig
 # Conservative: stability over throughput (expects ~5 processes sharing quota)
 STKAI.configure(rate_limit=asdict(RateLimitConfig.conservative_preset(max_requests=20)))
 
-# Balanced: sensible defaults (expects ~2-3 processes)
+# Balanced: sensible defaults (expects ~2-5 processes)
 STKAI.configure(rate_limit=asdict(RateLimitConfig.balanced_preset(max_requests=50)))
 
 # Optimistic: throughput over stability (single process or external retry)

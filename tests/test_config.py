@@ -381,7 +381,7 @@ class TestRateLimitConfigDefaults(unittest.TestCase):
         rl = STKAI.config.rate_limit
         self.assertEqual(rl.max_requests, 100)
         self.assertEqual(rl.time_window, 60.0)
-        self.assertEqual(rl.max_wait_time, 30.0)
+        self.assertEqual(rl.max_wait_time, 45.0)
         self.assertEqual(rl.min_rate_floor, 0.1)
         self.assertEqual(rl.penalty_factor, 0.3)
         self.assertEqual(rl.recovery_factor, 0.05)
@@ -421,7 +421,7 @@ class TestRateLimitConfigPresets(unittest.TestCase):
         self.assertEqual(config.strategy, "adaptive")
         self.assertEqual(config.max_requests, 40)
         self.assertEqual(config.time_window, 60.0)
-        self.assertEqual(config.max_wait_time, 30.0)
+        self.assertEqual(config.max_wait_time, 45.0)
         self.assertEqual(config.min_rate_floor, 0.1)
         self.assertEqual(config.penalty_factor, 0.3)
         self.assertEqual(config.recovery_factor, 0.05)
@@ -433,7 +433,7 @@ class TestRateLimitConfigPresets(unittest.TestCase):
         self.assertEqual(config.max_requests, 100)
         self.assertEqual(config.time_window, 120.0)
         # Other values should remain preset defaults
-        self.assertEqual(config.max_wait_time, 30.0)
+        self.assertEqual(config.max_wait_time, 45.0)
         self.assertEqual(config.penalty_factor, 0.3)
 
     def test_optimistic_preset_default_values(self):
@@ -444,7 +444,7 @@ class TestRateLimitConfigPresets(unittest.TestCase):
         self.assertEqual(config.strategy, "adaptive")
         self.assertEqual(config.max_requests, 80)
         self.assertEqual(config.time_window, 60.0)
-        self.assertEqual(config.max_wait_time, 5.0)
+        self.assertEqual(config.max_wait_time, 20.0)
         self.assertEqual(config.min_rate_floor, 0.3)
         self.assertEqual(config.penalty_factor, 0.15)
         self.assertEqual(config.recovery_factor, 0.1)
@@ -456,7 +456,7 @@ class TestRateLimitConfigPresets(unittest.TestCase):
         self.assertEqual(config.max_requests, 150)
         self.assertEqual(config.time_window, 60.0)
         # Other values should remain preset defaults
-        self.assertEqual(config.max_wait_time, 5.0)
+        self.assertEqual(config.max_wait_time, 20.0)
         self.assertEqual(config.penalty_factor, 0.15)
 
     def test_presets_can_be_used_with_configure(self):
@@ -471,7 +471,7 @@ class TestRateLimitConfigPresets(unittest.TestCase):
         self.assertTrue(rl.enabled)
         self.assertEqual(rl.strategy, "adaptive")
         self.assertEqual(rl.max_requests, 50)
-        self.assertEqual(rl.max_wait_time, 30.0)
+        self.assertEqual(rl.max_wait_time, 45.0)
 
         STKAI.reset()
 

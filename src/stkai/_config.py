@@ -574,7 +574,7 @@ class RateLimitConfig(OverridableConfig):
     time_window: float = field(default=60.0, metadata={"env": "STKAI_RATE_LIMIT_TIME_WINDOW"})
     # Special field (processed manually - can be None for "unlimited")
     max_wait_time: float | None = field(
-        default=30.0,
+        default=45.0,
         metadata={"env": "STKAI_RATE_LIMIT_MAX_WAIT_TIME", "skip": True},
     )
     # Adaptive strategy parameters (ignored if strategy != "adaptive")
@@ -732,11 +732,11 @@ class RateLimitConfig(OverridableConfig):
 
         Sensible defaults for most use cases. Best for:
         - General batch processing
-        - 2-3 concurrent processes
+        - 2-5 concurrent processes
         - When unsure which preset to use
 
         Behavior:
-        - Waits up to 30s for tokens
+        - Waits up to 45s for tokens
         - Moderate penalty on 429 (30% reduction)
         - Medium recovery (5% per success)
         - Can drop to 10% of max_requests under stress
@@ -744,7 +744,7 @@ class RateLimitConfig(OverridableConfig):
         Args:
             max_requests: Maximum requests allowed in the time window.
                 Calculate based on your quota and expected concurrent processes.
-                Default assumes ~2-3 processes sharing a 100 req/min quota.
+                Default assumes ~2-5 processes sharing a 100 req/min quota.
             time_window: Time window in seconds for the rate limit.
 
         Returns:
@@ -762,7 +762,7 @@ class RateLimitConfig(OverridableConfig):
             strategy="adaptive",
             max_requests=max_requests,
             time_window=time_window,
-            max_wait_time=30.0,
+            max_wait_time=45.0,
             min_rate_floor=0.1,
             penalty_factor=0.3,
             recovery_factor=0.05,
@@ -783,7 +783,7 @@ class RateLimitConfig(OverridableConfig):
         - When external retry logic exists
 
         Behavior:
-        - Fails fast if can't get token in 5s
+        - Waits up to 20s for tokens
         - Light penalty on 429 (15% reduction)
         - Fast recovery (10% per success)
         - Never drops below 30% of max_requests
@@ -809,7 +809,7 @@ class RateLimitConfig(OverridableConfig):
             strategy="adaptive",
             max_requests=max_requests,
             time_window=time_window,
-            max_wait_time=5.0,
+            max_wait_time=20.0,
             min_rate_floor=0.3,
             penalty_factor=0.15,
             recovery_factor=0.1,
