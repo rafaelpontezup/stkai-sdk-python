@@ -6,20 +6,19 @@ This module contains the core data structures used across the RQC module:
 - RqcResponse: Represents the response from an execution
 - RqcExecutionStatus: Enum of execution lifecycle states
 """
-
+import enum
 import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from stkai._utils import save_json_file
 
 
-class RqcExecutionStatus(str, Enum):
+class RqcExecutionStatus(enum.StrEnum):
     """
     Status of an RQC execution lifecycle.
 
