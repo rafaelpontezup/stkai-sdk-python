@@ -79,6 +79,21 @@ ruff check src tests
 mypy src
 ```
 
+## Simulations
+
+The `simulations/` directory contains discrete-event simulations (SimPy) to validate rate limiting strategies.
+
+**Run simulations:**
+```bash
+./scripts/run_simulations.sh
+```
+
+**Results:** Graphs are saved to `simulations/results/latest/`
+
+**Strategies tested:** `none`, `token_bucket`, `optimistic`, `balanced`, `conservative`, `congestion_aware`
+
+**Documentation:** See `simulations/README.md` for details and `docs/internal/aws-sdk-comparison.md` for analysis.
+
 ## Architecture Notes
 
 ### Remote Quick Commands
