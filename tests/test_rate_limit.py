@@ -922,8 +922,9 @@ class TestCongestionAwareHttpClientConcurrency:
 
     def test_limits_concurrent_requests(self):
         """Should limit concurrent in-flight requests."""
-        from stkai import CongestionAwareHttpClient
         import time
+
+        from stkai import CongestionAwareHttpClient
 
         delegate = MagicMock(spec=HttpClient)
         mock_response = MagicMock(spec=requests.Response)
@@ -1131,13 +1132,10 @@ class TestCongestionAwareHttpClientPressure:
 
     def test_low_pressure_may_increase_concurrency(self):
         """Low pressure should probabilistically increase concurrency."""
+
         from stkai import CongestionAwareHttpClient
-        import random
 
         delegate = MagicMock(spec=HttpClient)
-
-        # Use fixed RNG that always returns low value (triggers growth)
-        fixed_rng = random.Random(42)
 
         client = CongestionAwareHttpClient(
             delegate=delegate,
@@ -1213,7 +1211,7 @@ class TestCongestionAwareHttpClientIntegration:
 
     def test_composition_with_adaptive_rate_limiter(self):
         """Should work when composed with AdaptiveRateLimitedHttpClient."""
-        from stkai import CongestionAwareHttpClient, AdaptiveRateLimitedHttpClient
+        from stkai import AdaptiveRateLimitedHttpClient, CongestionAwareHttpClient
 
         base_delegate = MagicMock(spec=HttpClient)
         mock_response = MagicMock(spec=requests.Response)
@@ -1239,8 +1237,9 @@ class TestCongestionAwareHttpClientIntegration:
 
     def test_thread_safety(self):
         """Should be thread-safe under concurrent access."""
-        from stkai import CongestionAwareHttpClient
         import time
+
+        from stkai import CongestionAwareHttpClient
 
         delegate = MagicMock(spec=HttpClient)
         mock_response = MagicMock(spec=requests.Response)

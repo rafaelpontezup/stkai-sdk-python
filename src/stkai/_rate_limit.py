@@ -32,7 +32,6 @@ Example (Adaptive):
 """
 
 import logging
-import math
 import os
 import random
 import socket
