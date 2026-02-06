@@ -37,7 +37,7 @@ ls results/latest/*.png
 | `optimistic` | AIMD, aggressive | max_wait=20s, min_floor=30%, penalty=15% |
 | `balanced` | AIMD, sensible defaults | max_wait=45s, min_floor=10%, penalty=30% |
 | `conservative` | AIMD, stability-first | max_wait=120s, min_floor=5%, penalty=50% |
-| `cong_aware` | AIMD + Little's Law | Same as balanced + pressure_threshold=2.0 |
+| `congestion_aware` | AIMD + Little's Law | Same as balanced + pressure_threshold=2.0 |
 
 ## Contention Levels
 

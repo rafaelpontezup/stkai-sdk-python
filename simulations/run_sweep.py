@@ -119,7 +119,7 @@ def create_line_charts(
         "optimistic": "#f39c12",   # Orange
         "balanced": "#9b59b6",     # Purple
         "conservative": "#2ecc71", # Green
-        "cong_aware": "#00bcd4",   # Cyan (congestion_aware)
+        "congestion_aware": "#00bcd4",   # Cyan (congestion_aware)
     }
 
     # Line styles
@@ -129,7 +129,7 @@ def create_line_charts(
         "optimistic": "^",
         "balanced": "D",
         "conservative": "v",
-        "cong_aware": "*",
+        "congestion_aware": "*",
     }
 
     # ==========================================================================

@@ -49,15 +49,6 @@ STRATEGIES = {
         time_window=60.0,
         max_wait_time=45.0,
     ),
-"balanced": RateLimitConfig(
-        strategy="adaptive",
-        max_requests=100,
-        time_window=60.0,
-        max_wait_time=45.0,
-        min_rate_floor=0.1,
-        penalty_factor=0.30,
-        recovery_factor=0.05,
-    ),
     "optimistic": RateLimitConfig(
         strategy="adaptive",
         max_requests=100,
@@ -66,6 +57,15 @@ STRATEGIES = {
         min_rate_floor=0.3,
         penalty_factor=0.15,
         recovery_factor=0.1,
+    ),
+    "balanced": RateLimitConfig(
+        strategy="adaptive",
+        max_requests=100,
+        time_window=60.0,
+        max_wait_time=45.0,
+        min_rate_floor=0.1,
+        penalty_factor=0.30,
+        recovery_factor=0.05,
     ),
     "conservative": RateLimitConfig(
         strategy="adaptive",
@@ -78,7 +78,7 @@ STRATEGIES = {
     ),
     # Congestion-Aware (Little's Law) with SDK defaults
     # Uses same AIMD params as balanced + pressure-based backpressure
-    "cong_aware": RateLimitConfig(
+    "congestion_aware": RateLimitConfig(
         strategy="congestion_aware",
         max_requests=100,
         time_window=60.0,
