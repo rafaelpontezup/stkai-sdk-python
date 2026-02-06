@@ -1,4 +1,6 @@
-# Ignore all results (generated files)
-*.png
-*.csv
-*.json
+# Ignore timestamped run directories and latest symlink
+*/
+latest
+
+# Keep reference directory versioned
+!reference/
