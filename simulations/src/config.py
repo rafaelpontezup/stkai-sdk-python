@@ -44,7 +44,7 @@ class RateLimitConfig:
         penalty_factor: Rate reduction on 429 (adaptive).
         recovery_factor: Rate increase on success (adaptive).
         jitter_factor: Jitter applied to AIMD operations (adaptive).
-        max_concurrency: Maximum in-flight requests (congestion_controlled).
+        max_concurrency: Maximum in-flight requests (congestion_aware).
     """
 
     strategy: RateLimitStrategy = "adaptive"

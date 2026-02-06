@@ -123,7 +123,7 @@ The simulation replicates exact logic from:
 
 1. **AIMD is sufficient**: Adaptive strategies (balanced/conservative) handle contention
    well without needing latency-based concurrency control. Adding latency-based
-   concurrency control (via `CongestionAwareHttpClient` or the old `CongestionControlledHttpClient`) provided no measurable improvement
+   concurrency control (via `CongestionAwareHttpClient`) provided no measurable improvement
    over Adaptive strategies. See `docs/internal/aws-sdk-comparison.md` for details.
 
 2. **Token Bucket requires manual tuning**: Works well if you know process count upfront,
