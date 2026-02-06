@@ -666,6 +666,46 @@ rqc2 = RemoteQuickCommand(slug_name="command-2", http_client=shared_client)
 agent = Agent(agent_id="my-agent", http_client=shared_client)
 ```
 
+### Decentralized Best-Effort Approach
+
+All rate limiting strategies in this SDK are **decentralized** — each process operates independently with **minimal or no coordination** between them.
+
+#### How It Works
+
+- Each process maintains its own local rate limiter state
+- No shared state or communication between processes
+- AIMD adjusts rate based on local observations (429 responses)
+- Jitter (±20%) helps desynchronize processes sharing a quota
+
+#### Trade-offs
+
+| Aspect | Decentralized (this SDK) | Centralized (Redis, etc.) |
+|--------|--------------------------|---------------------------|
+| **Coordination** | None — best effort | Full — precise quota enforcement |
+| **Complexity** | Simple — no infrastructure | Complex — requires Redis/DB |
+| **Latency** | Zero overhead | Network round-trip per request |
+| **Failure mode** | Graceful — continues if others fail | Dependent — fails if Redis fails |
+| **Accuracy** | Approximate — processes may overshoot | Exact — global counter |
+
+This is one of the reasons why [429 errors are inevitable](#understanding-429-errors-why-they-still-happen) even with rate limiting enabled.
+
+#### When to Consider Centralized Solutions
+
+If your scenario requires **precise quota enforcement** across many processes, consider centralized rate limiting with:
+
+- **Redis** — `INCR` + `EXPIRE` for sliding window, or Redis Cell module
+- **Database** — Postgres advisory locks or atomic counters
+- **Distributed rate limiters** — Envoy, Kong, or cloud API gateways
+
+**The SDK's decentralized approach is ideal for:**
+
+- Single process applications
+- Small clusters (2-5 processes) with shared quotas
+- Scenarios where simplicity and resilience matter more than precision
+
+!!! tip "Practical Guidance"
+    For most StackSpot AI SDK use cases, the decentralized approach is sufficient. The `adaptive` strategy with AIMD and jitter handles multi-process scenarios well without requiring external infrastructure. Only consider centralized solutions if you have strict compliance requirements or consistently observe quota violations despite proper configuration.
+
 ### Global Configuration (Recommended)
 
 The easiest way to enable rate limiting is via `STKAI.configure()`. When enabled, `EnvironmentAwareHttpClient` automatically wraps requests with rate limiting:
