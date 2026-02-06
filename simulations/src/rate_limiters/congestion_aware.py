@@ -45,13 +45,11 @@ class CongestionAwareRateLimiter(RateLimiter):
     This provides PROACTIVE backpressure based on latency, rather than
     waiting for 429 responses.
 
-    KEY DIFFERENCE FROM CongestionControlledRateLimiter
-    --------------------------------------------------
-    - CongestionControlled: Tight coupling of rate + concurrency + latency
-    - CongestionAware: Pure concurrency control using pressure threshold
-
-    CongestionAware is simpler and more composable - it only cares about
-    concurrency, delegating rate control entirely to the wrapped limiter.
+    DESIGN
+    ------
+    Pure concurrency control using pressure threshold. Simpler and more
+    composable - it only cares about concurrency, delegating rate control
+    entirely to the wrapped AIMD limiter.
     """
 
     def __init__(self, config: RateLimitConfig, process_id: int = 0):

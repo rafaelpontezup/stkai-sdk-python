@@ -57,14 +57,14 @@ class RateLimiter(ABC):
     def release_concurrency(self) -> None:
         """Called after a request completes to release a concurrency slot.
 
-        Only meaningful for CongestionControlledRateLimiter. No-op by default.
+        Only meaningful for CongestionAwareRateLimiter. No-op by default.
         """
         pass
 
     def record_latency(self, latency: float) -> None:
         """Called after a request completes to record response latency.
 
-        Only meaningful for CongestionControlledRateLimiter. No-op by default.
+        Only meaningful for CongestionAwareRateLimiter. No-op by default.
         """
         pass
 

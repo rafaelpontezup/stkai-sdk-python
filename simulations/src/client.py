@@ -11,7 +11,6 @@ from simulations.src.config import RateLimitConfig, RetryConfig
 from simulations.src.rate_limiters.base import RateLimiter, RateLimitResult
 from simulations.src.rate_limiters.token_bucket import TokenBucketRateLimiter
 from simulations.src.rate_limiters.adaptive import AdaptiveRateLimiter
-from simulations.src.rate_limiters.congestion import CongestionControlledRateLimiter
 from simulations.src.rate_limiters.congestion_aware import CongestionAwareRateLimiter
 from simulations.src.retry import RetryHandler
 from simulations.src.server import SimulatedServer, ServerResponse
@@ -90,12 +89,6 @@ class SimulatedClient:
 
         if self.rate_limit_config.strategy == "adaptive":
             return AdaptiveRateLimiter(
-                config=self.rate_limit_config,
-                process_id=self.process_id,
-            )
-
-        if self.rate_limit_config.strategy == "congestion_controlled":
-            return CongestionControlledRateLimiter(
                 config=self.rate_limit_config,
                 process_id=self.process_id,
             )

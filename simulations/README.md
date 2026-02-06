@@ -88,10 +88,10 @@ simulations/
     ├── simulator.py          # SimPy simulation orchestration
     ├── visualize.py          # Graph generation utilities
     └── rate_limiters/
-        ├── base.py           # Abstract base class
-        ├── token_bucket.py   # Simple Token Bucket
-        ├── adaptive.py       # AIMD (Additive Increase Multiplicative Decrease)
-        └── congestion_aware.py  # AIMD + Little's Law pressure detection
+        ├── base.py             # Abstract base class
+        ├── token_bucket.py     # Simple Token Bucket
+        ├── adaptive.py         # AIMD (Additive Increase Multiplicative Decrease)
+        └── congestion_aware.py # Adaptive + Little's Law concurrency control
 ```
 
 ## SDK Fidelity

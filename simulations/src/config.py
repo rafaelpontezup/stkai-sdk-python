@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 
-RateLimitStrategy = Literal["none", "token_bucket", "adaptive", "congestion_controlled", "congestion_aware"]
+RateLimitStrategy = Literal["none", "token_bucket", "adaptive", "congestion_aware"]
 
 
 @dataclass(frozen=True)
