@@ -152,3 +152,6 @@ Thumbs.db
 output/
 *.json
 !pyproject.toml
+
+# Simulations
+simulations/results/latest
