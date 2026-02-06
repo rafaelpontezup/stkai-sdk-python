@@ -796,3 +796,480 @@ class TestAdaptiveRateLimitedHttpClientJitter:
                 call_args = mock_sleep.call_args
                 assert call_args[1].get("jitter_factor") == 0.20 or \
                        (len(call_args[0]) > 1 and call_args[0][1] == 0.20)
+
+
+# =============================================================================
+# CongestionAwareHttpClient Tests
+# =============================================================================
+
+
+class TestCongestionAwareHttpClientInit:
+    """Tests for CongestionAwareHttpClient initialization."""
+
+    def test_init_with_defaults(self):
+        """Should initialize with default parameters."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        client = CongestionAwareHttpClient(delegate=delegate)
+
+        assert client.delegate is delegate
+        assert client.max_concurrency == 8
+        assert client.pressure_threshold == 2.0
+        assert client._latency_alpha == 0.2
+        assert client._growth_probability == 0.30
+        assert client._concurrency_limit == 8  # starts at max (optimistic)
+
+    def test_init_with_custom_parameters(self):
+        """Should accept custom parameters."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        client = CongestionAwareHttpClient(
+            delegate=delegate,
+            max_concurrency=4,
+            pressure_threshold=1.5,
+            latency_alpha=0.3,
+            growth_probability=0.5,
+        )
+
+        assert client.max_concurrency == 4
+        assert client.pressure_threshold == 1.5
+        assert client._latency_alpha == 0.3
+        assert client._growth_probability == 0.5
+        assert client._concurrency_limit == 4
+
+    def test_init_fails_without_delegate(self):
+        """Should fail if delegate is None."""
+        from stkai import CongestionAwareHttpClient
+
+        with pytest.raises(AssertionError, match="Delegate HTTP client is required"):
+            CongestionAwareHttpClient(delegate=None)
+
+    def test_init_fails_with_invalid_max_concurrency(self):
+        """Should fail if max_concurrency is less than 1."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+
+        with pytest.raises(AssertionError, match="max_concurrency must be at least 1"):
+            CongestionAwareHttpClient(delegate=delegate, max_concurrency=0)
+
+    def test_init_fails_with_invalid_pressure_threshold(self):
+        """Should fail if pressure_threshold is not positive."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+
+        with pytest.raises(AssertionError, match="pressure_threshold must be positive"):
+            CongestionAwareHttpClient(delegate=delegate, pressure_threshold=0)
+
+    def test_init_fails_with_invalid_latency_alpha(self):
+        """Should fail if latency_alpha is not between 0 and 1."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+
+        with pytest.raises(AssertionError, match="latency_alpha must be between 0 and 1"):
+            CongestionAwareHttpClient(delegate=delegate, latency_alpha=0)
+
+        with pytest.raises(AssertionError, match="latency_alpha must be between 0 and 1"):
+            CongestionAwareHttpClient(delegate=delegate, latency_alpha=1)
+
+
+class TestCongestionAwareHttpClientDelegation:
+    """Tests for request delegation."""
+
+    def test_get_delegates_to_underlying_client(self):
+        """GET requests should pass through directly."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        delegate.get.return_value = mock_response
+
+        client = CongestionAwareHttpClient(delegate=delegate)
+        response = client.get("https://example.com", {"X-Test": "1"}, timeout=60)
+
+        assert response is mock_response
+        delegate.get.assert_called_once_with("https://example.com", {"X-Test": "1"}, 60)
+
+    def test_post_delegates_to_underlying_client(self):
+        """POST requests should delegate to underlying client."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+        delegate.post.return_value = mock_response
+
+        client = CongestionAwareHttpClient(delegate=delegate)
+        response = client.post(
+            "https://example.com",
+            data={"key": "value"},
+            headers={"X-Test": "1"},
+            timeout=60,
+        )
+
+        assert response is mock_response
+        delegate.post.assert_called_once_with(
+            "https://example.com", {"key": "value"}, {"X-Test": "1"}, 60
+        )
+
+
+class TestCongestionAwareHttpClientConcurrency:
+    """Tests for concurrency control via semaphore."""
+
+    def test_limits_concurrent_requests(self):
+        """Should limit concurrent in-flight requests."""
+        from stkai import CongestionAwareHttpClient
+        import time
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+
+        # Simulate slow response
+        def slow_post(*args, **kwargs):
+            time.sleep(0.1)
+            return mock_response
+
+        delegate.post.side_effect = slow_post
+
+        client = CongestionAwareHttpClient(delegate=delegate, max_concurrency=2)
+
+        # Track concurrent calls
+        concurrent_count = 0
+        max_concurrent = 0
+        lock = threading.Lock()
+
+        original_post = client.delegate.post
+
+        def tracking_post(*args, **kwargs):
+            nonlocal concurrent_count, max_concurrent
+            with lock:
+                concurrent_count += 1
+                max_concurrent = max(max_concurrent, concurrent_count)
+            try:
+                return original_post(*args, **kwargs)
+            finally:
+                with lock:
+                    concurrent_count -= 1
+
+        client.delegate.post = tracking_post
+
+        # Launch more threads than max_concurrency
+        threads = []
+        for _ in range(5):
+            t = threading.Thread(target=lambda: client.post("https://example.com"))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # Max concurrent should not exceed max_concurrency
+        assert max_concurrent <= 2
+
+    def test_releases_semaphore_on_success(self):
+        """Should release semaphore slot after successful request."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+        delegate.post.return_value = mock_response
+
+        client = CongestionAwareHttpClient(delegate=delegate, max_concurrency=1)
+
+        # First request should succeed
+        client.post("https://example.com")
+
+        # Second request should also succeed (semaphore was released)
+        client.post("https://example.com")
+
+        assert delegate.post.call_count == 2
+
+    def test_releases_semaphore_on_exception(self):
+        """Should release semaphore slot even if request fails."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        delegate.post.side_effect = Exception("Network error")
+
+        client = CongestionAwareHttpClient(delegate=delegate, max_concurrency=1)
+
+        # First request fails
+        with pytest.raises(Exception, match="Network error"):
+            client.post("https://example.com")
+
+        # Second request should be able to acquire semaphore
+        delegate.post.side_effect = None
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+        delegate.post.return_value = mock_response
+
+        # Should not block
+        client.post("https://example.com")
+
+
+class TestCongestionAwareHttpClientLatencyEMA:
+    """Tests for latency tracking with Exponential Moving Average."""
+
+    def test_first_latency_sets_ema_directly(self):
+        """First latency measurement should set EMA directly."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+        delegate.post.return_value = mock_response
+
+        client = CongestionAwareHttpClient(delegate=delegate, latency_alpha=0.2)
+
+        assert client._latency_ema is None
+
+        # time.monotonic() is called 3 times per POST:
+        # 1. start = time.monotonic() in post()
+        # 2. latency = time.monotonic() - start in post()
+        # 3. now = time.monotonic() in _record_latency()
+        with patch("time.monotonic", side_effect=[0.0, 0.5, 0.5]):  # 500ms latency
+            client.post("https://example.com")
+
+        assert client._latency_ema == 0.5
+
+    def test_subsequent_latencies_use_ema(self):
+        """Subsequent latencies should update EMA with smoothing."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+        delegate.post.return_value = mock_response
+
+        alpha = 0.2
+        client = CongestionAwareHttpClient(delegate=delegate, latency_alpha=alpha)
+
+        # First request: 1.0s latency
+        # 3 calls to time.monotonic(): start, end, _record_latency
+        with patch("time.monotonic", side_effect=[0.0, 1.0, 1.0]):
+            client.post("https://example.com")
+
+        assert client._latency_ema == 1.0
+
+        # Second request: 0.5s latency
+        # EMA = 0.2 * 0.5 + 0.8 * 1.0 = 0.1 + 0.8 = 0.9
+        with patch("time.monotonic", side_effect=[2.0, 2.5, 2.5]):
+            client.post("https://example.com")
+
+        assert client._latency_ema == pytest.approx(0.9)
+
+    def test_429_responses_do_not_update_latency(self):
+        """429 responses should not update latency EMA (fast rejections)."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 429
+        delegate.post.return_value = mock_response
+
+        client = CongestionAwareHttpClient(delegate=delegate)
+
+        with patch("time.monotonic", side_effect=[0.0, 0.01]):  # Fast 429
+            client.post("https://example.com")
+
+        # Latency EMA should remain None (not updated)
+        assert client._latency_ema is None
+
+
+class TestCongestionAwareHttpClientPressure:
+    """Tests for pressure calculation and concurrency adjustment."""
+
+    def test_calculate_pressure_returns_zero_without_data(self):
+        """Should return 0 pressure when not enough data."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        client = CongestionAwareHttpClient(delegate=delegate)
+
+        # No latency data yet
+        assert client._calculate_pressure() == 0.0
+
+    def test_calculate_pressure_uses_littles_law(self):
+        """Pressure should be throughput × latency (Little's Law)."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        client = CongestionAwareHttpClient(delegate=delegate)
+
+        # Manually set internal state for testing
+        client._latency_ema = 0.5  # 500ms average latency
+        client._throughput = 4.0  # 4 requests per second
+
+        # Little's Law: L = λW = 4 * 0.5 = 2.0
+        assert client._calculate_pressure() == 2.0
+
+    def test_high_pressure_reduces_concurrency(self):
+        """High pressure (above threshold) should reduce concurrency."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        client = CongestionAwareHttpClient(
+            delegate=delegate,
+            max_concurrency=4,
+            pressure_threshold=2.0,
+        )
+
+        # Set high pressure state
+        client._latency_ema = 1.0  # 1s latency
+        client._throughput = 4.0  # 4 req/s → pressure = 4.0 > 2.0
+
+        initial_limit = client._concurrency_limit
+        client._adjust_concurrency()
+
+        assert client._concurrency_limit < initial_limit
+
+    def test_low_pressure_may_increase_concurrency(self):
+        """Low pressure should probabilistically increase concurrency."""
+        from stkai import CongestionAwareHttpClient
+        import random
+
+        delegate = MagicMock(spec=HttpClient)
+
+        # Use fixed RNG that always returns low value (triggers growth)
+        fixed_rng = random.Random(42)
+
+        client = CongestionAwareHttpClient(
+            delegate=delegate,
+            max_concurrency=4,
+            pressure_threshold=2.0,
+            growth_probability=1.0,  # Always grow when pressure is low
+        )
+
+        # Reduce concurrency first
+        client._concurrency_limit = 2
+        # Also need to adjust semaphore to match
+        client._semaphore = threading.Semaphore(2)
+
+        # Set low pressure state
+        client._latency_ema = 0.1  # 100ms latency
+        client._throughput = 2.0  # 2 req/s → pressure = 0.2 < 2.0
+
+        client._adjust_concurrency()
+
+        # With growth_probability=1.0, should always grow
+        assert client._concurrency_limit == 3
+
+    def test_concurrency_never_drops_below_one(self):
+        """Concurrency should never drop below 1."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        client = CongestionAwareHttpClient(
+            delegate=delegate,
+            max_concurrency=4,
+            pressure_threshold=0.1,  # Very low threshold
+        )
+
+        client._concurrency_limit = 1
+        client._semaphore = threading.Semaphore(1)
+
+        # Set extreme pressure
+        client._latency_ema = 10.0
+        client._throughput = 10.0  # pressure = 100 >> 0.1
+
+        client._adjust_concurrency()
+
+        # Should not drop below 1
+        assert client._concurrency_limit >= 1
+
+    def test_concurrency_never_exceeds_max(self):
+        """Concurrency should never exceed max_concurrency."""
+        from stkai import CongestionAwareHttpClient
+
+        delegate = MagicMock(spec=HttpClient)
+        client = CongestionAwareHttpClient(
+            delegate=delegate,
+            max_concurrency=4,
+            pressure_threshold=10.0,  # High threshold
+            growth_probability=1.0,
+        )
+
+        # Already at max
+        client._concurrency_limit = 4
+
+        # Set low pressure
+        client._latency_ema = 0.1
+        client._throughput = 1.0  # pressure = 0.1 < 10.0
+
+        client._adjust_concurrency()
+
+        # Should not exceed max
+        assert client._concurrency_limit <= 4
+
+
+class TestCongestionAwareHttpClientIntegration:
+    """Integration tests for CongestionAwareHttpClient."""
+
+    def test_composition_with_adaptive_rate_limiter(self):
+        """Should work when composed with AdaptiveRateLimitedHttpClient."""
+        from stkai import CongestionAwareHttpClient, AdaptiveRateLimitedHttpClient
+
+        base_delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+        base_delegate.post.return_value = mock_response
+
+        # Composition: RateLimiter → CongestionAware → BaseClient
+        congestion = CongestionAwareHttpClient(
+            delegate=base_delegate,
+            max_concurrency=4,
+        )
+        rate_limited = AdaptiveRateLimitedHttpClient(
+            delegate=congestion,
+            max_requests=100,
+            time_window=60.0,
+            max_wait_time=5.0,
+        )
+
+        response = rate_limited.post("https://example.com", data={"test": "data"})
+
+        assert response is mock_response
+        base_delegate.post.assert_called_once()
+
+    def test_thread_safety(self):
+        """Should be thread-safe under concurrent access."""
+        from stkai import CongestionAwareHttpClient
+        import time
+
+        delegate = MagicMock(spec=HttpClient)
+        mock_response = MagicMock(spec=requests.Response)
+        mock_response.status_code = 200
+
+        def variable_latency(*args, **kwargs):
+            time.sleep(0.01)  # Small delay
+            return mock_response
+
+        delegate.post.side_effect = variable_latency
+
+        client = CongestionAwareHttpClient(
+            delegate=delegate,
+            max_concurrency=4,
+        )
+
+        errors = []
+
+        def worker():
+            try:
+                for _ in range(10):
+                    client.post("https://example.com")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0, f"Errors occurred: {errors}"
