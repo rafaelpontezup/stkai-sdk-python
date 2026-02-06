@@ -8,6 +8,9 @@ for the stkai SDK.
 This simulation infrastructure replicates the SDK's rate limiting logic with high fidelity,
 allowing us to validate behavior under various conditions without hitting real servers.
 
+> **Note:** These simulations model **RQC (Remote Quick Commands)** workloads with ~200ms POST latency.
+> **Agent::chat()** has different characteristics (10-30s latency) and is not simulated here.
+
 ## Quick Start
 
 ```bash

@@ -4,6 +4,31 @@
 
 These graphs were generated using discrete-event simulations (SimPy) to validate the SDK's rate limiting strategies under various contention levels.
 
+> **Disclaimer: RQC-Specific Simulations**
+>
+> These simulations model **RQC (Remote Quick Commands)** workloads only:
+>
+> | Workload | POST Latency | Simulated? |
+> |----------|--------------|------------|
+> | **RQC** | ~200ms (submit) + polling | Yes |
+> | **Agent::chat()** | 10-30s (LLM processing) | No |
+>
+> **Why it matters**: Agent has much longer request times, so fewer requests per minute are possible and concurrency patterns differ significantly. The preset recommendations in this document are optimized for RQC; Agent workloads may behave differently.
+
+> **Disclaimer: Simulation Limitations**
+>
+> These simulations are useful for **relative comparisons** between strategies, but do not perfectly model real-world conditions. Key limitations:
+>
+> - **Simplified latency model**: M/M/1 queuing assumes exponential service times; real LLM inference may have different distributions (e.g., bimodal due to cache hits/misses)
+> - **No network effects**: DNS resolution, TLS handshakes, TCP congestion, packet loss, and jitter are not modeled
+> - **No server variability**: GC pauses, cold starts, connection pooling, and load balancer behavior are not simulated
+> - **Perfect clocks**: No clock skew between client and server
+> - **Binary failures**: Server returns 200 or 429 only; real systems have timeouts, 5xx errors, partial failures
+>
+> **Use these results to**: build intuition, compare strategies, validate algorithm correctness.
+>
+> **Do not use to**: predict exact production metrics or skip real-world testing.
+
 ## Simulation Setup
 
 **Server (simulated StackSpot AI API):**
