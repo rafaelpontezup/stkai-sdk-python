@@ -486,8 +486,8 @@ STKAI.configure(rate_limit=asdict(RateLimitConfig.optimistic_preset(max_requests
 | `balanced_preset()` | 45s | 0.1 (10%) | 0.3 (moderate) | 0.05 (medium) |
 | `optimistic_preset()` | 20s | 0.3 (30%) | 0.15 (light) | 0.1 (fast) |
 
-!!! note "Validated for RQC Workloads"
-    These presets were tuned and validated via simulations using **RQC workload characteristics** (~200ms POST latency). For **Agent::chat()** (10-30s latency), the same presets apply but behavior may differ due to the longer request times.
+!!! note "Validated via Simulations"
+    These presets were tuned and validated via simulations for both workloads. Key difference: **RQC** (~200ms latency) benefits from rate limiting at 3+ processes, while **Agent** (~15s latency) only needs it at 7+ processes due to natural throughput limits. See `simulations/results/rqc/reference/` and `simulations/results/agent/reference/` for detailed findings.
 
 #### When to Use Each Preset
 

@@ -5,13 +5,17 @@ Run sweep test and generate line charts like Marc Brooker's blog.
 Inspirado em: https://brooker.co.za/blog/2022/02/28/retries.html
 
 Usage:
-    python run_sweep.py
+    python run_sweep.py                  # Default: RQC workload
+    python run_sweep.py --workload rqc   # Explicit: RQC workload
+    python run_sweep.py --workload agent # Agent workload
 """
 
+import argparse
 import sys
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
+from typing import Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,31 +23,56 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from simulations.scenarios.sweep_test import (
-    SCENARIOS,
-    STRATEGIES,
-    CONTENTION_LEVELS,
-)
 from simulations.src.simulator import run_scenario
 from simulations.src.metrics import SimulationMetrics
 
 
-def create_run_directory(base_dir: Path) -> Path:
+WorkloadType = Literal["rqc", "agent"]
+
+
+def load_scenarios(workload: WorkloadType):
+    """
+    Load scenarios based on workload type.
+
+    Returns:
+        Tuple of (SCENARIOS, STRATEGIES, CONTENTION_LEVELS)
+    """
+    if workload == "agent":
+        from simulations.scenarios.agent_sweep_test import (
+            SCENARIOS,
+            STRATEGIES,
+            CONTENTION_LEVELS,
+        )
+    else:
+        from simulations.scenarios.rqc_sweep_test import (
+            SCENARIOS,
+            STRATEGIES,
+            CONTENTION_LEVELS,
+        )
+    return SCENARIOS, STRATEGIES, CONTENTION_LEVELS
+
+
+def create_run_directory(base_dir: Path, workload: WorkloadType) -> Path:
     """
     Create a timestamped directory for this run and update the 'latest' symlink.
 
     Args:
         base_dir: Base results directory (e.g., simulations/results/)
+        workload: Workload type (rqc or agent)
 
     Returns:
-        Path to the created run directory (e.g., simulations/results/2024-02-01_12-30-45/)
+        Path to the created run directory (e.g., simulations/results/rqc/2024-02-01_12-30-45/)
     """
+    # Create workload-specific subdirectory
+    workload_dir = base_dir / workload
+    workload_dir.mkdir(parents=True, exist_ok=True)
+
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    run_dir = base_dir / timestamp
+    run_dir = workload_dir / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Create/update symlink "latest" pointing to this run
-    latest = base_dir / "latest"
+    latest = workload_dir / "latest"
     if latest.is_symlink():
         latest.unlink()
     elif latest.exists():
@@ -54,7 +83,7 @@ def create_run_directory(base_dir: Path) -> Path:
     return run_dir
 
 
-def run_sweep() -> dict[str, dict[int, SimulationMetrics]]:
+def run_sweep(scenarios, strategies, contention_levels) -> dict[str, dict[int, SimulationMetrics]]:
     """
     Run all sweep scenarios and organize results by strategy and contention level.
 
@@ -63,8 +92,8 @@ def run_sweep() -> dict[str, dict[int, SimulationMetrics]]:
     """
     results = defaultdict(dict)
 
-    total = len(SCENARIOS)
-    for i, scenario in enumerate(SCENARIOS, 1):
+    total = len(scenarios)
+    for i, scenario in enumerate(scenarios, 1):
         # Parse scenario name: "Nproc-strategy"
         parts = scenario.name.split("-", 1)
         num_processes = int(parts[0].replace("proc", ""))
@@ -83,15 +112,19 @@ def run_sweep() -> dict[str, dict[int, SimulationMetrics]]:
 def create_line_charts(
     results: dict[str, dict[int, SimulationMetrics]],
     output_dir: Path,
+    strategies: dict,
+    contention_levels: list[int],
+    workload: WorkloadType,
 ) -> None:
     """
     Create essential charts comparing strategies across contention levels.
 
-    Generates 4 charts:
+    Generates 5 charts:
     1. graph_01_success_rate_vs_server_load.png - Main: Client Success Rate + Server Load
     2. graph_02_success_rate_vs_rejection_rate.png - Client Success Rate + Server Rejection Rate
     3. graph_03_failure_breakdown.png - Why requests failed (client perspective)
     4. graph_04_efficiency_score.png - Efficiency score (success per unit of load)
+    5. graph_05_success_rate_vs_latency.png - Success Rate vs Latency trade-off
     """
     # Prepare data
     data = []
@@ -132,6 +165,9 @@ def create_line_charts(
         "congestion_aware": "*",
     }
 
+    # Workload label for titles
+    workload_label = "Agent::chat()" if workload == "agent" else "RQC"
+
     # ==========================================================================
     # Chart 1: Client Success Rate vs Server Load (MAIN CHART)
     # ==========================================================================
@@ -139,7 +175,7 @@ def create_line_charts(
 
     # Left: Client Success Rate
     ax1 = axes[0]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
         ax1.plot(
             strategy_data["Processes"],
@@ -154,7 +190,7 @@ def create_line_charts(
     ax1.set_xlabel("Number of Processes", fontsize=11)
     ax1.set_ylabel("Success Rate (%)", fontsize=11)
     ax1.set_title("Client Success Rate\n(Higher is better)", fontsize=12, fontweight="bold")
-    ax1.set_xticks(CONTENTION_LEVELS)
+    ax1.set_xticks(contention_levels)
     ax1.set_ylim(0, 105)
     ax1.axhline(y=90, color="green", linestyle="--", alpha=0.3)
     ax1.grid(True, alpha=0.3)
@@ -162,7 +198,7 @@ def create_line_charts(
 
     # Right: Server Load (Total Attempts)
     ax2 = axes[1]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
 
         total_attempts = []
@@ -182,12 +218,12 @@ def create_line_charts(
     ax2.set_xlabel("Number of Processes", fontsize=11)
     ax2.set_ylabel("Total Attempts (requests to server)", fontsize=11)
     ax2.set_title("Server Load\n(Lower is better)", fontsize=12, fontweight="bold")
-    ax2.set_xticks(CONTENTION_LEVELS)
+    ax2.set_xticks(contention_levels)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc="upper left", fontsize=9)
 
     fig.suptitle(
-        "Client Success vs Server Load\n"
+        f"[{workload_label}] Client Success vs Server Load\n"
         "(Ideal: high success rate with low server load)",
         fontsize=13,
         fontweight="bold",
@@ -206,7 +242,7 @@ def create_line_charts(
 
     # Left: Success Rate
     ax1 = axes[0]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
         ax1.plot(
             strategy_data["Processes"],
@@ -221,14 +257,14 @@ def create_line_charts(
     ax1.set_xlabel("Number of Processes", fontsize=11)
     ax1.set_ylabel("Success Rate (%)", fontsize=11)
     ax1.set_title("Client Success Rate\n(Higher is better)", fontsize=12, fontweight="bold")
-    ax1.set_xticks(CONTENTION_LEVELS)
+    ax1.set_xticks(contention_levels)
     ax1.set_ylim(0, 105)
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc="lower left", fontsize=9)
 
     # Right: Server Rejection Rate (normalized metric)
     ax2 = axes[1]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
 
         rejection_rates = []
@@ -248,13 +284,13 @@ def create_line_charts(
     ax2.set_xlabel("Number of Processes", fontsize=11)
     ax2.set_ylabel("Server Rejection Rate (%)", fontsize=11)
     ax2.set_title("Server Rejection Rate\n(429s ÷ Total Attempts - Lower is better)", fontsize=12, fontweight="bold")
-    ax2.set_xticks(CONTENTION_LEVELS)
+    ax2.set_xticks(contention_levels)
     ax2.set_ylim(0, 100)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc="upper left", fontsize=9)
 
     fig.suptitle(
-        "Rate Limiting Strategies: Client Success vs Server Rejection\n"
+        f"[{workload_label}] Rate Limiting Strategies: Client Success vs Server Rejection\n"
         "(Server quota: 100 req/min, varying client count)",
         fontsize=13,
         fontweight="bold",
@@ -273,7 +309,7 @@ def create_line_charts(
 
     # Left: Token Timeout Rate (client-side failures)
     ax1 = axes[0]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
         ax1.plot(
             strategy_data["Processes"],
@@ -292,13 +328,13 @@ def create_line_charts(
         fontsize=12,
         fontweight="bold",
     )
-    ax1.set_xticks(CONTENTION_LEVELS)
+    ax1.set_xticks(contention_levels)
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc="upper left", fontsize=9)
 
     # Right: Server 429 Rate (server-side failures)
     ax2 = axes[1]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
         ax2.plot(
             strategy_data["Processes"],
@@ -317,12 +353,12 @@ def create_line_charts(
         fontsize=12,
         fontweight="bold",
     )
-    ax2.set_xticks(CONTENTION_LEVELS)
+    ax2.set_xticks(contention_levels)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc="upper left", fontsize=9)
 
     fig.suptitle(
-        "Failure Breakdown: Why Did Requests Fail? (Client Perspective)",
+        f"[{workload_label}] Failure Breakdown: Why Did Requests Fail? (Client Perspective)",
         fontsize=13,
         fontweight="bold",
         y=1.02,
@@ -338,7 +374,7 @@ def create_line_charts(
     # ==========================================================================
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
 
         efficiency = (
@@ -359,12 +395,12 @@ def create_line_charts(
     ax.set_xlabel("Number of Processes (contention level)", fontsize=12)
     ax.set_ylabel("Efficiency (Success % / RPS Amplification)", fontsize=12)
     ax.set_title(
-        "Efficiency: Success Rate per Unit of Server Load\n"
+        f"[{workload_label}] Efficiency: Success Rate per Unit of Server Load\n"
         "(Higher is better - more success with less server impact)",
         fontsize=14,
         fontweight="bold",
     )
-    ax.set_xticks(CONTENTION_LEVELS)
+    ax.set_xticks(contention_levels)
     ax.axhline(y=100, color="green", linestyle="--", alpha=0.3, label="Ideal (100)")
     ax.legend(loc="upper right", fontsize=10)
     ax.grid(True, alpha=0.3)
@@ -381,7 +417,7 @@ def create_line_charts(
 
     # Left: Client Success Rate ("what you get")
     ax1 = axes[0]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
         ax1.plot(
             strategy_data["Processes"],
@@ -396,7 +432,7 @@ def create_line_charts(
     ax1.set_xlabel("Number of Processes", fontsize=11)
     ax1.set_ylabel("Success Rate (%)", fontsize=11)
     ax1.set_title("Client Success Rate\n(What you get - Higher is better)", fontsize=12, fontweight="bold")
-    ax1.set_xticks(CONTENTION_LEVELS)
+    ax1.set_xticks(contention_levels)
     ax1.set_ylim(0, 105)
     ax1.axhline(y=90, color="green", linestyle="--", alpha=0.3)
     ax1.grid(True, alpha=0.3)
@@ -404,7 +440,7 @@ def create_line_charts(
 
     # Right: Latency P95 ("what you pay")
     ax2 = axes[1]
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         strategy_data = df[df["Strategy"] == strategy].sort_values("Processes")
 
         latency_p95 = []
@@ -424,12 +460,12 @@ def create_line_charts(
     ax2.set_xlabel("Number of Processes", fontsize=11)
     ax2.set_ylabel("Latency P95 (seconds)", fontsize=11)
     ax2.set_title("Client Latency P95\n(What you pay - Lower is better)", fontsize=12, fontweight="bold")
-    ax2.set_xticks(CONTENTION_LEVELS)
+    ax2.set_xticks(contention_levels)
     ax2.grid(True, alpha=0.3)
     ax2.legend(loc="upper left", fontsize=9)
 
     fig.suptitle(
-        "Trade-off: Success Rate vs Latency\n"
+        f"[{workload_label}] Trade-off: Success Rate vs Latency\n"
         "(High success may come at the cost of higher latency)",
         fontsize=13,
         fontweight="bold",
@@ -442,7 +478,11 @@ def create_line_charts(
     print(f"  Saved: graph_05_success_rate_vs_latency.png")
 
 
-def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> None:
+def print_summary_table(
+    results: dict[str, dict[int, SimulationMetrics]],
+    strategies: dict,
+    contention_levels: list[int],
+) -> None:
     """Print summary table."""
     print("\n" + "=" * 90)
     print("  TABELA RESUMO")
@@ -450,16 +490,16 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Header
     header = f"{'Strategy':<15}"
-    for n in CONTENTION_LEVELS:
+    for n in contention_levels:
         header += f" {n}proc"
     print(header)
     print("-" * 90)
 
     # Success Rate
     print("\nSuccess Rate (%):")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].success_rate:5.1f}"
             else:
@@ -468,9 +508,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # 429 Rate (per original request - can exceed 100%)
     print("\n429 Rate (%) [per original request]:")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].rate_429:5.1f}"
             else:
@@ -479,9 +519,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Server Rejection Rate (per attempt - always 0-100%)
     print("\nServer Rejection Rate (%) [429s / total_attempts]:")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].server_rejection_rate:5.1f}"
             else:
@@ -490,9 +530,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Total Attempts (original + retries)
     print("\nTotal Attempts:")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].total_attempts:5d}"
             else:
@@ -501,9 +541,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Wait Time (rate limiter token wait)
     print("\nWait Time Mean (s):")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].wait_time_mean:5.2f}"
             else:
@@ -512,9 +552,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Token Timeouts
     print("\nToken Timeouts:")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].token_timeouts:5d}"
             else:
@@ -527,9 +567,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Failures: Token Timeout
     print("\nFailed - Token Timeout (%):")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].failure_rate_token_timeout:5.1f}"
             else:
@@ -538,9 +578,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Failures: Server 429
     print("\nFailed - Server 429 (%):")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].failure_rate_server_429:5.1f}"
             else:
@@ -549,9 +589,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Failures: Server Error
     print("\nFailed - Server Error (%):")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].failure_rate_server_error:5.1f}"
             else:
@@ -560,9 +600,9 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
 
     # Total Failure Rate
     print("\nTotal Failure Rate (%):")
-    for strategy in STRATEGIES.keys():
+    for strategy in strategies.keys():
         row = f"  {strategy:<13}"
-        for n in CONTENTION_LEVELS:
+        for n in contention_levels:
             if n in results[strategy]:
                 row += f" {results[strategy][n].failure_rate:5.1f}"
             else:
@@ -572,36 +612,71 @@ def print_summary_table(results: dict[str, dict[int, SimulationMetrics]]) -> Non
     print("\n" + "=" * 90)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Run rate limiting sweep tests for stkai SDK.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    python run_sweep.py                  # Run RQC workload (default)
+    python run_sweep.py --workload rqc   # Run RQC workload (explicit)
+    python run_sweep.py --workload agent # Run Agent workload
+
+Workload differences:
+    RQC:   ~200ms POST latency, 8 workers/process, 1000 requests/process
+    Agent: ~15s POST latency, 2 workers/process, 60 requests/process
+        """,
+    )
+    parser.add_argument(
+        "--workload",
+        type=str,
+        choices=["rqc", "agent"],
+        default="rqc",
+        help="Workload type to simulate (default: rqc)",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+    workload: WorkloadType = args.workload
+
+    # Load scenarios for the specified workload
+    scenarios, strategies, contention_levels = load_scenarios(workload)
+
+    workload_label = "Agent::chat()" if workload == "agent" else "RQC"
+
     print("=" * 70)
-    print("  SWEEP TEST: Varying Contention Levels")
+    print(f"  SWEEP TEST: {workload_label} Workload")
     print("  Inspired by: https://brooker.co.za/blog/2022/02/28/retries.html")
     print("=" * 70)
-    print(f"\n  Strategies: {', '.join(STRATEGIES.keys())}")
-    print(f"  Contention levels: {CONTENTION_LEVELS} processes")
-    print(f"  Total scenarios: {len(SCENARIOS)}")
+    print(f"\n  Workload: {workload}")
+    print(f"  Strategies: {', '.join(strategies.keys())}")
+    print(f"  Contention levels: {contention_levels} processes")
+    print(f"  Total scenarios: {len(scenarios)}")
     print()
 
     results_dir = Path(__file__).parent / "results"
     results_dir.mkdir(exist_ok=True)
 
-    # Create timestamped run directory
-    run_dir = create_run_directory(results_dir)
-    print(f"  Output directory: {run_dir.name}/")
+    # Create timestamped run directory under workload-specific subdirectory
+    run_dir = create_run_directory(results_dir, workload)
+    print(f"  Output directory: {workload}/{run_dir.name}/")
     print()
 
     print("Running simulations...")
-    results = run_sweep()
+    results = run_sweep(scenarios, strategies, contention_levels)
 
     print("\nGenerating charts...")
-    create_line_charts(results, run_dir)
+    create_line_charts(results, run_dir, strategies, contention_levels, workload)
 
-    print_summary_table(results)
+    print_summary_table(results, strategies, contention_levels)
 
     print("\n" + "=" * 70)
     print("  Sweep test complete!")
     print(f"  Charts saved to: {run_dir}")
-    print(f"  Latest symlink: {results_dir / 'latest'}")
+    print(f"  Latest symlink: {results_dir / workload / 'latest'}")
     print("=" * 70)
 
 

@@ -8,8 +8,12 @@ for the stkai SDK.
 This simulation infrastructure replicates the SDK's rate limiting logic with high fidelity,
 allowing us to validate behavior under various conditions without hitting real servers.
 
-> **Note:** These simulations model **RQC (Remote Quick Commands)** workloads with ~200ms POST latency.
-> **Agent::chat()** has different characteristics (10-30s latency) and is not simulated here.
+Two workload types are supported:
+
+| Workload | POST Latency | Workers/Process | Requests/Process | Quota | Contention Levels |
+|----------|--------------|-----------------|------------------|-------|-------------------|
+| **RQC** | ~200ms | 8 | 1000 | 100 req/min | 1, 2, 3, 5, 7, 10 |
+| **Agent** | ~15s | 10 | 150 | 50 req/min | 1, 2, 3, 5, 7, 10, 15 |
 
 ## Quick Start
 
@@ -24,45 +28,71 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Run sweep test (all strategies × all contention levels)
+# Run RQC sweep test (default)
 python run_sweep.py
 
+# Run Agent sweep test
+python run_sweep.py --workload agent
+
 # View results
-ls results/latest/*.png
+ls results/rqc/latest/*.png
+ls results/agent/latest/*.png
+```
+
+Or use the helper script from project root:
+
+```bash
+./scripts/run_simulations.sh              # RQC (default)
+./scripts/run_simulations.sh agent        # Agent
+./scripts/run_simulations.sh all          # Both
 ```
 
 ## Strategies Tested
 
+### RQC Workload
+
 | Strategy | Description | Configuration |
 |----------|-------------|---------------|
 | `none` | No rate limiting (retry only) | Baseline for comparison |
-| `token_bucket` | Fixed rate (33 req/min) | Manual: 100÷3 for 3 processes |
+| `token_bucket` | Fixed rate | 33 req/min (100÷3 for 3 processes) |
 | `optimistic` | AIMD, aggressive | max_wait=20s, min_floor=30%, penalty=15% |
 | `balanced` | AIMD, sensible defaults | max_wait=45s, min_floor=10%, penalty=30% |
 | `conservative` | AIMD, stability-first | max_wait=120s, min_floor=5%, penalty=50% |
 | `congestion_aware` | AIMD + Little's Law | Same as balanced + pressure_threshold=2.0 |
 
-## Contention Levels
+### Agent Workload
 
-The sweep tests run each strategy against multiple contention levels:
-**1, 2, 3, 5, 7, 10** concurrent processes.
-
-Each process has **8 workers** (mirrors SDK's `max_workers` for RQC).
+| Strategy | Description | Configuration |
+|----------|-------------|---------------|
+| `none` | No rate limiting (retry only) | Baseline for comparison |
+| `token_bucket` | Fixed rate | 16 req/min (50÷3 for 3 processes) |
+| `optimistic` | AIMD, aggressive | max_wait=20s, min_floor=30%, penalty=15% |
+| `balanced` | AIMD, sensible defaults | max_wait=45s, min_floor=10%, penalty=30% |
+| `conservative` | AIMD, stability-first | max_wait=120s, min_floor=5%, penalty=50% |
+| `congestion_aware` | AIMD + Little's Law | Same as balanced + pressure_threshold=2.0 |
 
 ## Simulated Server
 
-The server simulates realistic behavior:
+### RQC Server
 
 - **Shared quota**: 100 req/min across ALL clients
+- **Base latency**: 200ms
 - **429 responses**: When quota exceeded (with `Retry-After: 5s`)
 - **Latency under load**: M/M/1 queuing theory (latency increases with utilization)
 
-| Server Utilization | Latency |
-|-------------------|---------|
-| 0% (idle) | 200ms |
-| 50% (moderate) | 400ms |
-| 80% (high load) | 1000ms |
-| 95% (near capacity) | 4000ms |
+### Agent Server
+
+- **Shared quota**: 50 req/min across ALL clients (lower to create contention)
+- **Base latency**: 15s (LLM processing time)
+- **429 responses**: When quota exceeded (with `Retry-After: 5s`)
+- **Latency under load**: M/M/1 queuing theory
+
+| Server Utilization | RQC Latency | Agent Latency |
+|-------------------|-------------|---------------|
+| 0% (idle) | 200ms | 15s |
+| 50% (moderate) | 400ms | 30s |
+| 80% (high load) | 1000ms | 75s |
+| 95% (near capacity) | 4000ms | 300s |
 
 ## Project Structure
 
@@ -72,15 +102,17 @@ simulations/
 ├── requirements.txt          # Dependencies (simpy, matplotlib, pandas)
 ├── README.md                 # This file
 ├── results/                  # Output directory
-│   ├── latest -> YYYY-MM-DD_HH-MM-SS/   # Symlink to most recent run
-│   └── YYYY-MM-DD_HH-MM-SS/             # Timestamped results
-│       ├── graph_01_success_rate_vs_server_load.png
-│       ├── graph_02_success_rate_vs_rejection_rate.png
-│       ├── graph_03_failure_breakdown.png
-│       ├── graph_04_efficiency_score.png
-│       └── graph_05_success_rate_vs_latency.png
+│   ├── rqc/                  # RQC workload results
+│   │   ├── latest -> YYYY-MM-DD.../    # Symlink to most recent run
+│   │   ├── YYYY-MM-DD_HH-MM-SS/        # Timestamped results
+│   │   └── reference/                   # Versioned reference graphs
+│   └── agent/                # Agent workload results
+│       ├── latest -> YYYY-MM-DD.../
+│       ├── YYYY-MM-DD_HH-MM-SS/
+│       └── reference/
 ├── scenarios/
-│   └── sweep_test.py         # Scenario definitions (strategies, contention levels)
+│   ├── rqc_sweep_test.py     # RQC scenario definitions
+│   └── agent_sweep_test.py   # Agent scenario definitions
 └── src/
     ├── client.py             # Simulated SDK client (rate limiter integration)
     ├── config.py             # Configuration dataclasses
@@ -124,10 +156,12 @@ The simulation replicates exact logic from:
 
 ## Key Findings
 
+### RQC Workload
+
 1. **AIMD is sufficient**: Adaptive strategies (balanced/conservative) handle contention
    well without needing latency-based concurrency control. Adding latency-based
    concurrency control (via `CongestionAwareHttpClient`) provided no measurable improvement
-   over Adaptive strategies. See `docs/internal/aws-sdk-comparison.md` for details.
+   over Adaptive strategies.
 
 2. **Token Bucket requires manual tuning**: Works well if you know process count upfront,
    but doesn't adapt dynamically.
@@ -137,3 +171,31 @@ The simulation replicates exact logic from:
 4. **Conservative for high contention**: Better stability at 7-10 processes.
 
 5. **Optimistic for single process**: Best throughput when running alone.
+
+### Agent Workload
+
+1. **Long latency is a natural rate limiter**: The 15s latency per request naturally
+   limits throughput to ~4 req/min per worker, reducing the impact of client-side
+   rate limiting.
+
+2. **Rate limiting has minimal impact until high contention**: Most strategies perform
+   identically until 7+ processes because throughput is latency-bound, not rate-bound.
+
+3. **Conservative excels at high contention**: At 15 processes, conservative achieves
+   91.4% success vs 41.9% for none/optimistic.
+
+4. **Token Bucket needs proper tuning**: With 16 req/min (vs 33 for RQC), Token Bucket
+   shows improvement at high contention (56.6% vs 41.9% for none).
+
+5. **Congestion Aware achieves high success but low throughput**: 100% success rate
+   but significantly fewer total requests completed due to semaphore blocking.
+
+### RQC vs Agent Comparison
+
+| Aspect | RQC | Agent |
+|--------|-----|-------|
+| Natural throughput/worker | ~300 req/min | ~4 req/min |
+| Rate limiting critical? | **Yes** | Only at high contention |
+| Token Bucket effective? | **Yes** (limits 300→33) | Limited (4 < 16) |
+| Best strategy (general) | `balanced` | `conservative` |
+| Contention threshold | 3+ processes | 7+ processes |

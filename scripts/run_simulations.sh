@@ -3,12 +3,15 @@
 # Run rate limiting simulations for stkai-sdk
 #
 # Usage:
-#   ./scripts/run_simulations.sh
+#   ./scripts/run_simulations.sh              # Run RQC workload (default)
+#   ./scripts/run_simulations.sh rqc          # Run RQC workload (explicit)
+#   ./scripts/run_simulations.sh agent        # Run Agent workload
+#   ./scripts/run_simulations.sh all          # Run both workloads
 #
 # This script:
 #   1. Sets up the simulation virtual environment (if needed)
 #   2. Runs the sweep test across all strategies and contention levels
-#   3. Generates graphs in simulations/results/latest/
+#   3. Generates graphs in simulations/results/<workload>/latest/
 #
 
 set -e
@@ -25,6 +28,13 @@ info() { echo -e "${BLUE}ℹ${NC} $1"; }
 success() { echo -e "${GREEN}✓${NC} $1"; }
 warning() { echo -e "${YELLOW}⚠${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; exit 1; }
+
+# Parse workload argument
+WORKLOAD="${1:-rqc}"
+
+if [[ "$WORKLOAD" != "rqc" && "$WORKLOAD" != "agent" && "$WORKLOAD" != "all" ]]; then
+    error "Invalid workload: $WORKLOAD. Must be 'rqc', 'agent', or 'all'"
+fi
 
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,12 +66,21 @@ if ! python -c "import simpy" 2>/dev/null; then
     success "Dependencies installed"
 fi
 
-# Run simulations
-info "Running simulations..."
-echo ""
-python run_sweep.py
+# Run simulations based on workload
+run_workload() {
+    local wl="$1"
+    info "Running $wl simulations..."
+    echo ""
+    python run_sweep.py --workload "$wl"
+    echo ""
+    success "$wl simulations complete!"
+    info "Results: $SIMULATIONS_DIR/results/$wl/latest/"
+    echo ""
+}
 
-# Show results location
-echo ""
-success "Simulations complete!"
-info "Results: $SIMULATIONS_DIR/results/latest/"
+if [[ "$WORKLOAD" == "all" ]]; then
+    run_workload "rqc"
+    run_workload "agent"
+else
+    run_workload "$WORKLOAD"
+fi

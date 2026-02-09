@@ -83,14 +83,24 @@ mypy src
 
 The `simulations/` directory contains discrete-event simulations (SimPy) to validate rate limiting strategies.
 
+**Workloads:**
+| Workload | Latency | Results |
+|----------|---------|---------|
+| **RQC** | ~200ms POST + polling | `results/rqc/latest/` |
+| **Agent** | ~15s (LLM processing) | `results/agent/latest/` |
+
 **Run simulations:**
 ```bash
-./scripts/run_simulations.sh
+./scripts/run_simulations.sh              # RQC (default)
+./scripts/run_simulations.sh agent        # Agent
+./scripts/run_simulations.sh all          # Both
 ```
 
-**Results:** Graphs are saved to `simulations/results/latest/`
-
 **Strategies tested:** `none`, `token_bucket`, `optimistic`, `balanced`, `conservative`, `congestion_aware`
+
+**Key findings:**
+- **RQC**: Rate limiting is critical from 3+ processes. `balanced` is the sweet spot for 2-5 processes.
+- **Agent**: Long latency naturally limits throughput. Rate limiting matters only at 7+ processes.
 
 **Documentation:** See `simulations/README.md` for details and `docs/internal/aws-sdk-comparison.md` for analysis.
 
