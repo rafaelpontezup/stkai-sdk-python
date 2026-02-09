@@ -76,23 +76,27 @@ Or use the helper script from project root:
 ### RQC Server
 
 - **Shared quota**: 100 req/min across ALL clients
-- **Base latency**: 200ms
+- **Base latency**: 200ms (±20% jitter)
 - **429 responses**: When quota exceeded (with `Retry-After: 5s`)
 - **Latency under load**: M/M/1 queuing theory (latency increases with utilization)
 
 ### Agent Server
 
 - **Shared quota**: 50 req/min across ALL clients (lower to create contention)
-- **Base latency**: 15s (LLM processing time)
+- **Base latency**: 15s (±20% jitter) (LLM processing time)
 - **429 responses**: When quota exceeded (with `Retry-After: 5s`)
 - **Latency under load**: M/M/1 queuing theory
 
+### Latency Model
+
+Latency is computed as: `base_latency / (1 - utilization) * jitter`
+
 | Server Utilization | RQC Latency | Agent Latency |
 |-------------------|-------------|---------------|
-| 0% (idle) | 200ms | 15s |
-| 50% (moderate) | 400ms | 30s |
-| 80% (high load) | 1000ms | 75s |
-| 95% (near capacity) | 4000ms | 300s |
+| 0% (idle) | 160-240ms | 12-18s |
+| 50% (moderate) | 320-480ms | 24-36s |
+| 80% (high load) | 800-1200ms | 60-90s |
+| 95% (near capacity) | 3200-4800ms | 240-360s |
 
 ## Project Structure
 

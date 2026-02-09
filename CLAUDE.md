@@ -84,8 +84,8 @@ mypy src
 The `simulations/` directory contains discrete-event simulations (SimPy) to validate rate limiting strategies.
 
 **Workloads:**
-| Workload | Latency | Results |
-|----------|---------|---------|
+| Workload | Latency (±20% jitter) | Results |
+|----------|----------------------|---------|
 | **RQC** | ~200ms POST + polling | `results/rqc/latest/` |
 | **Agent** | ~15s (LLM processing) | `results/agent/latest/` |
 

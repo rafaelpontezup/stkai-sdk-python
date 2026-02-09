@@ -481,15 +481,15 @@ The following simulations were run to validate the rate limiting strategies. The
 **Server** (simulated StackSpot AI API):
 
 - **Shared quota**: 100 req/min across ALL clients (429 when exceeded)
-- **Base latency**: 200ms (RQC POST request at idle server)
+- **Base latency**: 200ms ±20% jitter (160-240ms at idle)
 - **Latency under load**: Uses M/M/1 queuing theory — latency increases as server approaches capacity:
 
-| Server Utilization | Latency |
-|-------------------|---------|
-| 0% (idle) | 200ms |
-| 50% (moderate) | 400ms |
-| 80% (high load) | 1000ms |
-| 95% (near capacity) | 4000ms |
+| Server Utilization | Latency (with ±20% jitter) |
+|-------------------|----------------------------|
+| 0% (idle) | 160-240ms |
+| 50% (moderate) | 320-480ms |
+| 80% (high load) | 800-1200ms |
+| 95% (near capacity) | 3200-4800ms |
 
 **Clients**:
 

@@ -1,14 +1,13 @@
 # Ignore timestamped run directories and latest symlinks
 rqc/*/
+!rqc/reference/
 rqc/latest
+
 agent/*/
+!agent/reference/
 agent/latest
 
-# Keep reference directories versioned
-!rqc/reference/
-!agent/reference/
-
 # Legacy: ignore old structure (before workload subdirectories)
-*/
+# These are timestamped directories at root level from before the rqc/agent split
+2026-*/
 latest
-!reference/

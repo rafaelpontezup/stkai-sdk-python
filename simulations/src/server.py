@@ -4,6 +4,7 @@ Simulated server with rate limiting.
 Implements a server that enforces quota limits and returns 429 responses.
 """
 
+import random
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -39,6 +40,7 @@ class SimulatedServer:
         self.agent_latency = config.agent_latency_ms / 1000.0
         self.quota_reset_interval = config.quota_reset_interval
         self.retry_after_seconds = config.retry_after_seconds
+        self.latency_jitter_factor = config.latency_jitter_factor
 
         # Server-side quota tracking
         self._quota_remaining = config.quota_per_minute
@@ -87,8 +89,9 @@ class SimulatedServer:
 
         Models real server behavior: latency increases as the server
         approaches capacity, following M/M/1 queuing theory (capped).
+        Applies jitter to simulate real-world variability.
 
-        Examples (with base_latency=200ms):
+        Examples (with base_latency=200ms, no jitter):
             - 0% utilization:  200ms  (idle server)
             - 50% utilization: 400ms  (moderate load)
             - 80% utilization: 1000ms (high load)
@@ -98,12 +101,22 @@ class SimulatedServer:
             base_latency: Base latency in seconds (at zero load).
 
         Returns:
-            Adjusted latency in seconds.
+            Adjusted latency in seconds (with jitter if configured).
         """
         utilization = 1.0 - (self._quota_remaining / self.quota_per_minute)
         # Cap at 0.95 to avoid division by zero / infinity
         capped = min(max(utilization, 0.0), 0.95)
-        return base_latency / (1.0 - capped)
+        latency = base_latency / (1.0 - capped)
+
+        # Apply jitter if configured (e.g., 0.2 = ±20%)
+        if self.latency_jitter_factor > 0:
+            jitter = random.uniform(
+                1.0 - self.latency_jitter_factor,
+                1.0 + self.latency_jitter_factor,
+            )
+            latency *= jitter
+
+        return latency
 
     def _maybe_reset_quota(self, current_time: float) -> None:
         """Reset quota if reset interval has passed."""

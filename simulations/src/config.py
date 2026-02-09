@@ -131,6 +131,7 @@ class ServerConfig:
         agent_latency_ms: Latency for Agent POST requests (10-30s).
         quota_reset_interval: Seconds between quota resets.
         retry_after_seconds: Retry-After header value on 429.
+        latency_jitter_factor: Random variation applied to latency (e.g., 0.2 = ±20%).
     """
 
     quota_per_minute: int = 100
@@ -138,6 +139,7 @@ class ServerConfig:
     agent_latency_ms: float = 15000.0
     quota_reset_interval: float = 60.0
     retry_after_seconds: float = 5.0
+    latency_jitter_factor: float = 0.2  # ±20% variability by default
 
 
 @dataclass(frozen=True)
