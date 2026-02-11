@@ -83,6 +83,7 @@ def is_timeout_exception(exc: Exception) -> bool:
 
     Supported timeout exceptions:
         - requests.Timeout: HTTP request timeout
+        - requests.HTTPError: HTTP 408 Request Timeout or 504 Gateway Timeout from server
         - TimeoutError: Python built-in (used in polling)
         - TokenAcquisitionTimeoutError: Rate limiter timeout
         - MaxRetriesExceededError: If last_exception is a timeout (recursive)
@@ -104,6 +105,11 @@ def is_timeout_exception(exc: Exception) -> bool:
     # Check direct timeout types
     if isinstance(exc, timeout_exceptions_types):
         return True
+
+    # Check server-side timeouts (HTTP 408 Request Timeout, 504 Gateway Timeout)
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        if exc.response.status_code in (408, 504):
+            return True
 
     # Check wrapped exceptions in MaxRetriesExceededError (recursive)
     if isinstance(exc, MaxRetriesExceededError):

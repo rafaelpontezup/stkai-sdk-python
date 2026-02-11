@@ -62,7 +62,7 @@ elif response.is_timeout():
 | `COMPLETED` | Finished successfully |
 | `FAILURE` | Server-side error |
 | `ERROR` | Client-side error (network, parsing) |
-| `TIMEOUT` | Exceeded `poll_max_duration` |
+| `TIMEOUT` | Any timeout, client or server-side (polling, HTTP request, HTTP 408/504) |
 
 ## Features
 

@@ -1,5 +1,6 @@
 """Tests for RQC data models."""
 
+import logging
 import unittest
 
 from stkai.rqc._models import (
@@ -128,6 +129,24 @@ class TestRqcExecution(unittest.TestCase):
         self.assertIn("Unexpected status transition", cm.output[0])
         self.assertIn("PENDING", cm.output[0])
         self.assertIn("COMPLETED", cm.output[0])
+
+    def test_same_status_transition_is_noop(self):
+        """Transitioning to the same status should be a no-op (no warning, no error change)."""
+        request = RqcRequest(payload={"x": 1})
+        execution = RqcExecution(request=request)
+        execution.transition_to(RqcExecutionStatus.CREATED)
+        execution.transition_to(RqcExecutionStatus.RUNNING)
+        execution.transition_to(RqcExecutionStatus.ERROR, error="original error")
+
+        # ERROR → ERROR should be ignored
+        with self.assertLogs("stkai.rqc._models", level="WARNING") as cm:
+            logging.getLogger("stkai.rqc._models").warning("dummy")
+            execution.transition_to(RqcExecutionStatus.ERROR, error="should be ignored")
+
+        self.assertEqual(execution.status, RqcExecutionStatus.ERROR)
+        self.assertEqual(execution.error, "original error")
+        unexpected_warnings = [msg for msg in cm.output if "Unexpected status transition" in msg]
+        self.assertEqual(unexpected_warnings, [])
 
     def test_transition_from_terminal_state_logs_warning(self):
         """Transitioning from a terminal state should log a warning."""

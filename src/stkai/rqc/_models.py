@@ -33,7 +33,7 @@ class RqcExecutionStatus(enum.StrEnum):
         COMPLETED: Execution finished successfully with a result.
         FAILURE: Execution failed on the server-side (StackSpot AI returned an error).
         ERROR: Client-side error occurred (network issues, invalid response, handler errors).
-        TIMEOUT: Execution did not complete within the configured poll_max_duration.
+        TIMEOUT: Any timeout, client or server-side (e.g., poll_max_duration, poll_overload_timeout, HTTP request timeout, HTTP 408, or HTTP 504).
     """
     PENDING = "PENDING"
     CREATED = "CREATED"
@@ -197,6 +197,9 @@ class RqcExecution:
             new_status: The target status to transition to.
             error: Optional error message to associate with this transition.
         """
+        if new_status == self._status:
+            return
+
         allowed = _VALID_TRANSITIONS.get(self._status, frozenset())
         if new_status not in allowed:
             logger.warning(
