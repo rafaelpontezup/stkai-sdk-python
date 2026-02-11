@@ -20,7 +20,7 @@ import requests
 from stkai._http import HttpClient
 from stkai._retry import Retrying
 from stkai._utils import sleep_with_jitter
-from stkai.rqc._event_listeners import RqcEventListener
+from stkai.rqc._event_listeners import RqcEventListener, RqcEventNotifier
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
 from stkai.rqc._models import RqcExecution, RqcExecutionStatus, RqcRequest, RqcResponse
 
@@ -268,7 +268,11 @@ class RemoteQuickCommand:
         self.max_workers = resolved_options.max_workers
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
         self.http_client: HttpClient = http_client
-        self.listeners: list[RqcEventListener] = listeners
+        self._notifier = RqcEventNotifier(listeners)
+
+    @property
+    def listeners(self) -> list[RqcEventListener]:
+        return self._notifier.listeners
 
     # ======================
     # Public API
@@ -427,8 +431,7 @@ class RemoteQuickCommand:
         event_context: dict[str, Any] = {}
 
         # Notify listeners: before execute
-        self._notify_listeners(
-            "on_before_execute",
+        self._notifier.notify_before_execute(
             request=request, context=event_context
         )
 
@@ -460,10 +463,10 @@ class RemoteQuickCommand:
             return response
         finally:
             # Single point of notification: on_after_execute (always called)
-            self._notify_listeners(
-                "on_after_execute",
-                request=request, response=response, context=event_context
-            )
+            if response is not None:
+                self._notifier.notify_after_execute(
+                    request=request, response=response, context=event_context
+                )
 
     # ======================
     # Internals
@@ -736,40 +739,12 @@ class RemoteQuickCommand:
         if new_status == RqcExecutionStatus.FAILURE and error is None:
             error = self._FAILURE_DEFAULT_ERROR
 
-        old_status = execution.status
         execution.transition_to(new_status, error=error)
-        self._notify_listeners(
-            "on_status_change",
+
+        old_status = execution.status
+        self._notifier.notify_status_change(
             request=execution.request,
             old_status=old_status, new_status=new_status,
             context=context,
         )
 
-    def _notify_listeners(
-        self,
-        event: str,
-        **kwargs: Any,
-    ) -> None:
-        """
-        Notifies all registered listeners about an event.
-
-        Exceptions raised by listeners are logged but do not interrupt execution.
-
-        Args:
-            event: The event method name (e.g., 'on_before_execute').
-            **kwargs: Keyword arguments to pass to the listener method.
-        """
-        context: dict[str, Any] = kwargs.get("context", {})
-        request: RqcRequest | None = kwargs.get("request")
-        tracking_id = context.get("execution_id") or (request.id if request else "unknown")
-
-        for listener in self.listeners:
-            try:
-                method = getattr(listener, event, None)
-                if method and callable(method):
-                    method(**kwargs)
-            except Exception as e:
-                listener_name = listener.__class__.__name__
-                logger.warning(
-                    f"{tracking_id[:26]:<26} | RQC | Event listener `{listener_name}.{event}()` raised an exception: {e}"
-                )

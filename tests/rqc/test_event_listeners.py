@@ -1,9 +1,11 @@
 """Tests for Event Listeners."""
 
 import json
+import logging
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from stkai.rqc import (
     FileLoggingListener,
@@ -12,6 +14,7 @@ from stkai.rqc import (
     RqcRequest,
     RqcResponse,
 )
+from stkai.rqc._event_listeners import RqcEventListener, RqcEventNotifier
 
 
 class TestFileLoggingListenerInit(unittest.TestCase):
@@ -714,6 +717,159 @@ class TestRqcPhasedEventListenerDefaultImplementation(unittest.TestCase):
             request, RqcExecutionStatus.PENDING, RqcExecutionStatus.CREATED, context
         )
         listener.on_after_execute(request, response, context)
+
+
+class TestRqcEventNotifier(unittest.TestCase):
+    """Tests for RqcEventNotifier type-safe dispatch."""
+
+    def _make_request(self, id: str = "req-123") -> RqcRequest:
+        return RqcRequest(payload={"x": 1}, id=id)
+
+    def _make_response(self, request: RqcRequest | None = None) -> RqcResponse:
+        req = request or self._make_request()
+        return RqcResponse(
+            request=req,
+            status=RqcExecutionStatus.COMPLETED,
+            result="ok",
+            execution_id="exec-456",
+        )
+
+    def test_notify_before_execute_calls_all_listeners(self):
+        """Should call on_before_execute on every registered listener."""
+        listener1 = MagicMock(spec=RqcEventListener)
+        listener2 = MagicMock(spec=RqcEventListener)
+        notifier = RqcEventNotifier([listener1, listener2])
+        request = self._make_request()
+        context: dict = {"key": "value"}
+
+        notifier.notify_before_execute(request=request, context=context)
+
+        listener1.on_before_execute.assert_called_once_with(request=request, context=context)
+        listener2.on_before_execute.assert_called_once_with(request=request, context=context)
+
+    def test_notify_status_change_calls_all_listeners(self):
+        """Should call on_status_change on every registered listener."""
+        listener1 = MagicMock(spec=RqcEventListener)
+        listener2 = MagicMock(spec=RqcEventListener)
+        notifier = RqcEventNotifier([listener1, listener2])
+        request = self._make_request()
+        context: dict = {}
+
+        notifier.notify_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context=context,
+        )
+
+        listener1.on_status_change.assert_called_once_with(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context=context,
+        )
+        listener2.on_status_change.assert_called_once_with(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context=context,
+        )
+
+    def test_notify_after_execute_calls_all_listeners(self):
+        """Should call on_after_execute on every registered listener."""
+        listener1 = MagicMock(spec=RqcEventListener)
+        listener2 = MagicMock(spec=RqcEventListener)
+        notifier = RqcEventNotifier([listener1, listener2])
+        request = self._make_request()
+        response = self._make_response(request)
+        context: dict = {}
+
+        notifier.notify_after_execute(
+            request=request, response=response, context=context
+        )
+
+        listener1.on_after_execute.assert_called_once_with(
+            request=request, response=response, context=context
+        )
+        listener2.on_after_execute.assert_called_once_with(
+            request=request, response=response, context=context
+        )
+
+    def test_exception_in_listener_does_not_interrupt_others(self):
+        """If a listener raises, remaining listeners should still be notified."""
+        failing_listener = MagicMock(spec=RqcEventListener)
+        failing_listener.on_before_execute.side_effect = RuntimeError("boom")
+        ok_listener = MagicMock(spec=RqcEventListener)
+        notifier = RqcEventNotifier([failing_listener, ok_listener])
+        request = self._make_request()
+        context: dict = {}
+
+        notifier.notify_before_execute(request=request, context=context)
+
+        failing_listener.on_before_execute.assert_called_once()
+        ok_listener.on_before_execute.assert_called_once_with(request=request, context=context)
+
+    def test_exception_in_listener_is_logged(self):
+        """Exception in a listener should be logged as a warning."""
+        failing_listener = MagicMock(spec=RqcEventListener)
+        failing_listener.__class__.__name__ = "FailingListener"
+        failing_listener.on_before_execute.side_effect = RuntimeError("boom")
+        notifier = RqcEventNotifier([failing_listener])
+        request = self._make_request()
+
+        with self.assertLogs("stkai.rqc._event_listeners", level=logging.WARNING) as cm:
+            notifier.notify_before_execute(request=request, context={})
+
+        self.assertTrue(any("on_before_execute()" in msg for msg in cm.output))
+        self.assertTrue(any("boom" in msg for msg in cm.output))
+
+    def test_empty_listeners_list_does_not_fail(self):
+        """Should work without errors when no listeners are registered."""
+        notifier = RqcEventNotifier([])
+        request = self._make_request()
+        response = self._make_response(request)
+
+        # None of these should raise
+        notifier.notify_before_execute(request=request, context={})
+        notifier.notify_status_change(
+            request=request,
+            old_status=RqcExecutionStatus.PENDING,
+            new_status=RqcExecutionStatus.CREATED,
+            context={},
+        )
+        notifier.notify_after_execute(
+            request=request, response=response, context={}
+        )
+
+    def test_tracking_id_uses_execution_id_from_context(self):
+        """Should use execution_id from context for log messages when available."""
+        failing_listener = MagicMock(spec=RqcEventListener)
+        failing_listener.__class__.__name__ = "BadListener"
+        failing_listener.on_after_execute.side_effect = ValueError("oops")
+        notifier = RqcEventNotifier([failing_listener])
+        request = self._make_request()
+        response = self._make_response(request)
+
+        with self.assertLogs("stkai.rqc._event_listeners", level=logging.WARNING) as cm:
+            notifier.notify_after_execute(
+                request=request, response=response,
+                context={"execution_id": "exec-tracking-id"},
+            )
+
+        self.assertTrue(any("exec-tracking-id" in msg for msg in cm.output))
+
+    def test_tracking_id_falls_back_to_request_id(self):
+        """Should fall back to request.id when execution_id is not in context."""
+        failing_listener = MagicMock(spec=RqcEventListener)
+        failing_listener.__class__.__name__ = "BadListener"
+        failing_listener.on_before_execute.side_effect = ValueError("oops")
+        notifier = RqcEventNotifier([failing_listener])
+        request = self._make_request(id="my-fallback-id")
+
+        with self.assertLogs("stkai.rqc._event_listeners", level=logging.WARNING) as cm:
+            notifier.notify_before_execute(request=request, context={})
+
+        self.assertTrue(any("my-fallback-id" in msg for msg in cm.output))
 
 
 if __name__ == "__main__":

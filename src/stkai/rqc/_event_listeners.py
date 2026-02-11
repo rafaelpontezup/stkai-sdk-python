@@ -9,12 +9,17 @@ Available Listeners:
     - RqcPhasedEventListener: Abstract listener with granular phase-specific hooks.
     - FileLoggingListener: Persists request/response to JSON files for debugging.
 
+Internal:
+    - RqcEventNotifier: Type-safe dispatcher that notifies registered listeners.
+
 Example:
     >>> from stkai.rqc import RemoteQuickCommand, FileLoggingListener
     >>> listener = FileLoggingListener(Path("./output"))
     >>> rqc = RemoteQuickCommand(slug_name="my-rqc", listeners=[listener])
 """
 
+import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, override
 
@@ -306,3 +311,85 @@ class FileLoggingListener(RqcEventListener):
     ) -> None:
         """Writes response to JSON file after execution completes."""
         response.write_to_file(output_dir=self.output_dir)
+
+
+# ======================
+# Internal: Event Notifier
+# ======================
+
+logger = logging.getLogger(__name__)
+
+
+class RqcEventNotifier:
+    """
+    Type-safe dispatcher that notifies registered listeners about RQC execution lifecycle events.
+
+    Internal class — not exported from the package.
+    """
+
+    def __init__(self, listeners: list[RqcEventListener]):
+        assert listeners is not None, "Listeners list cannot be None."
+        self.listeners = listeners
+
+    def notify_before_execute(self, request: RqcRequest, context: dict[str, Any]) -> None:
+        """Notifies all listeners that an execution is about to start."""
+        assert request, "request cannot be None."
+        assert context is not None, "context cannot be None."
+        self._safe_dispatch(request, context, "on_before_execute",
+            lambda listener: listener.on_before_execute(request=request, context=context))
+
+    def notify_status_change(
+        self,
+        request: RqcRequest,
+        old_status: RqcExecutionStatus,
+        new_status: RqcExecutionStatus,
+        context: dict[str, Any],
+    ) -> None:
+        """Notifies all listeners that the execution status has changed."""
+        assert request, "request cannot be None."
+        assert context is not None, "context cannot be None."
+        assert old_status, "old_status cannot be empty."
+        assert new_status, "new_status cannot be empty."
+        self._safe_dispatch(request, context, "on_status_change",
+            lambda listener: listener.on_status_change(
+                request=request,
+                old_status=old_status,
+                new_status=new_status,
+                context=context
+            )
+        )
+
+    def notify_after_execute(
+        self,
+        request: RqcRequest,
+        response: RqcResponse,
+        context: dict[str, Any],
+    ) -> None:
+        """Notifies all listeners that the execution has completed (success or failure)."""
+        assert request, "request cannot be None."
+        assert context is not None, "context cannot be None."
+        assert response, "response cannot be None."
+        self._safe_dispatch(request, context, "on_after_execute",
+            lambda listener: listener.on_after_execute(
+                request=request, response=response, context=context
+            )
+        )
+
+    def _safe_dispatch(
+        self,
+        request: RqcRequest,
+        context: dict[str, Any],
+        event_name: str,
+        action: Callable[[RqcEventListener], None],
+    ) -> None:
+        """Invokes action on each listener, logging and swallowing any exceptions."""
+        tracking_id = context.get("execution_id") or request.id
+        for listener in self.listeners:
+            try:
+                action(listener)
+            except Exception as e:
+                listener_name = listener.__class__.__name__
+                logger.warning(
+                    f"{tracking_id[:26]:<26} | RQC | Event listener "
+                    f"`{listener_name}.{event_name}()` raised an exception: {e}"
+                )
