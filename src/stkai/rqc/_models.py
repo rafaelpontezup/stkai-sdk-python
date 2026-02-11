@@ -47,6 +47,32 @@ class RqcExecutionStatus(enum.StrEnum):
         return self.value
 
     @classmethod
+    def from_server(cls, value: str | None) -> "RqcExecutionStatus | None":
+        """
+        Safely converts a server status string to an RqcExecutionStatus.
+
+        Only accepts server-side statuses (CREATED, RUNNING, COMPLETED, FAILURE).
+        Returns None for None, empty strings, unknown values, or client-side-only
+        statuses (PENDING, ERROR, TIMEOUT).
+
+        Args:
+            value: The status string to convert, or None.
+
+        Returns:
+            The corresponding RqcExecutionStatus, or None if the value is not
+            a recognized server-side status.
+        """
+        if not value:
+            return None
+
+        try:
+            status = cls(value.upper())
+        except ValueError:
+            return None
+
+        return status if status in (cls.CREATED, cls.RUNNING, cls.COMPLETED, cls.FAILURE) else None
+
+    @classmethod
     def from_exception(cls, exc: Exception) -> "RqcExecutionStatus":
         """
         Determine the appropriate status for an exception.

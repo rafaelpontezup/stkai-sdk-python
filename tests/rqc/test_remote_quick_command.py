@@ -422,6 +422,49 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
         ]
         self.assertEqual(unexpected_warnings, [], f"Unexpected transition warnings found: {unexpected_warnings}")
 
+    # ---------------------------------------------------------
+    # Scenario: Unknown server status during polling (continues polling until COMPLETED)
+    # ---------------------------------------------------------
+    def test_execute_when_polling_encounters_unknown_status_then_completes(self):
+        execution_id = "exec-unknown-status"
+
+        post_resp = make_response(json_data=execution_id)
+        self.http_client.post.return_value = post_resp
+
+        unknown_resp = make_response(json_data={
+            "progress": {"status": "PROCESSING"},
+            "result": None,
+        })
+        completed_resp = make_response(json_data={
+            "progress": {"status": "COMPLETED"},
+            "result": "{}",
+        })
+        self.http_client.get.side_effect = [unknown_resp, completed_resp]
+
+        request = RqcRequest(payload={"job": "unknown-status"})
+        result = self.rqc.execute(request=request)
+
+        self.assertEqual(RqcExecutionStatus.COMPLETED, result.status)
+        self.assertEqual(self.http_client.get.call_count, 2)
+
+    def test_execute_when_polling_encounters_unknown_status_until_timeout(self):
+        execution_id = "exec-unknown-timeout"
+
+        post_resp = make_response(json_data=execution_id)
+        self.http_client.post.return_value = post_resp
+
+        unknown_resp = make_response(json_data={
+            "progress": {"status": "PROCESSING"},
+            "result": None,
+        })
+        self.http_client.get.return_value = unknown_resp
+
+        request = RqcRequest(payload={"job": "unknown-timeout"})
+        result = self.rqc.execute(request=request)
+
+        self.assertEqual(RqcExecutionStatus.TIMEOUT, result.status)
+        self.assertGreaterEqual(self.http_client.get.call_count, 1)
+
     def test_execute_many_when_all_responses_are_completed(self):
         # Scenario: 10 requests that complete successfully in parallel
         num_requests = 10

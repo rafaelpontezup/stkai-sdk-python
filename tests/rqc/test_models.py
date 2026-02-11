@@ -30,6 +30,37 @@ class TestRqcRequestIsFrozen(unittest.TestCase):
             request.payload = {"y": 2}  # type: ignore[misc]
 
 
+class TestRqcExecutionStatusFromServer(unittest.TestCase):
+    """Tests for RqcExecutionStatus.from_server() factory method."""
+
+    def test_of_returns_member_for_server_statuses(self):
+        server_statuses = {
+            RqcExecutionStatus.CREATED,
+            RqcExecutionStatus.RUNNING,
+            RqcExecutionStatus.COMPLETED,
+            RqcExecutionStatus.FAILURE,
+        }
+        for member in server_statuses:
+            self.assertEqual(RqcExecutionStatus.from_server(member.value), member)
+
+    def test_of_returns_none_for_client_side_statuses(self):
+        self.assertIsNone(RqcExecutionStatus.from_server("PENDING"))
+        self.assertIsNone(RqcExecutionStatus.from_server("ERROR"))
+        self.assertIsNone(RqcExecutionStatus.from_server("TIMEOUT"))
+
+    def test_of_returns_none_for_unknown_status(self):
+        self.assertIsNone(RqcExecutionStatus.from_server("PROCESSING"))
+        self.assertIsNone(RqcExecutionStatus.from_server("QUEUED"))
+
+    def test_of_returns_none_for_none_and_empty(self):
+        self.assertIsNone(RqcExecutionStatus.from_server(None))
+        self.assertIsNone(RqcExecutionStatus.from_server(""))
+
+    def test_of_is_case_insensitive(self):
+        self.assertEqual(RqcExecutionStatus.from_server("completed"), RqcExecutionStatus.COMPLETED)
+        self.assertEqual(RqcExecutionStatus.from_server("Running"), RqcExecutionStatus.RUNNING)
+
+
 class TestValidTransitions(unittest.TestCase):
     """Tests for _VALID_TRANSITIONS dict."""
 

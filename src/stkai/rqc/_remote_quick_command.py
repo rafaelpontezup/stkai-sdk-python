@@ -630,9 +630,15 @@ class RemoteQuickCommand:
                     sleep_with_jitter(opts.poll_interval)
                     continue
 
-                status = RqcExecutionStatus(
-                    response_data.get('progress', {}).get('status').upper()
-                )
+                raw_status = response_data.get('progress', {}).get('status')
+                status = RqcExecutionStatus.from_server(raw_status)
+                if status is None:
+                    logger.warning(
+                        f"{execution_id} | RQC | ⚠️ Unknown server status: '{raw_status}', continuing to poll..."
+                    )
+                    sleep_with_jitter(opts.poll_interval)
+                    continue
+
                 if status != execution.status:
                     logger.info(f"{execution_id} | RQC | Current status: {status}")
                     self._transition_and_notify(
