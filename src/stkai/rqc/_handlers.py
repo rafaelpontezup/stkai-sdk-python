@@ -42,24 +42,20 @@ class RqcResultContext:
     and the raw result from the API.
 
     Attributes:
-        request: The original RqcRequest (with execution_id already set).
+        request: The original RqcRequest.
         raw_result: The unprocessed result from the StackSpot AI API.
+        execution_id: The server-assigned execution ID for this execution.
         handled: Flag indicating if a previous handler has already processed this result.
     """
     request: RqcRequest
     raw_result: Any
+    execution_id: str
     handled: bool = False
 
     def __post_init__(self) -> None:
         assert self.request, "RQC-Request can not be empty."
-        assert self.request.execution_id, "RQC-Request's execution_id can not be empty."
+        assert self.execution_id, "Execution ID can not be empty."
         assert self.handled is not None, "Context's handled flag can not be None."
-
-    @property
-    def execution_id(self) -> str:
-        """Returns the execution ID from the associated request."""
-        assert self.request.execution_id, "Execution ID is expected to exist at this point."
-        return self.request.execution_id
 
 
 class RqcResultHandler(ABC):
@@ -122,7 +118,7 @@ class ChainedResultHandler(RqcResultHandler):
         result = context.raw_result
         for next_handler in self.chained_handlers:
             result = next_handler.handle_result(context)
-            context = RqcResultContext(request=context.request, raw_result=result, handled=True)
+            context = RqcResultContext(request=context.request, raw_result=result, execution_id=context.execution_id, handled=True)
         return result
 
     @staticmethod

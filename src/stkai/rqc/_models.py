@@ -2,11 +2,13 @@
 Data models for Remote Quick Command.
 
 This module contains the core data structures used across the RQC module:
-- RqcRequest: Represents a request to be executed
-- RqcResponse: Represents the response from an execution
+- RqcRequest: Represents a request to be executed (frozen/immutable)
+- RqcResponse: Represents the response from an execution (frozen/immutable)
+- RqcExecution: Internal mutable tracker for execution lifecycle state
 - RqcExecutionStatus: Enum of execution lifecycle states
 """
 import enum
+import logging
 import re
 import time
 import uuid
@@ -16,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from stkai._utils import save_json_file
+
+logger = logging.getLogger(__name__)
 
 
 class RqcExecutionStatus(enum.StrEnum):
@@ -64,12 +68,23 @@ class RqcExecutionStatus(enum.StrEnum):
         return cls.TIMEOUT if is_timeout_exception(exc) else cls.ERROR
 
 
-@dataclass
+_VALID_TRANSITIONS: dict[RqcExecutionStatus, frozenset[RqcExecutionStatus]] = {
+    RqcExecutionStatus.PENDING:   frozenset({RqcExecutionStatus.CREATED, RqcExecutionStatus.ERROR, RqcExecutionStatus.TIMEOUT}),
+    RqcExecutionStatus.CREATED:   frozenset({RqcExecutionStatus.RUNNING, RqcExecutionStatus.COMPLETED, RqcExecutionStatus.FAILURE, RqcExecutionStatus.ERROR, RqcExecutionStatus.TIMEOUT}),
+    RqcExecutionStatus.RUNNING:   frozenset({RqcExecutionStatus.COMPLETED, RqcExecutionStatus.FAILURE, RqcExecutionStatus.ERROR, RqcExecutionStatus.TIMEOUT}),
+    RqcExecutionStatus.COMPLETED: frozenset(),
+    RqcExecutionStatus.FAILURE:   frozenset(),
+    RqcExecutionStatus.ERROR:     frozenset(),
+    RqcExecutionStatus.TIMEOUT:   frozenset(),
+}
+
+
+@dataclass(frozen=True)
 class RqcRequest:
     """
     Represents a Remote QuickCommand request.
 
-    This class encapsulates all data needed to execute a Remote Quick Command,
+    This immutable class encapsulates all data needed to execute a Remote Quick Command,
     including the payload to send and optional metadata for tracking purposes.
 
     Attributes:
@@ -87,12 +102,53 @@ class RqcRequest:
     payload: Any
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     metadata: dict[str, Any] = field(default_factory=dict)
-    _execution_id: str | None = None
-    _submitted_at: float | None = None
 
     def __post_init__(self) -> None:
         assert self.id, "Request ID can not be empty."
         assert self.payload, "Request payload can not be empty."
+
+    def to_input_data(self) -> dict[str, Any]:
+        """Converts the request payload to the format expected by the RQC API."""
+        return {
+            "input_data": self.payload,
+        }
+
+    def write_to_file(self, output_dir: Path, tracking_id: str | None = None) -> Path:
+        """
+        Persists the request payload to a JSON file for debugging purposes.
+
+        Args:
+            output_dir: Directory where the JSON file will be saved.
+            tracking_id: Optional tracking ID for file naming. If None, uses request id.
+
+        Returns:
+            Path to the created JSON file.
+
+        The file is named `{tracking_id}-request.json` where tracking_id is either
+        the provided tracking_id or the request id.
+        """
+        assert output_dir, "Output directory is required."
+        assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
+
+        _tracking_id = tracking_id or self.id
+        _tracking_id = re.sub(r'[^\w.$-]', '_', _tracking_id)
+
+        target_file = output_dir / f"{_tracking_id}-request.json"
+        save_json_file(
+            data=self.to_input_data(),
+            file_path=target_file
+        )
+        return target_file
+
+
+@dataclass
+class RqcExecution:
+    """Internal: tracks lifecycle of a single RQC execution."""
+    request: RqcRequest
+    _execution_id: str | None = field(default=None, init=False)
+    _submitted_at: float | None = field(default=None, init=False)
+    _status: RqcExecutionStatus = field(default=RqcExecutionStatus.PENDING, init=False)
+    _error: str | None = field(default=None, init=False)
 
     @property
     def execution_id(self) -> str | None:
@@ -106,11 +162,23 @@ class RqcRequest:
             return None
         return datetime.fromtimestamp(self._submitted_at, tz=UTC)
 
+    @property
+    def status(self) -> RqcExecutionStatus:
+        """Returns the current execution status."""
+        return self._status
+
+    @property
+    def error(self) -> str | None:
+        """Returns the error message, or None if no error occurred."""
+        return self._error
+
+    def is_created(self) -> bool:
+        """Returns True if the execution was successfully created on the server."""
+        return self._status == RqcExecutionStatus.CREATED
+
     def mark_as_submitted(self, execution_id: str) -> None:
         """
-        Marks the request as submitted by storing the server-assigned execution ID and timestamp.
-
-        This method is called internally after a successful create-execution API call.
+        Marks the execution as submitted by storing the server-assigned execution ID and timestamp.
 
         Args:
             execution_id: The execution ID returned by the StackSpot AI API.
@@ -119,37 +187,45 @@ class RqcRequest:
         self._execution_id = execution_id
         self._submitted_at = time.time()
 
-    def to_input_data(self) -> dict[str, Any]:
-        """Converts the request payload to the format expected by the RQC API."""
-        return {
-            "input_data": self.payload,
-        }
-
-    def write_to_file(self, output_dir: Path) -> Path:
+    def transition_to(self, new_status: RqcExecutionStatus, error: str | None = None) -> None:
         """
-        Persists the request payload to a JSON file for debugging purposes.
+        Transitions the execution to a new status with validation.
+
+        Logs a warning if the transition is unexpected according to _VALID_TRANSITIONS.
 
         Args:
-            output_dir: Directory where the JSON file will be saved.
+            new_status: The target status to transition to.
+            error: Optional error message to associate with this transition.
+        """
+        allowed = _VALID_TRANSITIONS.get(self._status, frozenset())
+        if new_status not in allowed:
+            logger.warning(
+                f"{self._execution_id or self.request.id} | RQC | "
+                f"Unexpected status transition: {self._status} → {new_status}"
+            )
+        self._status = new_status
+        if error is not None:
+            self._error = error
+
+    def to_response(self, result: Any = None, raw_response: Any = None) -> "RqcResponse":
+        """
+        Creates an RqcResponse from the current execution state.
+
+        Args:
+            result: The processed result (only for COMPLETED status).
+            raw_response: The raw API response (for debugging).
 
         Returns:
-            Path to the created JSON file.
-
-        The file is named `{tracking_id}-request.json` where tracking_id is either
-        the execution_id (if available) or the request id.
+            An RqcResponse reflecting the current execution state.
         """
-        assert output_dir, "Output directory is required."
-        assert output_dir.is_dir(), f"Output directory is not a directory ({output_dir})."
-
-        _tracking_id = self.execution_id or self.id
-        _tracking_id = re.sub(r'[^\w.$-]', '_', _tracking_id)
-
-        target_file = output_dir / f"{_tracking_id}-request.json"
-        save_json_file(
-            data=self.to_input_data(),
-            file_path=target_file
+        return RqcResponse(
+            request=self.request,
+            status=self._status,
+            result=result,
+            error=self._error,
+            raw_response=raw_response,
+            execution_id=self._execution_id,
         )
-        return target_file
 
 
 @dataclass(frozen=True)
@@ -166,6 +242,7 @@ class RqcResponse:
         result: The processed result from the result handler (only set when COMPLETED).
         error: Error message describing what went wrong (only set on non-COMPLETED status).
         raw_response: The raw JSON response from the StackSpot AI API (for debugging).
+        execution_id: The server-assigned execution ID, or None if execution was never created.
 
     Example:
         >>> response = rqc.execute(request)
@@ -179,15 +256,11 @@ class RqcResponse:
     result: Any | None = None
     error: str | None = None
     raw_response: Any | None = None
+    execution_id: str | None = None
 
     def __post_init__(self) -> None:
         assert self.request, "RQC-Request can not be empty."
         assert self.status, "Status can not be empty."
-
-    @property
-    def execution_id(self) -> str | None:
-        """Returns the execution ID from the associated request."""
-        return self.request.execution_id
 
     @property
     def raw_result(self) -> Any:
@@ -260,7 +333,7 @@ class RqcResponse:
         if not self.is_completed():
             response_result = self.error_with_details()
 
-        _tracking_id = self.request.execution_id or self.request.id
+        _tracking_id = self.execution_id or self.request.id
         _tracking_id = re.sub(r'[^\w.$-]', '_', _tracking_id)
 
         target_file = output_dir / f"{_tracking_id}-response-{self.status}.json"

@@ -250,7 +250,7 @@ class RqcPhasedEventListener(RqcEventListener):
         - No execution_id: Create-execution failed → on_create_execution_end
         - Has execution_id: Polling finished → on_get_result_end
         """
-        if request.execution_id is None:
+        if response.execution_id is None:
             # Failed during create-execution phase
             self.on_create_execution_end(request, response.status, response, context)
         else:
@@ -295,7 +295,7 @@ class FileLoggingListener(RqcEventListener):
     ) -> None:
         """Writes request file when status transitions from PENDING (for debugging)."""
         if old_status == RqcExecutionStatus.PENDING:
-            request.write_to_file(output_dir=self.output_dir)
+            request.write_to_file(output_dir=self.output_dir, tracking_id=context.get("execution_id"))
 
     @override
     def on_after_execute(

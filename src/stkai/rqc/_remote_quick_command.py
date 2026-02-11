@@ -22,7 +22,7 @@ from stkai._retry import Retrying
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener
 from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
-from stkai.rqc._models import RqcExecutionStatus, RqcRequest, RqcResponse
+from stkai.rqc._models import RqcExecution, RqcExecutionStatus, RqcRequest, RqcResponse
 
 logger = logging.getLogger(__name__)
 
@@ -435,15 +435,16 @@ class RemoteQuickCommand:
         response = None
         try:
             # Phase-1: Create execution
-            execution_id, error_response = self._create_execution(request=request, context=event_context)
-            if error_response:
-                response = error_response
+            execution = self._create_execution(request=request, context=event_context)
+            if not execution.is_created():
+                response = execution.to_response()
                 return response
 
             # Sanity checks after Phase-1
-            assert execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
-            assert request.execution_id, "🌀 Sanity check | RQC-Request has no `execution_id` registered on it. Was the `request.mark_as_submitted()` method called?"
-            assert execution_id == request.execution_id, "🌀 Sanity check | RQC-Request's `execution_id` and response's `execution_id` are different."
+            assert execution.execution_id, "🌀 Sanity check | Execution was created but `execution_id` is missing."
+
+            # Make execution_id available to listeners via context
+            event_context["execution_id"] = execution.execution_id
 
             # Phase-2: Poll
             if not result_handler:
@@ -451,7 +452,7 @@ class RemoteQuickCommand:
                 result_handler = DEFAULT_RESULT_HANDLER
 
             response = self._poll_until_done(
-                request=request, handler=result_handler, context=event_context
+                execution=execution, handler=result_handler, context=event_context
             )
 
             # Sanity check after Phase-2
@@ -472,21 +473,20 @@ class RemoteQuickCommand:
         self,
         request: RqcRequest,
         context: dict[str, Any],
-    ) -> tuple[str | None, RqcResponse | None]:
+    ) -> RqcExecution:
         """
         Creates an RQC execution via POST with retries and exponential backoff.
 
-        This method follows the same pattern as `_poll_until_done()`: it receives
-        the event context, dispatches status change events, and encapsulates
-        exceptions into an error response.
+        Instantiates an RqcExecution tracker and attempts to create the execution
+        on the server. On success, the execution has status CREATED and execution_id
+        set. On failure, the execution has status ERROR or TIMEOUT with an error message.
 
         Args:
-            request: The RqcRequest instance to create execution for.
+            request: The RqcRequest to execute.
             context: Shared event context for listeners.
 
         Returns:
-            (execution_id, None) on success - execution was created
-            (None, error_response) on failure - contains error details
+            RqcExecution with status CREATED on success, or ERROR/TIMEOUT on failure.
         """
         assert request, "🌀 Sanity check | RQC-Request not provided to create-execution phase."
         assert context is not None, "🌀 Sanity check | Event context not provided to create-execution phase."
@@ -501,6 +501,8 @@ class RemoteQuickCommand:
         request_id = request.id
         input_data = request.to_input_data()
 
+        # Create execution tracker (internal mutable state for this execution)
+        execution = RqcExecution(request=request)
         # Build full URL using base_url
         url = f"{self.base_url}/v1/quick-commands/create-execution/{self.slug_name}"
 
@@ -526,21 +528,17 @@ class RemoteQuickCommand:
                     if not execution_id:
                         raise ExecutionIdIsMissingError("No `execution_id` returned in the create execution response by server.")
 
-                    # Registers create execution response on its request
-                    request.mark_as_submitted(execution_id=execution_id)
+                    # Register execution state on the execution tracker
+                    execution.mark_as_submitted(execution_id=execution_id)
                     logger.info(
                         f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created ({execution_id})"
                     )
 
-                    # Notify status change: PENDING → CREATED (execution created successfully)
-                    self._notify_listeners(
-                        "on_status_change",
-                        request=request,
-                        old_status=RqcExecutionStatus.PENDING,
-                        new_status=RqcExecutionStatus.CREATED,
-                        context=context,
+                    # Transition and notify: PENDING → CREATED
+                    self._transition_and_notify(
+                        execution=execution, new_status=RqcExecutionStatus.CREATED, context=context
                     )
-                    return (execution_id, None)
+                    return execution
 
             # Should never reach here - Retrying raises MaxRetriesExceededError
             raise RuntimeError(
@@ -558,33 +556,23 @@ class RemoteQuickCommand:
                 exc_info=logger.isEnabledFor(logging.DEBUG)
             )
 
-            # Notify status change: PENDING → ERROR or TIMEOUT
-            self._notify_listeners(
-                "on_status_change",
-                request=request,
-                old_status=RqcExecutionStatus.PENDING,
-                new_status=error_status,
-                context=context,
+            # Transition and notify: PENDING → ERROR or TIMEOUT
+            self._transition_and_notify(
+                execution=execution, new_status=error_status, context=context, error=error_msg
             )
-
-            error_response = RqcResponse(
-                request=request,
-                status=error_status,
-                error=error_msg,
-            )
-            return (None, error_response)
+            return execution
 
     def _poll_until_done(
         self,
-        request: RqcRequest,
+        execution: RqcExecution,
         handler: RqcResultHandler,
         context: dict[str, Any],
     ) -> RqcResponse:
         """Polls the status endpoint until the execution reaches a terminal state."""
-        assert request, "🌀 Sanity check | RQC-Request not provided to polling phase."
+        assert execution, "🌀 Sanity check | RQC-Execution not provided to polling phase."
         assert handler, "🌀 Sanity check | Result Handler not provided to polling phase."
         assert context is not None, "🌀 Sanity check | Event context not provided to polling phase."
-        assert request.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
+        assert execution.execution_id, "🌀 Sanity check | Execution ID not provided to polling phase."
 
         # Get options and assert for type narrowing
         opts = self.options.get_result
@@ -595,9 +583,7 @@ class RemoteQuickCommand:
         assert opts.request_timeout is not None, "request_timeout must be set after with_defaults_from()"
 
         start_time = time.time()
-        execution_id = request.execution_id
-
-        last_status: RqcExecutionStatus = RqcExecutionStatus.CREATED  # Starts at CREATED since we notify PENDING → CREATED before polling
+        execution_id = execution.execution_id
         created_since: float | None = None
 
         logger.info(f"{execution_id} | RQC | Starting polling loop...")
@@ -608,7 +594,7 @@ class RemoteQuickCommand:
                 if time.time() - start_time > opts.poll_max_duration:
                     raise TimeoutError(
                         f"Timeout after {opts.poll_max_duration} seconds waiting for RQC execution to complete. "
-                        f"Last status: `{last_status}`."
+                        f"Last status: `{execution.status}`."
                     )
 
                 try:
@@ -644,28 +630,23 @@ class RemoteQuickCommand:
                 status = RqcExecutionStatus(
                     response_data.get('progress', {}).get('status').upper()
                 )
-                if status != last_status:
+                if status != execution.status:
                     logger.info(f"{execution_id} | RQC | Current status: {status}")
-                    # Notify listeners: status change
-                    self._notify_listeners(
-                        "on_status_change", request=request,
-                        old_status=last_status, new_status=status, context=context
+                    self._transition_and_notify(
+                        execution=execution, new_status=status, context=context
                     )
-                    last_status = status
 
                 if status == RqcExecutionStatus.COMPLETED:
                     try:
                         logger.info(f"{execution_id} | RQC | Processing the execution result...")
                         raw_result = response_data.get("result")
+                        request = execution.request
                         processed_result = handler.handle_result(
-                            context=RqcResultContext(request, raw_result)
+                            context=RqcResultContext(request, raw_result, execution_id)
                         )
                         logger.info(f"{execution_id} | RQC | ✅ Execution finished with status: {status}")
-                        return RqcResponse(
-                            request=request,
-                            status=RqcExecutionStatus.COMPLETED,
-                            result=processed_result,
-                            raw_response=response_data
+                        return execution.to_response(
+                            result=processed_result, raw_response=response_data
                         )
                     except Exception as e:
                         handler_name = handler.__class__.__name__
@@ -683,12 +664,8 @@ class RemoteQuickCommand:
                         f"{execution_id} | RQC | ❌ Execution failed on the server-side with the following response: "
                         f"\n{json.dumps(response_data, indent=2)}"
                     )
-                    return RqcResponse(
-                        request=request,
-                        status=RqcExecutionStatus.FAILURE,
-                        error="Execution failed on the server-side with status 'FAILURE'. There's no details at all! Try to look at the logs.",
-                        raw_response=response_data,
-                    )
+                    return execution.to_response(raw_response=response_data)
+
                 elif status == RqcExecutionStatus.CREATED:
                     # Track how long we've been in CREATED status (possible server overload)
                     if created_since is None:
@@ -722,24 +699,50 @@ class RemoteQuickCommand:
                 f"{execution_id} | RQC | ❌ {error_msg}",
                 exc_info=logger.isEnabledFor(logging.DEBUG)
             )
-            # Notify status change: last_status → ERROR/TIMEOUT
-            self._notify_listeners(
-                "on_status_change",
-                request=request,
-                old_status=last_status,
-                new_status=error_status,
-                context=context,
+            # Transition and notify: current_status → ERROR/TIMEOUT
+            self._transition_and_notify(
+                execution=execution, new_status=error_status, context=context, error=error_msg
             )
-            return RqcResponse(
-                request=request,
-                status=error_status,
-                error=error_msg,
-            )
+            return execution.to_response()
 
         # It should never happen
         raise RuntimeError(
             "Unexpected error while polling the status of execution: "
             "reached end of `_poll_until_done` method without returning the execution result."
+        )
+
+    _FAILURE_DEFAULT_ERROR = (
+        "Execution failed on the server-side with status 'FAILURE'. "
+        "There's no details at all! Try to look at the logs."
+    )
+
+    def _transition_and_notify(
+        self,
+        execution: RqcExecution,
+        new_status: RqcExecutionStatus,
+        context: dict[str, Any],
+        error: str | None = None,
+    ) -> None:
+        """
+        Transitions execution status and notifies listeners of the change.
+
+        Args:
+            execution: The RqcExecution tracker.
+            new_status: The target status to transition to.
+            context: Shared event context for listeners.
+            error: Optional error message to associate with this transition.
+                For FAILURE status, a default message is used when not provided.
+        """
+        if new_status == RqcExecutionStatus.FAILURE and error is None:
+            error = self._FAILURE_DEFAULT_ERROR
+
+        old_status = execution.status
+        execution.transition_to(new_status, error=error)
+        self._notify_listeners(
+            "on_status_change",
+            request=execution.request,
+            old_status=old_status, new_status=new_status,
+            context=context,
         )
 
     def _notify_listeners(
@@ -756,8 +759,9 @@ class RemoteQuickCommand:
             event: The event method name (e.g., 'on_before_execute').
             **kwargs: Keyword arguments to pass to the listener method.
         """
+        context: dict[str, Any] = kwargs.get("context", {})
         request: RqcRequest | None = kwargs.get("request")
-        tracking_id = (request.execution_id or request.id) if request else "unknown"
+        tracking_id = context.get("execution_id") or (request.id if request else "unknown")
 
         for listener in self.listeners:
             try:

@@ -86,13 +86,12 @@ class TestFileLoggingListenerOnStatusChange(unittest.TestCase):
     def test_writes_request_file_when_status_transitions_from_pending_to_created(self):
         """Should write request payload to JSON file when status changes from PENDING to CREATED."""
         request = RqcRequest(payload={"prompt": "Hello"}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
 
         self.listener.on_status_change(
             request=request,
             old_status=RqcExecutionStatus.PENDING,
             new_status=RqcExecutionStatus.CREATED,
-            context={},
+            context={"execution_id": "exec-456"},
         )
 
         request_file = self.tmp_dir / "exec-456-request.json"
@@ -104,7 +103,7 @@ class TestFileLoggingListenerOnStatusChange(unittest.TestCase):
     def test_writes_request_file_when_status_transitions_from_pending_to_error(self):
         """Should write request payload to JSON file when status changes from PENDING to ERROR."""
         request = RqcRequest(payload={"prompt": "Failed request"}, id="req-failed")
-        # Note: not calling mark_as_submitted, so execution_id is None (create-execution failed)
+        # Note: no execution_id in context (create-execution failed)
 
         self.listener.on_status_change(
             request=request,
@@ -113,7 +112,7 @@ class TestFileLoggingListenerOnStatusChange(unittest.TestCase):
             context={},
         )
 
-        # Should use request.id as tracking_id since execution_id is not available
+        # Should use request.id as tracking_id since execution_id is not available in context
         request_file = self.tmp_dir / "req-failed-request.json"
         self.assertTrue(request_file.exists())
         with open(request_file) as f:
@@ -123,22 +122,21 @@ class TestFileLoggingListenerOnStatusChange(unittest.TestCase):
     def test_does_not_write_request_file_for_non_pending_transitions(self):
         """Should not write any files when old_status is not PENDING."""
         request = RqcRequest(payload={"x": 1}, id="test")
-        request.mark_as_submitted(execution_id="exec-789")
 
         self.listener.on_status_change(
             request=request,
             old_status=RqcExecutionStatus.CREATED,
             new_status=RqcExecutionStatus.RUNNING,
-            context={},
+            context={"execution_id": "exec-789"},
         )
 
         files = list(self.tmp_dir.glob("*.json"))
         self.assertEqual(len(files), 0)
 
     def test_uses_request_id_when_execution_id_not_available(self):
-        """Should use request.id as tracking_id when execution_id is not set."""
+        """Should use request.id as tracking_id when execution_id is not in context."""
         request = RqcRequest(payload={"x": 1}, id="my-request-id")
-        # Note: not calling mark_as_submitted, so execution_id is None
+        # Note: no execution_id in context
 
         self.listener.on_status_change(
             request=request,
@@ -153,13 +151,12 @@ class TestFileLoggingListenerOnStatusChange(unittest.TestCase):
     def test_sanitizes_special_characters_in_tracking_id(self):
         """Should sanitize special characters in tracking_id for safe filenames."""
         request = RqcRequest(payload={"x": 1}, id="req/with:special*chars?")
-        request.mark_as_submitted(execution_id="exec/id:with*special?chars")
 
         self.listener.on_status_change(
             request=request,
             old_status=RqcExecutionStatus.PENDING,
             new_status=RqcExecutionStatus.CREATED,
-            context={},
+            context={"execution_id": "exec/id:with*special?chars"},
         )
 
         files = list(self.tmp_dir.glob("*.json"))
@@ -170,12 +167,11 @@ class TestFileLoggingListenerOnStatusChange(unittest.TestCase):
         self.assertNotIn("*", filename)
         self.assertNotIn("?", filename)
 
-    def test_context_parameter_is_ignored(self):
-        """Should work regardless of context content (context is for other listeners)."""
+    def test_context_parameter_provides_execution_id(self):
+        """Should use execution_id from context for file naming."""
         request = RqcRequest(payload={"x": 1}, id="req-ctx")
-        request.mark_as_submitted(execution_id="exec-ctx")
 
-        context = {"start_time": 123.45, "custom_data": {"nested": True}}
+        context = {"execution_id": "exec-ctx", "start_time": 123.45, "custom_data": {"nested": True}}
         self.listener.on_status_change(
             request=request,
             old_status=RqcExecutionStatus.PENDING,
@@ -201,12 +197,12 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_only_response_file(self):
         """Should only write response file (request is written by on_status_change)."""
         request = RqcRequest(payload={"prompt": "Hello"}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="response result",
             raw_response={"result": "response result"},
+            execution_id="exec-456",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
@@ -218,13 +214,13 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_completed_status(self):
         """Should write raw_response to JSON file when status is COMPLETED."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-789")
         raw_response = {"result": "success", "metadata": {"duration": 1.5}}
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="success",
             raw_response=raw_response,
+            execution_id="exec-789",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
@@ -238,12 +234,12 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_failure_status(self):
         """Should write error details to JSON file when status is FAILURE."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-fail")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.FAILURE,
             error="Server error occurred",
             raw_response={"error": "internal"},
+            execution_id="exec-fail",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
@@ -258,11 +254,11 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_error_status(self):
         """Should write error details to JSON file when status is ERROR."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-err")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.ERROR,
             error="Network timeout",
+            execution_id="exec-err",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
@@ -277,11 +273,11 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_writes_response_file_for_timeout_status(self):
         """Should write error details to JSON file when status is TIMEOUT."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-timeout")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.TIMEOUT,
             error="Exceeded 600s",
+            execution_id="exec-timeout",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
@@ -296,7 +292,7 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_uses_request_id_when_execution_id_not_available(self):
         """Should use request.id as tracking_id when execution_id is not set."""
         request = RqcRequest(payload={"x": 1}, id="my-request-id")
-        # Note: not calling mark_as_submitted, so execution_id is None
+        # Note: no execution_id on response (create-execution failed)
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.ERROR,
@@ -311,12 +307,12 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_sanitizes_special_characters_in_tracking_id(self):
         """Should sanitize special characters in tracking_id for safe filenames."""
         request = RqcRequest(payload={"x": 1}, id="req/with:special*chars?")
-        request.mark_as_submitted(execution_id="exec/id:with*special?chars")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="ok",
             raw_response={"result": "ok"},
+            execution_id="exec/id:with*special?chars",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
@@ -333,12 +329,12 @@ class TestFileLoggingListenerOnAfterExecute(unittest.TestCase):
     def test_context_parameter_is_ignored(self):
         """Should work regardless of context content (context is for other listeners)."""
         request = RqcRequest(payload={"x": 1}, id="req-ctx")
-        request.mark_as_submitted(execution_id="exec-ctx")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="ok",
             raw_response={"result": "ok"},
+            execution_id="exec-ctx",
         )
 
         # Context with various data should not affect file writing
@@ -393,7 +389,6 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
             def on_get_result_start(inner_self, request, context):
                 self.calls.append(("on_get_result_start", {
                     "request_id": request.id,
-                    "execution_id": request.execution_id,
                     "context": dict(context),
                 }))
 
@@ -421,7 +416,6 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
     def test_on_status_change_pending_to_created_triggers_success_hooks(self):
         """PENDING→CREATED should call on_create_execution_end (success) and on_get_result_start."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
         context = {"start_time": 123.45}
 
         self.listener.on_status_change(
@@ -438,12 +432,10 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
         self.assertIsNone(self.calls[0][1]["response"])
         # Second: on_get_result_start
         self.assertEqual(self.calls[1][0], "on_get_result_start")
-        self.assertEqual(self.calls[1][1]["execution_id"], "exec-456")
 
     def test_on_status_change_other_transitions_do_not_trigger_hooks(self):
         """Non-PENDING transitions should not trigger phase hooks."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
 
         self.listener.on_status_change(
             request=request,
@@ -457,7 +449,6 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
     def test_on_status_change_running_to_completed_does_not_trigger_hooks(self):
         """RUNNING→COMPLETED should not trigger phase hooks (handled by on_after_execute)."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
 
         self.listener.on_status_change(
             request=request,
@@ -471,11 +462,11 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
     def test_on_after_execute_with_execution_id_delegates_to_on_get_result_end(self):
         """When execution_id exists, on_after_execute should delegate to on_get_result_end."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="success",
+            execution_id="exec-456",
         )
 
         self.listener.on_after_execute(request=request, response=response, context={})
@@ -487,7 +478,7 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
     def test_on_after_execute_without_execution_id_delegates_to_on_create_execution_end(self):
         """When execution_id is None (create failed), should delegate to on_create_execution_end."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        # Note: NOT calling mark_as_submitted, so execution_id is None
+        # Note: no execution_id on response (create-execution failed)
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.ERROR,
@@ -505,7 +496,7 @@ class TestRqcPhasedEventListenerDelegation(unittest.TestCase):
     def test_on_after_execute_with_timeout_during_create_delegates_correctly(self):
         """TIMEOUT during create (no execution_id) should delegate to on_create_execution_end."""
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        # Note: NOT calling mark_as_submitted, so execution_id is None
+        # Note: no execution_id on response (create-execution timed out)
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.TIMEOUT,
@@ -553,7 +544,6 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
         self.listener.on_before_execute(request=request, context=context)
 
         # Step 2: Create execution succeeds
-        request.mark_as_submitted(execution_id="exec-456")
         self.listener.on_status_change(
             request=request,
             old_status=RqcExecutionStatus.PENDING,
@@ -574,6 +564,7 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="success",
+            execution_id="exec-456",
         )
         self.listener.on_after_execute(request=request, response=response, context=context)
 
@@ -602,7 +593,7 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
             context=context,
         )
 
-        # Step 3: on_after_execute with error response
+        # Step 3: on_after_execute with error response (no execution_id)
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.ERROR,
@@ -625,7 +616,6 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
         self.listener.on_before_execute(request=request, context=context)
 
         # Step 2: Create execution succeeds
-        request.mark_as_submitted(execution_id="exec-456")
         self.listener.on_status_change(
             request=request,
             old_status=RqcExecutionStatus.PENDING,
@@ -638,6 +628,7 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
             request=request,
             status=RqcExecutionStatus.FAILURE,
             error="Server-side failure",
+            execution_id="exec-456",
         )
         self.listener.on_after_execute(request=request, response=response, context=context)
 
@@ -658,7 +649,6 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
         self.listener.on_before_execute(request=request, context=context)
 
         # Step 2: Create execution succeeds
-        request.mark_as_submitted(execution_id="exec-456")
         self.listener.on_status_change(
             request=request,
             old_status=RqcExecutionStatus.PENDING,
@@ -671,6 +661,7 @@ class TestRqcPhasedEventListenerFullFlow(unittest.TestCase):
             request=request,
             status=RqcExecutionStatus.TIMEOUT,
             error="Exceeded 600s",
+            execution_id="exec-456",
         )
         self.listener.on_after_execute(request=request, response=response, context=context)
 
@@ -691,11 +682,11 @@ class TestRqcPhasedEventListenerDefaultImplementation(unittest.TestCase):
         # Create instance directly (not subclass) to test default implementations
         listener = RqcPhasedEventListener()
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="ok",
+            execution_id="exec-456",
         )
         context: dict = {}
 
@@ -709,11 +700,11 @@ class TestRqcPhasedEventListenerDefaultImplementation(unittest.TestCase):
         """Base methods should work correctly even when hooks are not overridden."""
         listener = RqcPhasedEventListener()
         request = RqcRequest(payload={"x": 1}, id="req-123")
-        request.mark_as_submitted(execution_id="exec-456")
         response = RqcResponse(
             request=request,
             status=RqcExecutionStatus.COMPLETED,
             result="ok",
+            execution_id="exec-456",
         )
         context: dict = {}
 
