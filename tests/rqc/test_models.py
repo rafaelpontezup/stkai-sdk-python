@@ -33,9 +33,8 @@ class TestValidTransitions(unittest.TestCase):
     """Tests for _VALID_TRANSITIONS dict."""
 
     def test_terminal_states_have_no_transitions(self):
-        """Terminal states (COMPLETED, FAILURE, ERROR, TIMEOUT) should have empty transition sets."""
+        """Terminal states (FAILURE, ERROR, TIMEOUT) should have empty transition sets."""
         terminal_states = [
-            RqcExecutionStatus.COMPLETED,
             RqcExecutionStatus.FAILURE,
             RqcExecutionStatus.ERROR,
             RqcExecutionStatus.TIMEOUT,
@@ -45,6 +44,13 @@ class TestValidTransitions(unittest.TestCase):
                 _VALID_TRANSITIONS[state], frozenset(),
                 f"Terminal state {state} should have no valid transitions"
             )
+
+    def test_completed_allows_transition_to_error(self):
+        """COMPLETED can transition to ERROR when a result handler fails client-side."""
+        self.assertEqual(
+            _VALID_TRANSITIONS[RqcExecutionStatus.COMPLETED],
+            frozenset({RqcExecutionStatus.ERROR}),
+        )
 
     def test_non_terminal_states_have_at_least_one_transition(self):
         """Non-terminal states (PENDING, CREATED, RUNNING) should have at least one transition."""

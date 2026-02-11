@@ -1,6 +1,7 @@
 """Tests for Remote Quick Command client."""
 
 import json
+import logging
 import tempfile
 import time
 import unittest
@@ -387,13 +388,39 @@ class TestRemoteQuickCommandExecute(unittest.TestCase):
 
         # Validation
         self.assertEqual(RqcExecutionStatus.ERROR, result.status)
-        self.assertEqual(
-            "Error during polling: Error while processing the response in the result handler (JsonResultHandler): "
-            "Expecting ',' delimiter: line 1 column 26 (char 25)",
-            result.error
-        )
+        self.assertIn("Execution completed successfully on the server", result.error)
+        self.assertIn("client-side error occurred while processing the result", result.error)
+        self.assertIn("JsonResultHandler", result.error)
         self.assertGreaterEqual(self.http_client.get.call_count, 2)
         self.http_client.post.assert_called_once()
+
+    def test_execute_when_result_handler_error_does_not_log_unexpected_transition_warning(self):
+        """COMPLETED → ERROR transition should NOT produce 'Unexpected status transition' warning."""
+        execution_id = "exec-handler-warn"
+
+        post_resp = make_response(json_data=execution_id)
+        self.http_client.post.return_value = post_resp
+
+        completed_resp = make_response(
+            json_data={
+                "progress": {"status": "COMPLETED"},
+                "result": "not valid json {{{",
+            }
+        )
+        self.http_client.get.return_value = completed_resp
+
+        request = RqcRequest(payload={"job": "handler-warn-check"})
+
+        with self.assertLogs("stkai.rqc._models", level="WARNING") as cm:
+            # Add a dummy warning so assertLogs doesn't fail if there are no logs at all
+            logging.getLogger("stkai.rqc._models").warning("dummy")
+            self.rqc.execute(request=request)
+
+        # No "Unexpected status transition" warning should have been logged
+        unexpected_warnings = [
+            msg for msg in cm.output if "Unexpected status transition" in msg
+        ]
+        self.assertEqual(unexpected_warnings, [], f"Unexpected transition warnings found: {unexpected_warnings}")
 
     def test_execute_many_when_all_responses_are_completed(self):
         # Scenario: 10 requests that complete successfully in parallel

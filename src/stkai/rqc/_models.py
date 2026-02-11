@@ -72,7 +72,7 @@ _VALID_TRANSITIONS: dict[RqcExecutionStatus, frozenset[RqcExecutionStatus]] = {
     RqcExecutionStatus.PENDING:   frozenset({RqcExecutionStatus.CREATED, RqcExecutionStatus.ERROR, RqcExecutionStatus.TIMEOUT}),
     RqcExecutionStatus.CREATED:   frozenset({RqcExecutionStatus.RUNNING, RqcExecutionStatus.COMPLETED, RqcExecutionStatus.FAILURE, RqcExecutionStatus.ERROR, RqcExecutionStatus.TIMEOUT}),
     RqcExecutionStatus.RUNNING:   frozenset({RqcExecutionStatus.COMPLETED, RqcExecutionStatus.FAILURE, RqcExecutionStatus.ERROR, RqcExecutionStatus.TIMEOUT}),
-    RqcExecutionStatus.COMPLETED: frozenset(),
+    RqcExecutionStatus.COMPLETED: frozenset({RqcExecutionStatus.ERROR}),
     RqcExecutionStatus.FAILURE:   frozenset(),
     RqcExecutionStatus.ERROR:     frozenset(),
     RqcExecutionStatus.TIMEOUT:   frozenset(),
@@ -201,7 +201,7 @@ class RqcExecution:
         if new_status not in allowed:
             logger.warning(
                 f"{self._execution_id or self.request.id} | RQC | "
-                f"Unexpected status transition: {self._status} → {new_status}"
+                f"⚠️ Unexpected status transition: {self._status} → {new_status}"
             )
         self._status = new_status
         if error is not None:

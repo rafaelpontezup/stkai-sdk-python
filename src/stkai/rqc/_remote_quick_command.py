@@ -659,7 +659,11 @@ class RemoteQuickCommand:
                         raise RqcResultHandlerError(
                             cause=e,
                             result_handler=handler,
-                            message=f"Error while processing the response in the result handler ({handler_name}): {e}",
+                            message=(
+                                f"Execution completed successfully on the server, "
+                                f"but a client-side error occurred while processing the result "
+                                f"in the handler ({handler_name}): {e}"
+                            ),
                         ) from e
 
                 elif status == RqcExecutionStatus.FAILURE:
