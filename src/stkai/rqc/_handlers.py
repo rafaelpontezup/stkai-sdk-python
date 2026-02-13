@@ -24,7 +24,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, override
 
 from stkai.rqc._models import RqcRequest
@@ -56,6 +56,28 @@ class RqcResultContext:
         assert self.request, "RQC-Request can not be empty."
         assert self.execution_id, "Execution ID can not be empty."
         assert self.handled is not None, "Context's handled flag can not be None."
+
+    def with_result(self, result: Any) -> "RqcResultContext":
+        """Returns a new context with the given result and handled=True."""
+        return replace(self, raw_result=result, handled=True)
+
+
+class RqcResultHandlerError(RuntimeError):
+    """
+    Raised when the result handler fails to process the result.
+
+    This exception wraps any error that occurs during result processing,
+    providing access to the original cause and the handler that failed.
+
+    Attributes:
+        cause: The original exception that caused the handler to fail.
+        result_handler: The handler instance that raised the error.
+    """
+
+    def __init__(self, message: str, cause: Exception | None = None, result_handler: "RqcResultHandler | None" = None):
+        super().__init__(message)
+        self.cause = cause
+        self.result_handler = result_handler
 
 
 class RqcResultHandler(ABC):
@@ -115,10 +137,30 @@ class ChainedResultHandler(RqcResultHandler):
     @override
     def handle_result(self, context: RqcResultContext) -> Any:
         """Executes each handler in sequence, passing results through the chain."""
+        total = len(self.chained_handlers)
+        handler_names = [h.__class__.__name__ for h in self.chained_handlers]
+        logger.debug(
+            f"{context.execution_id} | RQC | Processing chain with {total} handler(s): {handler_names}"
+        )
+
         result = context.raw_result
-        for next_handler in self.chained_handlers:
-            result = next_handler.handle_result(context)
-            context = RqcResultContext(request=context.request, raw_result=result, execution_id=context.execution_id, handled=True)
+        for i, next_handler in enumerate(self.chained_handlers):
+            handler_name = next_handler.__class__.__name__
+            try:
+                result = next_handler.handle_result(context)
+            except RqcResultHandlerError:
+                raise
+            except Exception as e:
+                raise RqcResultHandlerError(
+                    cause=e,
+                    result_handler=next_handler,
+                    message=f"Handler '{handler_name}' failed in chain: {e}",
+                ) from e
+            # Only advance context on success; on error the exception propagates
+            context = context.with_result(result)
+            logger.debug(
+                f"{context.execution_id} | RQC | Handler '{handler_name}' completed ({i + 1}/{total})"
+            )
         return result
 
     @staticmethod

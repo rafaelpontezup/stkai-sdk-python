@@ -25,7 +25,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, override
 
 from stkai.agents._models import ChatRequest
@@ -55,10 +55,37 @@ class ChatResultContext:
         assert self.request, "ChatRequest can not be empty."
         assert self.handled is not None, "Context's handled flag can not be None."
 
+    def with_result(self, result: Any) -> "ChatResultContext":
+        """Returns a new context with the given result and handled=True."""
+        return replace(self, raw_result=result, handled=True)
+
     @property
     def request_id(self) -> str:
         """Returns the request ID from the associated request."""
         return self.request.id
+
+
+class ChatResultHandlerError(RuntimeError):
+    """
+    Exception raised when a result handler fails to process a chat response.
+
+    This exception wraps the underlying error from the handler and provides
+    context about which handler failed.
+
+    Attributes:
+        cause: The original exception that caused this error.
+        result_handler: The handler that failed (if available).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        cause: Exception | None = None,
+        result_handler: "ChatResultHandler | None" = None,
+    ):
+        super().__init__(message)
+        self.cause = cause
+        self.result_handler = result_handler
 
 
 class ChatResultHandler(ABC):
@@ -118,10 +145,30 @@ class ChainedResultHandler(ChatResultHandler):
     @override
     def handle_result(self, context: ChatResultContext) -> Any:
         """Executes each handler in sequence, passing results through the chain."""
+        total = len(self.chained_handlers)
+        handler_names = [h.__class__.__name__ for h in self.chained_handlers]
+        logger.debug(
+            f"{context.request_id} | Agent | Processing chain with {total} handler(s): {handler_names}"
+        )
+
         result = context.raw_result
-        for next_handler in self.chained_handlers:
-            result = next_handler.handle_result(context)
-            context = ChatResultContext(request=context.request, raw_result=result, handled=True)
+        for i, next_handler in enumerate(self.chained_handlers):
+            handler_name = next_handler.__class__.__name__
+            try:
+                result = next_handler.handle_result(context)
+            except ChatResultHandlerError:
+                raise
+            except Exception as e:
+                raise ChatResultHandlerError(
+                    cause=e,
+                    result_handler=next_handler,
+                    message=f"Handler '{handler_name}' failed in chain: {e}",
+                ) from e
+            # Only advance context on success; on error the exception propagates
+            context = context.with_result(result)
+            logger.debug(
+                f"{context.request_id} | Agent | Handler '{handler_name}' completed ({i + 1}/{total})"
+            )
         return result
 
     @staticmethod

@@ -37,7 +37,6 @@ For JSON response parsing:
 from stkai.agents._agent import (
     Agent,
     AgentOptions,
-    ChatResultHandlerError,
 )
 from stkai.agents._handlers import (
     DEFAULT_RESULT_HANDLER,
@@ -45,6 +44,7 @@ from stkai.agents._handlers import (
     ChainedResultHandler,
     ChatResultContext,
     ChatResultHandler,
+    ChatResultHandlerError,
     JsonResultHandler,
     RawResultHandler,
 )

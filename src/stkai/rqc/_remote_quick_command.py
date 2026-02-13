@@ -21,7 +21,7 @@ from stkai._http import HttpClient
 from stkai._retry import Retrying
 from stkai._utils import sleep_with_jitter
 from stkai.rqc._event_listeners import RqcEventListener, RqcEventNotifier
-from stkai.rqc._handlers import RqcResultContext, RqcResultHandler
+from stkai.rqc._handlers import RqcResultContext, RqcResultHandler, RqcResultHandlerError
 from stkai.rqc._models import RqcExecution, RqcExecutionStatus, RqcRequest, RqcResponse
 
 logger = logging.getLogger(__name__)
@@ -139,24 +139,6 @@ class RqcOptions:
 # ======================
 # Errors and exceptions
 # ======================
-
-class RqcResultHandlerError(RuntimeError):
-    """
-    Raised when the result handler fails to process the result.
-
-    This exception wraps any error that occurs during result processing,
-    providing access to the original cause and the handler that failed.
-
-    Attributes:
-        cause: The original exception that caused the handler to fail.
-        result_handler: The handler instance that raised the error.
-    """
-
-    def __init__(self, message: str, cause: Exception | None = None, result_handler: "RqcResultHandler | None" = None):
-        super().__init__(message)
-        self.cause = cause
-        self.result_handler = result_handler
-
 
 class ExecutionIdIsMissingError(RuntimeError):
     """

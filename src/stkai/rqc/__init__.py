@@ -41,6 +41,8 @@ from stkai.rqc._handlers import (
     # Result handler interface and context
     RqcResultContext,
     RqcResultHandler,
+    # Errors
+    RqcResultHandlerError,
 )
 from stkai.rqc._models import (
     # Data models
@@ -57,7 +59,6 @@ from stkai.rqc._remote_quick_command import (
     # Main client
     RemoteQuickCommand,
     RqcOptions,
-    RqcResultHandlerError,
 )
 
 __all__ = [

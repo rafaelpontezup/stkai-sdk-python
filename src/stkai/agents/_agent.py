@@ -7,50 +7,16 @@ supporting single message requests and conversation context.
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from stkai._config import AgentConfig
-    from stkai.agents._handlers import ChatResultHandler
 
 import requests
 
+from stkai._config import AgentConfig
 from stkai._http import HttpClient
 from stkai._retry import Retrying
+from stkai.agents._handlers import ChatResultHandler, ChatResultHandlerError
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
 
 logger = logging.getLogger(__name__)
-
-
-class ChatResultHandlerError(RuntimeError):
-    """
-    Exception raised when a result handler fails to process a chat response.
-
-    This exception wraps the underlying error from the handler and provides
-    context about which handler failed.
-
-    Attributes:
-        message: Human-readable error message.
-        cause: The original exception that caused this error.
-        result_handler: The handler that failed (if available).
-
-    Example:
-        >>> try:
-        ...     response = agent.chat(request, result_handler=JSON_RESULT_HANDLER)
-        ... except ChatResultHandlerError as e:
-        ...     print(f"Handler failed: {e}")
-        ...     print(f"Original error: {e.cause}")
-    """
-
-    def __init__(
-        self,
-        message: str,
-        cause: Exception | None = None,
-        result_handler: "ChatResultHandler | None" = None,
-    ):
-        super().__init__(message)
-        self.cause = cause
-        self.result_handler = result_handler
 
 
 @dataclass(frozen=True)
@@ -80,7 +46,7 @@ class AgentOptions:
     retry_max_retries: int | None = None
     retry_initial_delay: float | None = None
 
-    def with_defaults_from(self, cfg: "AgentConfig") -> "AgentOptions":
+    def with_defaults_from(self, cfg: AgentConfig) -> "AgentOptions":
         """
         Returns a new AgentOptions with None values filled from config.
 
@@ -185,7 +151,7 @@ class Agent:
     def chat(
         self,
         request: ChatRequest,
-        result_handler: "ChatResultHandler | None" = None,
+        result_handler: ChatResultHandler | None = None,
     ) -> ChatResponse:
         """
         Send a message to the Agent and wait for the response (blocking).
@@ -299,7 +265,7 @@ class Agent:
     def _do_chat(
         self,
         request: ChatRequest,
-        result_handler: "ChatResultHandler | None" = None,
+        result_handler: ChatResultHandler | None = None,
     ) -> ChatResponse:
         """
         Execute the actual chat request (without retry logic).

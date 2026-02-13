@@ -171,8 +171,7 @@ class MarkdownStripperHandler(ChatResultHandler):
 If a handler raises an exception, it's wrapped in `ChatResultHandlerError`:
 
 ```python
-from stkai.agents import ChatResultHandler, ChatResultContext
-from stkai import ChatResultHandlerError
+from stkai.agents import ChatResultHandler, ChatResultContext, ChatResultHandlerError
 
 class FailingHandler(ChatResultHandler):
     def handle_result(self, context: ChatResultContext) -> Any:
