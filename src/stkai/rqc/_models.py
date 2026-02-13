@@ -213,6 +213,12 @@ class RqcExecution:
         self._execution_id = execution_id
         self._submitted_at = time.time()
 
+    def elapsed_since_submitted(self) -> float:
+        """Returns seconds elapsed since submission, or 0.0 if not yet submitted."""
+        if self._submitted_at is None:
+            return 0.0
+        return time.time() - self._submitted_at
+
     def transition_to(self, new_status: RqcExecutionStatus, error: str | None = None) -> None:
         """
         Transitions the execution to a new status with validation.

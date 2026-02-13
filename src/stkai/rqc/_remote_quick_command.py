@@ -534,7 +534,7 @@ class RemoteQuickCommand:
                     # Register execution state on the execution tracker
                     execution.mark_as_submitted(execution_id=execution_id)
                     logger.info(
-                        f"{request_id[:26]:<26} | RQC | ✅ Execution successfully created ({execution_id})"
+                        f"{request_id[:26]:<26} | RQC | Execution successfully created ({execution_id})"
                     )
 
                     # Transition and notify: PENDING → CREATED
@@ -587,7 +587,6 @@ class RemoteQuickCommand:
 
         start_time = time.time()
         execution_id = execution.execution_id
-        created_since: float | None = None
 
         logger.info(f"{execution_id} | RQC | Starting polling loop...")
 
@@ -653,7 +652,7 @@ class RemoteQuickCommand:
                         processed_result = handler.handle_result(
                             context=RqcResultContext(request, raw_result, execution_id)
                         )
-                        logger.info(f"{execution_id} | RQC | ✅ Execution finished with status: {status}")
+                        logger.info(f"{execution_id} | RQC | ✅ Execution completed in {execution.elapsed_since_submitted():.2f}s")
                         return execution.to_response(
                             result=processed_result, raw_response=response_data
                         )
@@ -681,10 +680,7 @@ class RemoteQuickCommand:
 
                 elif status == RqcExecutionStatus.CREATED:
                     # Track how long we've been in CREATED status (possible server overload)
-                    if created_since is None:
-                        created_since = time.time()
-
-                    elapsed_in_created = time.time() - created_since
+                    elapsed_in_created = execution.elapsed_since_submitted()
                     if elapsed_in_created > opts.poll_overload_timeout:
                         raise TimeoutError(
                             f"Execution stuck in CREATED status for {elapsed_in_created:.2f}s. "
@@ -724,11 +720,6 @@ class RemoteQuickCommand:
             "reached end of `_poll_until_done` method without returning the execution result."
         )
 
-    _FAILURE_DEFAULT_ERROR = (
-        "Execution failed on the server-side with status 'FAILURE'. "
-        "There's no details at all! Try to look at the logs."
-    )
-
     def _transition_and_notify(
         self,
         execution: RqcExecution,
@@ -747,7 +738,7 @@ class RemoteQuickCommand:
                 For FAILURE status, a default message is used when not provided.
         """
         if new_status == RqcExecutionStatus.FAILURE and error is None:
-            error = self._FAILURE_DEFAULT_ERROR
+            error = "Execution failed on the server-side with status 'FAILURE'. There's no details at all! Try to look at the logs."
 
         execution.transition_to(new_status, error=error)
 
