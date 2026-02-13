@@ -66,11 +66,12 @@ else:
     print(response.error_with_details())
 ```
 
-### Remote Quick Commands | Batch Processing
+### Batch Processing
 
 Process multiple requests concurrently with thread pool execution:
 
 ```python
+# RQC batch
 responses = rqc.execute_many(
     request_list=[RqcRequest(payload=data) for data in files]
 )
@@ -78,13 +79,22 @@ responses = rqc.execute_many(
 completed = [r for r in responses if r.is_completed()]
 ```
 
+```python
+# Agent batch
+responses = agent.chat_many(
+    request_list=[ChatRequest(user_prompt=p) for p in prompts]
+)
+
+successful = [r for r in responses if r.is_success()]
+```
+
 ## Features
 
 | Feature | Description | Docs |
 |---------|-------------|------|
 | **Remote Quick Commands** | Execute AI commands with polling and retries | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/) |
-| **AI Agents** | Chat with agents, conversations, knowledge sources | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/agents/) |
-| **Batch Execution** | Process multiple requests concurrently | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/usage/#batch-execution) |
+| **AI Agents** | Chat with agents, batch execution, conversations, knowledge sources | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/agents/) |
+| **Batch Execution** | Process multiple requests concurrently (RQC and Agents) | [RQC](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/usage/#batch-execution) · [Agents](https://rafaelpontezup.github.io/stkai-sdk-python/agents/usage/#batch-execution) |
 | **Result Handlers** | Customize response processing | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/handlers/) |
 | **Event Listeners** | Monitor execution lifecycle | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/listeners/) |
 | **Rate Limiting** | Token Bucket and adaptive AIMD algorithms | [Guide](https://rafaelpontezup.github.io/stkai-sdk-python/rqc/rate-limiting/) |

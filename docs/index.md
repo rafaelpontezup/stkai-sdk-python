@@ -42,7 +42,7 @@ This SDK is built around four key trade-offs that guide every design decision:
 | Feature | Description |
 |---------|-------------|
 | **[Remote Quick Commands](rqc/index.md)** | Execute AI-powered commands with automatic polling, batch processing, and customizable result handlers |
-| **[AI Agents](agents/index.md)** | Chat with AI agents, maintain conversation context, and leverage knowledge sources |
+| **[AI Agents](agents/index.md)** | Chat with AI agents with batch execution, conversation context, and knowledge sources |
 | **[Flexible Configuration](configuration.md)** | Configure via code or environment variables with sensible defaults |
 | **[Rate Limiting](rqc/rate-limiting.md)** | Built-in rate limiting with Token Bucket and adaptive AIMD algorithms |
 

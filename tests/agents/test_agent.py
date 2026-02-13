@@ -807,5 +807,176 @@ class TestAgentRetry(unittest.TestCase):
         self.assertTrue(response.is_error())
 
 
+class TestAgentChatMany(unittest.TestCase):
+    """Tests for Agent.chat_many() batch execution."""
+
+    def test_chat_many_returns_empty_list_for_empty_request_list(self):
+        """Should return empty list when request_list is empty."""
+        mock_client = MockHttpClient(response_data={"message": "Response"})
+        agent = Agent(agent_id="my-agent", http_client=mock_client)
+
+        responses = agent.chat_many([])
+
+        self.assertEqual(responses, [])
+        self.assertEqual(len(mock_client.calls), 0)
+
+    def test_chat_many_executes_all_requests_concurrently(self):
+        """Should execute all requests and return responses for each."""
+        mock_client = MockHttpClient(
+            response_data={"message": "Hello!"}
+        )
+        agent = Agent(agent_id="my-agent", http_client=mock_client)
+
+        requests_list = [
+            ChatRequest(user_prompt="Question 1"),
+            ChatRequest(user_prompt="Question 2"),
+            ChatRequest(user_prompt="Question 3"),
+        ]
+        responses = agent.chat_many(requests_list)
+
+        self.assertEqual(len(responses), 3)
+        self.assertTrue(all(r.is_success() for r in responses))
+        self.assertEqual(len(mock_client.calls), 3)
+
+    def test_chat_many_preserves_request_order_in_responses(self):
+        """Should return responses in the same order as requests."""
+        mock_client = MockHttpClient(
+            response_data={"message": "Response"}
+        )
+        agent = Agent(agent_id="my-agent", http_client=mock_client)
+
+        requests_list = [
+            ChatRequest(user_prompt="First", id="req-1"),
+            ChatRequest(user_prompt="Second", id="req-2"),
+            ChatRequest(user_prompt="Third", id="req-3"),
+        ]
+        responses = agent.chat_many(requests_list)
+
+        # Each response should reference its corresponding request (identity check)
+        for req, resp in zip(requests_list, responses, strict=True):
+            self.assertIs(resp.request, req)
+
+    def test_chat_many_handles_individual_failures_without_affecting_others(self):
+        """Should handle individual failures without affecting other requests."""
+        call_count = 0
+
+        class AlternatingHttpClient(HttpClient):
+            """Fails on even-indexed calls, succeeds on odd."""
+
+            def get(self, url: str, headers: dict[str, str] | None = None, timeout: int = 30) -> requests.Response:
+                raise NotImplementedError
+
+            def post(self, url: str, data: dict[str, Any] | None = None, headers: dict[str, str] | None = None, timeout: int = 30) -> requests.Response:
+                nonlocal call_count
+                current = call_count
+                call_count += 1
+                response = MagicMock(spec=requests.Response)
+                if current % 2 == 0:
+                    # Fail
+                    response.status_code = 500
+                    response.json.return_value = {"error": "Server error"}
+                    response.text = "Server error"
+                    response.raise_for_status.side_effect = requests.HTTPError(response=response)
+                else:
+                    # Succeed
+                    response.status_code = 200
+                    response.json.return_value = {"message": f"Success-{current}"}
+                    response.text = f"Success-{current}"
+                    response.raise_for_status.return_value = None
+                return response
+
+        options = AgentOptions(retry_max_retries=0)
+        agent = Agent(agent_id="my-agent", options=options, http_client=AlternatingHttpClient())
+
+        requests_list = [
+            ChatRequest(user_prompt="Q1"),
+            ChatRequest(user_prompt="Q2"),
+            ChatRequest(user_prompt="Q3"),
+        ]
+        responses = agent.chat_many(requests_list)
+
+        # All responses should be present regardless of individual failures
+        self.assertEqual(len(responses), 3)
+        # No exception should have been raised — each response has a status
+        for resp in responses:
+            self.assertIn(resp.status, (ChatStatus.SUCCESS, ChatStatus.ERROR))
+
+    def test_chat_many_passes_result_handler_to_each_request(self):
+        """Should pass result_handler to each chat() call."""
+        mock_client = MockHttpClient(
+            response_data={"message": '{"key": "value"}'}
+        )
+        agent = Agent(agent_id="my-agent", http_client=mock_client)
+
+        from stkai.agents import JSON_RESULT_HANDLER
+        requests_list = [
+            ChatRequest(user_prompt="Q1"),
+            ChatRequest(user_prompt="Q2"),
+        ]
+        responses = agent.chat_many(requests_list, result_handler=JSON_RESULT_HANDLER)
+
+        self.assertEqual(len(responses), 2)
+        for resp in responses:
+            self.assertTrue(resp.is_success())
+            self.assertEqual(resp.result, {"key": "value"})
+
+    def test_chat_many_with_max_workers_option(self):
+        """Should respect max_workers from AgentOptions."""
+        mock_client = MockHttpClient(
+            response_data={"message": "Response"}
+        )
+        options = AgentOptions(max_workers=2)
+        agent = Agent(agent_id="my-agent", options=options, http_client=mock_client)
+
+        self.assertEqual(agent.max_workers, 2)
+
+        requests_list = [
+            ChatRequest(user_prompt=f"Q{i}") for i in range(5)
+        ]
+        responses = agent.chat_many(requests_list)
+
+        self.assertEqual(len(responses), 5)
+        self.assertTrue(all(r.is_success() for r in responses))
+
+
+class TestAgentMaxWorkers(unittest.TestCase):
+    """Tests for Agent max_workers configuration."""
+
+    def test_default_max_workers_from_config(self):
+        """Should use default max_workers from config."""
+        from stkai._config import STKAI
+
+        agent = Agent(agent_id="my-agent")
+
+        self.assertEqual(agent.max_workers, STKAI.config.agent.max_workers)
+
+    def test_custom_max_workers_from_options(self):
+        """Should use max_workers from AgentOptions."""
+        options = AgentOptions(max_workers=4)
+        agent = Agent(agent_id="my-agent", options=options)
+
+        self.assertEqual(agent.max_workers, 4)
+
+    def test_agent_options_with_defaults_from_fills_max_workers(self):
+        """Should fill max_workers from config defaults."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.agent
+        options = AgentOptions()
+        resolved = options.with_defaults_from(cfg)
+
+        self.assertEqual(resolved.max_workers, cfg.max_workers)
+
+    def test_agent_options_with_defaults_from_preserves_user_max_workers(self):
+        """Should preserve user-provided max_workers."""
+        from stkai._config import STKAI
+
+        cfg = STKAI.config.agent
+        options = AgentOptions(max_workers=16)
+        resolved = options.with_defaults_from(cfg)
+
+        self.assertEqual(resolved.max_workers, 16)
+
+
 if __name__ == "__main__":
     unittest.main()

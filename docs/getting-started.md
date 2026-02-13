@@ -143,7 +143,9 @@ else:
 
 ## Batch Processing
 
-Process multiple requests concurrently:
+Both RQC and Agent support concurrent batch execution:
+
+### RQC Batch
 
 ```python
 from stkai import RemoteQuickCommand, RqcRequest
@@ -169,6 +171,30 @@ responses = rqc.execute_many(requests)
 for resp in responses:
     if resp.is_completed():
         print(f"{resp.request.id}: {resp.result}")
+```
+
+### Agent Batch
+
+```python
+from stkai import Agent, ChatRequest
+
+agent = Agent(agent_id="code-assistant")
+
+prompts = [
+    "What is dependency injection?",
+    "Explain the Strategy pattern",
+    "What is CQRS?",
+]
+
+# Execute all concurrently
+responses = agent.chat_many(
+    request_list=[ChatRequest(user_prompt=p) for p in prompts]
+)
+
+# Process results
+for resp in responses:
+    if resp.is_success():
+        print(f"Result: {resp.result[:80]}...")
 ```
 
 ## Next Steps

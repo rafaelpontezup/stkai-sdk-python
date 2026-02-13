@@ -9,6 +9,7 @@ Complete API reference for AI Agents.
       show_root_heading: true
       members:
         - chat
+        - chat_many
 
 ## Data Models
 

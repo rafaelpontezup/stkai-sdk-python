@@ -64,6 +64,7 @@ if response.is_success():
 | Feature | Description |
 |---------|-------------|
 | **[Synchronous Chat](usage.md)** | Simple, blocking chat interface with automatic error handling |
+| **[Batch Execution](usage.md#batch-execution)** | Process multiple chat requests concurrently with `chat_many()` |
 | **[Automatic Retry](usage.md#automatic-retry)** | Automatic retry with exponential backoff for transient failures |
 | **[Conversation Context](usage.md#conversation-context)** | Maintain context across multiple messages using conversation IDs |
 | **[Knowledge Sources](usage.md#knowledge-sources)** | Enrich responses with your organization's knowledge bases |

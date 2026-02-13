@@ -7,11 +7,11 @@ when interacting with StackSpot AI Agents API.
 
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class ChatStatus(Enum):
+class ChatStatus(StrEnum):
     """
     Status of a chat response.
 

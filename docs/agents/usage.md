@@ -25,6 +25,98 @@ else:
 
 The `chat()` method is **synchronous** and blocks until the response is received.
 
+## Batch Execution
+
+You can send multiple chat requests concurrently and wait for all responses using the `chat_many()` method. This method is also **blocking**, so it waits for all responses to finish before resuming execution:
+
+```python
+from stkai import Agent, ChatRequest
+
+agent = Agent(agent_id="code-assistant")
+
+prompts = [
+    "What is dependency injection?",
+    "Explain the Strategy pattern",
+    "What is CQRS?",
+]
+
+responses = agent.chat_many(
+    request_list=[
+        ChatRequest(user_prompt=prompt)
+        for prompt in prompts
+    ],
+)
+
+# Process results after all complete
+for resp in responses:
+    if resp.is_success():
+        print(f"✅ {resp.result[:80]}...")
+    else:
+        print(f"❌ {resp.error}")
+```
+
+### Filtering Responses
+
+After receiving all responses, you can filter by status:
+
+```python
+responses = agent.chat_many(request_list=requests)
+
+# Filter by status
+successful = [r for r in responses if r.is_success()]
+errors = [r for r in responses if r.is_error()]
+timeouts = [r for r in responses if r.is_timeout()]
+
+# Process successful responses
+for resp in successful:
+    print(f"Result: {resp.result}")
+```
+
+### Batch with Result Handler
+
+Pass a result handler to process all responses consistently:
+
+```python
+from stkai.agents import JSON_RESULT_HANDLER
+
+responses = agent.chat_many(
+    request_list=requests,
+    result_handler=JSON_RESULT_HANDLER,
+)
+
+for resp in responses:
+    if resp.is_success():
+        data = resp.result  # Already parsed as dict
+```
+
+### Controlling Concurrency
+
+By default, `chat_many()` uses 8 concurrent threads. You can customize this via `AgentOptions`:
+
+```python
+from stkai.agents import AgentOptions
+
+# Use 4 concurrent threads
+agent = Agent(
+    agent_id="my-assistant",
+    options=AgentOptions(max_workers=4),
+)
+```
+
+Or globally via `STKAI.configure()`:
+
+```python
+from stkai import STKAI
+
+STKAI.configure(agent={"max_workers": 16})
+```
+
+Or via environment variable:
+
+```bash
+STKAI_AGENT_MAX_WORKERS=16
+```
+
 ## Automatic Retry
 
 The Agent client automatically retries failed requests with exponential backoff. This handles transient failures like network errors and server overload.
@@ -269,6 +361,7 @@ agent = Agent(
     base_url="https://custom.api.com",  # Optional: override API URL
     options=AgentOptions(
         request_timeout=120,  # Custom timeout (default from config)
+        max_workers=16,       # More concurrent workers for chat_many()
     ),
 )
 

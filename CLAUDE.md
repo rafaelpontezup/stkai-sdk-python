@@ -152,7 +152,8 @@ The `simulations/` directory contains discrete-event simulations (SimPy) to vali
 **Key Classes:**
 
 1. **Agent**: Main client class for chatting with AI agents
-   - `chat()`: Send a chat request (blocking)
+   - `chat()`: Send a single chat request (blocking)
+   - `chat_many()`: Batch execution with thread pool (blocking)
 
 2. **ChatRequest**: Request data model with `user_prompt`, `conversation_id`, etc.
 
@@ -165,6 +166,7 @@ The `simulations/` directory contains discrete-event simulations (SimPy) to vali
    - `request_timeout`: HTTP timeout in seconds
    - `retry_max_retries`: Max retry attempts (0 = disabled, 3 = 4 total attempts)
    - `retry_initial_delay`: Initial delay for first retry (subsequent retries double)
+   - `max_workers`: Max threads for batch execution
    - Fields set to `None` use defaults from `STKAI.config.agent` (Single Source of Truth)
 
 **Retry:** Agent automatically retries on HTTP 5xx, 408, 429, and network errors with exponential backoff. HTTP 429 respects `Retry-After` header. Retry is handled by `Retrying` class.

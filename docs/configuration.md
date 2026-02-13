@@ -217,6 +217,9 @@ STKAI Configuration:
 [agent]
   request_timeout .......... 60                                                   default
   base_url ................. https://genai-inference-app.stackspot.com          ✎ CLI
+  retry_max_retries ........ 3                                                    default
+  retry_initial_delay ...... 0.5                                                  default
+  max_workers .............. 8                                                    default
 [rate_limit]
   enabled .................. False                                                default
   strategy ................. token_bucket                                         default
@@ -287,6 +290,7 @@ Settings for `Agent` clients:
 | `base_url` | `STKAI_AGENT_BASE_URL` | StackSpot API URL | API base URL |
 | `retry_max_retries` | `STKAI_AGENT_RETRY_MAX_RETRIES` | 3 | Max retry attempts (0 = disabled) |
 | `retry_initial_delay` | `STKAI_AGENT_RETRY_INITIAL_DELAY` | 0.5 | Initial delay for first retry (seconds) |
+| `max_workers` | `STKAI_AGENT_MAX_WORKERS` | 8 | Concurrent workers for `chat_many()` |
 
 !!! tip "Retry Behavior"
     Retry is enabled by default. Use `retry_max_retries=3` for 4 total attempts (1 original + 3 retries). The delay doubles each retry: with `retry_initial_delay=0.5`, delays are 0.5s, 1s, 2s, 4s.
@@ -450,6 +454,7 @@ agent = Agent(
     base_url="https://custom.api.com",  # Override API URL
     options=AgentOptions(
         request_timeout=180,  # Override global
+        max_workers=16,       # Override global
     ),
 )
 ```

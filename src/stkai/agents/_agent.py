@@ -6,6 +6,7 @@ supporting single message requests and conversation context.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 import requests
@@ -33,6 +34,7 @@ class AgentOptions:
             Use 3 for 4 total attempts (1 original + 3 retries).
         retry_initial_delay: Initial delay in seconds for the first retry attempt.
             Subsequent retries use exponential backoff (delay doubles each attempt).
+        max_workers: Maximum number of threads for batch execution (chat_many).
 
     Example:
         >>> # Use all defaults from config
@@ -45,6 +47,7 @@ class AgentOptions:
     request_timeout: int | None = None
     retry_max_retries: int | None = None
     retry_initial_delay: float | None = None
+    max_workers: int | None = None
 
     def with_defaults_from(self, cfg: AgentConfig) -> "AgentOptions":
         """
@@ -69,6 +72,7 @@ class AgentOptions:
             request_timeout=self.request_timeout if self.request_timeout is not None else cfg.request_timeout,
             retry_max_retries=self.retry_max_retries if self.retry_max_retries is not None else cfg.retry_max_retries,
             retry_initial_delay=self.retry_initial_delay if self.retry_initial_delay is not None else cfg.retry_initial_delay,
+            max_workers=self.max_workers if self.max_workers is not None else cfg.max_workers,
         )
 
 
@@ -143,9 +147,14 @@ class Agent:
         assert base_url, "Agent base_url cannot be empty."
         assert http_client is not None, "Agent http_client cannot be None."
 
+        assert resolved_options.max_workers is not None, "Thread-pool max_workers can not be empty."
+        assert resolved_options.max_workers > 0, "Thread-pool max_workers must be greater than 0."
+
         self.agent_id = agent_id
         self.base_url = base_url.rstrip("/")
         self.options = resolved_options
+        self.max_workers = resolved_options.max_workers
+        self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
         self.http_client: HttpClient = http_client
 
     def chat(
@@ -210,6 +219,142 @@ class Agent:
             ...     )
             ... )
         """
+        logger.info(f"{request.id[:26]:<26} | Agent | 🛜 Starting chat with agent '{self.agent_id}'.")
+        logger.info(f"{request.id[:26]:<26} | Agent |    ├ base_url={self.base_url}")
+        logger.info(f"{request.id[:26]:<26} | Agent |    └ agent_id='{self.agent_id}'")
+
+        response = self._do_chat(
+            request=request,
+            result_handler=result_handler
+        )
+
+        logger.info(f"{request.id[:26]:<26} | Agent | 🛜 Chat finished.")
+        if response.is_success():
+            logger.info(f"{request.id[:26]:<26} | Agent |    └ with status = {response.status}")
+        else:
+            logger.info(f"{request.id[:26]:<26} | Agent |    ├ with status = {response.status}")
+            logger.info(f"{request.id[:26]:<26} | Agent |    └ with error message = \"{response.error}\"")
+
+        assert response.request is request, \
+            "🌀 Sanity check | Unexpected mismatch: response does not reference its corresponding request."
+        return response
+
+    def chat_many(
+        self,
+        request_list: list[ChatRequest],
+        result_handler: ChatResultHandler | None = None,
+    ) -> list[ChatResponse]:
+        """
+        Send multiple chat messages concurrently, wait for all responses (blocking),
+        and return them in the same order as `request_list`.
+
+        Each request is executed in parallel threads using the internal thread-pool.
+        Returns a list of ChatResponse objects in the same order as `request_list`.
+
+        Args:
+            request_list: List of ChatRequest objects to send.
+            result_handler: Optional handler to process the response message.
+                If None, uses RawResultHandler (returns message as-is).
+
+        Returns:
+            List[ChatResponse]: One response per request, in the same order.
+
+        Example:
+            >>> requests = [
+            ...     ChatRequest(user_prompt="What is Python?"),
+            ...     ChatRequest(user_prompt="What is Java?"),
+            ... ]
+            >>> responses = agent.chat_many(requests)
+            >>> for resp in responses:
+            ...     print(resp.result)
+        """
+        if not request_list:
+            return []
+
+        logger.info(
+            f"{'Agent-Batch-Execution'[:26]:<26} | Agent | "
+            f"🛜 Starting batch execution of {len(request_list)} requests."
+        )
+        logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    ├ base_url={self.base_url}")
+        logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    ├ agent_id='{self.agent_id}'")
+        logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    └ max_concurrent={self.max_workers}")
+
+        # Use thread-pool for parallel calls to `_do_chat`
+        future_to_index = {
+            self.executor.submit(
+                self._do_chat,                 # function ref
+                request=req,                   # arg-1
+                result_handler=result_handler, # arg-2
+            ): idx
+            for idx, req in enumerate(request_list)
+        }
+
+        # Block and wait for all responses to be finished
+        responses_map: dict[int, ChatResponse] = {}
+
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
+            correlated_request = request_list[idx]
+            try:
+                responses_map[idx] = future.result()
+            except Exception as e:
+                logger.error(
+                    f"{correlated_request.id[:26]:<26} | Agent | ❌ Chat failed in batch(seq={idx}). {e}",
+                    exc_info=logger.isEnabledFor(logging.DEBUG)
+                )
+                responses_map[idx] = ChatResponse(
+                    request=correlated_request,
+                    status=ChatStatus.ERROR,
+                    error=str(e),
+                )
+
+        # Rebuild responses list in the same order of requests list
+        responses = [
+            responses_map[i] for i in range(len(request_list))
+        ]
+
+        # Race-condition check: ensure both lists have the same length
+        assert len(responses) == len(request_list), (
+            f"🌀 Sanity check | Unexpected mismatch: responses(size={len(responses)}) is different from requests(size={len(request_list)})."
+        )
+        # Race-condition check: ensure each response points to its respective request
+        assert all(resp.request is req for req, resp in zip(request_list, responses, strict=True)), (
+            "🌀 Sanity check | Unexpected mismatch: some responses do not reference their corresponding requests."
+        )
+
+        logger.info(
+            f"{'Agent-Batch-Execution'[:26]:<26} | Agent | 🛜 Batch execution finished."
+        )
+        logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    ├ total of responses = {len(responses)}")
+
+        from collections import Counter
+        totals_per_status = Counter(r.status for r in responses)
+        items = totals_per_status.items()
+        for idx, (status, total) in enumerate(items):
+            icon = "└" if idx == (len(items) - 1) else "├"
+            logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    {icon} total of responses with status {status:<7} = {total}")
+
+        return responses
+
+    def _do_chat(
+        self,
+        request: ChatRequest,
+        result_handler: ChatResultHandler | None = None,
+    ) -> ChatResponse:
+        """
+        Internal method that executes the full chat workflow: retry, HTTP request,
+        response parsing, and error handling.
+
+        Always returns a ChatResponse (never raises exceptions).
+        Called by both chat() and chat_many().
+
+        Args:
+            request: The request containing the user prompt and options.
+            result_handler: Optional handler to process the response message.
+
+        Returns:
+            ChatResponse with the Agent's reply or error information.
+        """
         assert request, "🌀 Sanity check | Chat-Request can not be None."
         assert request.id, "🌀 Sanity check | Chat-Request ID can not be None."
 
@@ -232,13 +377,53 @@ class Agent:
                         f"{request.id[:26]:<26} | Agent | "
                         f"Sending message to agent '{self.agent_id}' (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
                     )
-                    response = self._do_chat(
+
+                    # HTTP request
+                    payload = request.to_api_payload()
+                    url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
+
+                    http_response = self.http_client.post(
+                        url=url,
+                        data=payload,
+                        timeout=self.options.request_timeout,
+                    )
+                    assert isinstance(http_response, requests.Response), \
+                        f"🌀 Sanity check | Object returned by `post` method is not an instance of `requests.Response`. ({http_response.__class__})"
+
+                    http_response.raise_for_status()
+                    response_data = http_response.json()
+                    raw_message = response_data.get("message")
+
+                    # Process result through handler
+                    if not result_handler:
+                        from stkai.agents._handlers import DEFAULT_RESULT_HANDLER
+                        result_handler = DEFAULT_RESULT_HANDLER
+
+                    try:
+                        from stkai.agents._handlers import ChatResultContext
+                        context = ChatResultContext(request=request, raw_result=raw_message)
+                        processed_result = result_handler.handle_result(context)
+                    except Exception as e:
+                        handler_name = type(result_handler).__name__
+                        raise ChatResultHandlerError(
+                            f"{request.id} | Agent | Result handler '{handler_name}' failed: {e}",
+                            cause=e, result_handler=result_handler,
+                        ) from e
+
+                    response = ChatResponse(
                         request=request,
-                        result_handler=result_handler
+                        status=ChatStatus.SUCCESS,
+                        result=processed_result,
+                        raw_response=response_data,
                     )
 
-                    assert response, "🌀 Sanity check | Chat-Response was not created while sending the message."
-                    assert response.request is request, "🌀 Sanity check | Unexpected mismatch: response does not reference its corresponding request."
+                    logger.info(
+                        f"{request.id[:26]:<26} | Agent | "
+                        f"✅ Response received successfully (tokens: {response.tokens.total if response.tokens else 'N/A'})"
+                    )
+
+                    assert response.request is request, \
+                        "🌀 Sanity check | Unexpected mismatch: response does not reference its corresponding request."
                     return response
 
             # Should never reach here - Retrying raises MaxRetriesExceededError
@@ -259,79 +444,5 @@ class Agent:
             return ChatResponse(
                 request=request,
                 status=error_status,
-                error=error_msg
+                error=error_msg,
             )
-
-    def _do_chat(
-        self,
-        request: ChatRequest,
-        result_handler: ChatResultHandler | None = None,
-    ) -> ChatResponse:
-        """
-        Execute the actual chat request (without retry logic).
-
-        This internal method performs the HTTP request and processes the response.
-        It raises exceptions on failure, which are handled by the retry mechanism
-        in chat().
-
-        Args:
-            request: The request containing the user prompt and options.
-            result_handler: Optional handler to process the response message.
-
-        Returns:
-            ChatResponse with the Agent's reply.
-
-        Raises:
-            requests.Timeout: On request timeout.
-            requests.ConnectionError: On network errors.
-            requests.HTTPError: On HTTP error responses.
-            ChatResultHandlerError: If the result handler fails.
-        """
-        # Assertion for type narrowing (mypy) - caller (chat) already validates this
-        assert self.options.request_timeout is not None, \
-            "🌀 Sanity check | request_timeout must be set after with_defaults_from()"
-
-        # Prepare request
-        payload = request.to_api_payload()
-        url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
-
-        http_response = self.http_client.post(
-            url=url,
-            data=payload,
-            timeout=self.options.request_timeout,
-        )
-        assert isinstance(http_response, requests.Response), \
-            f"🌀 Sanity check | Object returned by `post` method is not an instance of `requests.Response`. ({http_response.__class__})"
-
-        http_response.raise_for_status()
-        response_data = http_response.json()
-        raw_message = response_data.get("message")
-
-        # Process result through handler
-        if not result_handler:
-            from stkai.agents._handlers import DEFAULT_RESULT_HANDLER
-            result_handler = DEFAULT_RESULT_HANDLER
-
-        try:
-            from stkai.agents._handlers import ChatResultContext
-            context = ChatResultContext(request=request, raw_result=raw_message)
-            processed_result = result_handler.handle_result(context)
-        except Exception as e:
-            handler_name = type(result_handler).__name__
-            raise ChatResultHandlerError(
-                f"{request.id} | Agent | Result handler '{handler_name}' failed: {e}",
-                cause=e, result_handler=result_handler,
-            ) from e
-
-        response = ChatResponse(
-            request=request,
-            status=ChatStatus.SUCCESS,
-            result=processed_result,
-            raw_response=response_data,
-        )
-
-        logger.info(
-            f"{request.id[:26]:<26} | Agent | "
-            f"✅ Response received (tokens: {response.tokens.total if response.tokens else 'N/A'})"
-        )
-        return response

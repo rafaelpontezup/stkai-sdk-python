@@ -459,6 +459,9 @@ class AgentConfig(OverridableConfig):
             Example: with 0.5s initial delay, retries wait 0.5s, 1s, 2s, 4s...
             Env var: STKAI_AGENT_RETRY_INITIAL_DELAY
 
+        max_workers: Maximum number of concurrent threads for chat_many().
+            Env var: STKAI_AGENT_MAX_WORKERS
+
     Example:
         >>> from stkai import STKAI
         >>> STKAI.config.agent.request_timeout
@@ -473,6 +476,7 @@ class AgentConfig(OverridableConfig):
     base_url: str = field(default="https://genai-inference-app.stackspot.com", metadata={"env": "STKAI_AGENT_BASE_URL"})
     retry_max_retries: int = field(default=3, metadata={"env": "STKAI_AGENT_RETRY_MAX_RETRIES"})
     retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_AGENT_RETRY_INITIAL_DELAY"})
+    max_workers: int = field(default=8, metadata={"env": "STKAI_AGENT_MAX_WORKERS"})
 
     def validate(self) -> Self:
         """Validate Agent configuration fields."""
@@ -494,6 +498,11 @@ class AgentConfig(OverridableConfig):
         if self.retry_initial_delay <= 0:
             raise ConfigValidationError(
                 "retry_initial_delay", self.retry_initial_delay,
+                "Must be greater than 0.", section="agent"
+            )
+        if self.max_workers <= 0:
+            raise ConfigValidationError(
+                "max_workers", self.max_workers,
                 "Must be greater than 0.", section="agent"
             )
         return self
