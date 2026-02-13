@@ -434,7 +434,7 @@ class EnvironmentAwareHttpClient(HttpClient):
 
             if STKAI.config.auth.has_credentials():
                 logger.warning(
-                    "⚠️ Auth credentials detected (via env vars or configure) but running in CLI mode. "
+                    "[STKAI-SDK] ⚠️ Auth credentials detected (via env vars or configure) but running in CLI mode. "
                     "Authentication will be handled by oscli. Credentials will be ignored."
                 )
             return StkCLIHttpClient()
