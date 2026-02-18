@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide will help you install and configure the StackSpot AI SDK for Python.
+This guide will help you install and configure the `stkai` SDK for Python.
 
 ## Installation
 

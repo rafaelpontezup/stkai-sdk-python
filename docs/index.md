@@ -1,6 +1,9 @@
 # StackSpot AI SDK for Python
 
-Welcome to the official Python SDK for **StackSpot AI** - a powerful platform that brings AI capabilities to your development workflow.
+An unofficial, opinionated Python SDK for **StackSpot AI** — built to make integration with the platform reliable and straightforward.
+
+!!! warning "Community SDK"
+    This is **not** an official StackSpot product. It is a community-driven SDK built to fill gaps we encountered in real-world projects — such as retries, rate limiting, and batch execution — that the platform's API alone doesn't provide out of the box.
 
 ## What is StackSpot AI?
 
@@ -10,8 +13,8 @@ Welcome to the official Python SDK for **StackSpot AI** - a powerful platform th
 - **AI Agents**: Interactive AI assistants with context-aware conversations and knowledge sources
 - **Knowledge Sources**: Custom knowledge bases that enrich AI responses with your organization's context
 
-!!! tip "Official Documentation"
-    For more information about StackSpot AI platform, visit the [official documentation](https://ai.stackspot.com/docs).
+!!! tip "Platform Documentation"
+    For more information about the StackSpot AI platform, visit the [official documentation](https://ai.stackspot.com/docs).
 
 ## About This SDK
 
@@ -24,7 +27,7 @@ The `stkai` SDK provides a clean, Pythonic interface for integrating StackSpot A
 
 ## Design Philosophy
 
-This SDK is built around four key trade-offs that guide every design decision:
+This SDK is **opinionated by design**. It is built around four key trade-offs that guide every decision:
 
 | We favor... | Over... | Why |
 |-------------|---------|-----|

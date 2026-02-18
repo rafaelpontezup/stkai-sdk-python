@@ -4,11 +4,13 @@
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-Python SDK for [StackSpot AI](https://ai.stackspot.com/) - Execute Remote Quick Commands (RQCs) and interact with AI Agents.
+An unofficial, opinionated Python SDK for [StackSpot AI](https://ai.stackspot.com/) — Execute Remote Quick Commands (RQCs) and interact with AI Agents with built-in resilience.
+
+> **Note:** This is a community-driven SDK, not officially maintained by StackSpot. It was built to fill gaps we encountered in real-world projects — such as retries, rate limiting, and batch execution — that the platform's API alone doesn't provide out of the box.
 
 ## Design Principles
 
-This SDK prioritizes:
+This SDK is opinionated by design. It prioritizes:
 
 - **Reliability over latency** — Built-in retries, rate limiting, and fault tolerance mechanisms
 - **Predictability over throughput** — Synchronous, blocking API for straightforward debugging and reasoning

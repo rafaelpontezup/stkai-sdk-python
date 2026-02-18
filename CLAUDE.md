@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/claude-code) when working 
 
 ## Project Overview
 
-**stkai** is a Python SDK for StackSpot AI that provides client abstractions for:
+**stkai** is an unofficial, opinionated Python SDK for StackSpot AI that provides client abstractions for:
 
 - **Remote Quick Commands (RQC)**: Execute LLM-powered quick commands with polling, retries, and batch execution
 - **Agents**: Interact with StackSpot AI Agents for conversational AI capabilities
