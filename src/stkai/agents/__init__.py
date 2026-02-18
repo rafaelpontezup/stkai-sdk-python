@@ -38,6 +38,10 @@ from stkai.agents._agent import (
     Agent,
     AgentOptions,
 )
+from stkai.agents._conversation import (
+    ConversationContext,
+    UseConversation,
+)
 from stkai.agents._handlers import (
     DEFAULT_RESULT_HANDLER,
     JSON_RESULT_HANDLER,
@@ -60,6 +64,9 @@ __all__ = [
     "Agent",
     # Options
     "AgentOptions",
+    # Conversation context
+    "UseConversation",
+    "ConversationContext",
     # Data models
     "ChatRequest",
     "ChatResponse",

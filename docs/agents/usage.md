@@ -194,42 +194,101 @@ STKAI_AGENT_RETRY_INITIAL_DELAY=1.0
 
 ## Conversation Context
 
-Maintain context across multiple messages using `conversation_id`:
+### What Are Multi-turn Conversations?
+
+By default, each `agent.chat()` call is **isolated** — the agent has no memory of previous messages. A **multi-turn conversation** is a sequence of messages where the agent **remembers prior context**. Each message builds on previous ones, allowing natural follow-up questions like "What are its main features?" without repeating what "it" refers to.
+
+The API manages this through a `conversation_id`: the first message creates a new conversation, and subsequent messages include that ID to continue it. The SDK provides two ways to handle this — automatic (`UseConversation`) and manual.
+
+### UseConversation (Recommended)
+
+`UseConversation` is a context manager that **automatically tracks and propagates** `conversation_id` across all `Agent.chat()` calls within the block. No need to manually extract IDs or set flags:
+
+```python
+from stkai import Agent, ChatRequest, UseConversation
+
+agent = Agent(agent_id="my-assistant")
+
+with UseConversation() as conv:
+    r1 = agent.chat(ChatRequest(user_prompt="What is Python?"))
+    # conv.conversation_id is auto-captured from r1's response
+
+    r2 = agent.chat(ChatRequest(user_prompt="What are its main features?"))
+    # Automatically uses conv.conversation_id — agent remembers r1
+
+    r3 = agent.chat(ChatRequest(user_prompt="Show me an example"))
+    # Still in the same conversation
+```
+
+You can also use it across **multiple agents** — they share the same conversation context:
+
+```python
+with UseConversation() as conv:
+    agent_a.chat(ChatRequest(user_prompt="Analyze this code"))
+    agent_b.chat(ChatRequest(user_prompt="Now review the analysis above"))
+```
+
+#### Resuming a Known Conversation
+
+If you already have a `conversation_id` (e.g., from a database or previous session), pass it directly:
+
+```python
+with UseConversation(conversation_id="conv-abc-123") as conv:
+    r1 = agent.chat(ChatRequest(user_prompt="Continue where we left off"))
+```
+
+#### Explicit Enrichment with `enrich()`
+
+If you prefer more control, use `conv.enrich()` to explicitly set conversation fields on a request **before** sending it. This returns a new `ChatRequest` with `use_conversation=True` and the current `conversation_id` applied:
+
+```python
+with UseConversation() as conv:
+    req = ChatRequest(user_prompt="Hello")
+    enriched_req = conv.enrich(req)
+    # enriched_req.use_conversation == True
+    # enriched_req.conversation_id == conv.conversation_id (if captured)
+
+    response = agent.chat(enriched_req)
+```
+
+This is useful when you want the `ChatRequest` object to reflect the conversation state explicitly (e.g., for logging or debugging).
+
+#### Precedence Rules
+
+| Scenario | Behavior |
+|----------|----------|
+| `ChatRequest` has explicit `conversation_id` | Request's ID wins (overrides `UseConversation`) |
+| `UseConversation` has captured a `conversation_id` | Auto-applied to requests without one |
+| Neither has a `conversation_id` | First successful response auto-captures it |
+
+### Manual Tracking
+
+For simple cases or when you need full control, you can manage `conversation_id` manually:
 
 ```python
 from stkai import Agent, ChatRequest
 
 agent = Agent(agent_id="my-assistant")
 
-# First message - start a new conversation
+# First message — start a new conversation
 response1 = agent.chat(
     request=ChatRequest(
         user_prompt="What is Python?",
-        use_conversation=True,  # Enable conversation context
-    )
-)
-
-print(f"Agent: {response1.result}")
-print(f"Conversation ID: {response1.conversation_id}")
-
-# Second message - continue the conversation
-response2 = agent.chat(
-    request=ChatRequest(
-        user_prompt="What are its main features?",  # Agent remembers context
-        conversation_id=response1.conversation_id,  # Continue same conversation
         use_conversation=True,
     )
 )
 
-print(f"Agent: {response2.result}")
+# Second message — continue the conversation
+response2 = agent.chat(
+    request=ChatRequest(
+        user_prompt="What are its main features?",
+        conversation_id=response1.conversation_id,
+        use_conversation=True,
+    )
+)
 ```
 
-!!! tip "Conversation Best Practices"
-    - Always set `use_conversation=True` when using `conversation_id`
-    - Store the `conversation_id` from the first response
-    - Pass it in subsequent requests to maintain context
-
-### Multi-turn Conversation Example
+#### Multi-turn Loop Example
 
 ```python
 from stkai import Agent, ChatRequest
@@ -254,10 +313,15 @@ for prompt in prompts:
     )
 
     if response.is_success():
-        conversation_id = response.conversation_id  # Update for next turn
+        conversation_id = response.conversation_id
         print(f"You: {prompt}")
         print(f"Agent: {response.result}\n")
 ```
+
+!!! tip "Conversation Best Practices"
+    - Prefer `UseConversation` for multi-turn flows — it handles ID tracking automatically
+    - Use manual tracking only when you need explicit control over each request
+    - Always set `use_conversation=True` when managing IDs manually
 
 ## Knowledge Sources
 

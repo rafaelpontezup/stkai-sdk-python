@@ -73,7 +73,7 @@ class ChatTokenUsage:
         return self.user + self.enrichment + self.output
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChatRequest:
     """
     Represents a chat request to be sent to a StackSpot AI Agent.
@@ -130,7 +130,7 @@ class ChatRequest:
         return payload
 
 
-@dataclass
+@dataclass(frozen=True)
 class ChatResponse:
     """
     Represents a response from a StackSpot AI Agent.

@@ -28,7 +28,7 @@ from stkai import ChatRequest
 request = ChatRequest(
     user_prompt="Explain dependency injection",  # Required
     id="my-request-id",                          # Optional: auto-generated
-    conversation_id="conv-123",                  # Optional: for multi-turn
+    conversation_id="conv-123",                  # Optional: for multi-turn (or use UseConversation)
     use_conversation=True,                       # Enable conversation context
     use_knowledge_sources=True,                  # Use StackSpot knowledge
     return_knowledge_sources=True,               # Include KS IDs in response
@@ -66,7 +66,7 @@ if response.is_success():
 | **[Synchronous Chat](usage.md)** | Simple, blocking chat interface with automatic error handling |
 | **[Batch Execution](usage.md#batch-execution)** | Process multiple chat requests concurrently with `chat_many()` |
 | **[Automatic Retry](usage.md#automatic-retry)** | Automatic retry with exponential backoff for transient failures |
-| **[Conversation Context](usage.md#conversation-context)** | Maintain context across multiple messages using conversation IDs |
+| **[Conversation Context](usage.md#conversation-context)** | Multi-turn conversations with automatic ID tracking via `UseConversation` |
 | **[Knowledge Sources](usage.md#knowledge-sources)** | Enrich responses with your organization's knowledge bases |
 | **[Token Tracking](usage.md#token-usage)** | Track token usage for monitoring and cost management |
 | **[Result Handlers](handlers.md)** | Customize response processing (JSON parsing, transformations) |

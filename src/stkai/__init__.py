@@ -127,6 +127,8 @@ from stkai.agents import (
     ChatRequest,
     ChatResponse,
     ChatStatus,
+    ConversationContext,
+    UseConversation,
 )
 from stkai.rqc import (
     RemoteQuickCommand,
@@ -183,4 +185,6 @@ __all__ = [
     "ChatRequest",
     "ChatResponse",
     "ChatStatus",
+    "UseConversation",
+    "ConversationContext",
 ]

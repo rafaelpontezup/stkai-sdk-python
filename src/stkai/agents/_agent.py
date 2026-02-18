@@ -14,6 +14,7 @@ import requests
 from stkai._config import AgentConfig
 from stkai._http import HttpClient
 from stkai._retry import Retrying
+from stkai.agents._conversation import ConversationScope
 from stkai.agents._handlers import ChatResultHandler, ChatResultHandlerError
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
 
@@ -280,11 +281,13 @@ class Agent:
         logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    └ max_concurrent={self.max_workers}")
 
         # Use thread-pool for parallel calls to `_do_chat`
+        # The ConversationScope::propagate method captures the active UseConversation context (if any)
+        # and installs it in each worker thread — only conversation state is propagated.
         future_to_index = {
             self.executor.submit(
-                self._do_chat,                 # function ref
-                request=req,                   # arg-1
-                result_handler=result_handler, # arg-2
+                ConversationScope.propagate(self._do_chat), # propagate conversation context
+                request=req,                                # arg-1
+                result_handler=result_handler,              # arg-2
             ): idx
             for idx, req in enumerate(request_list)
         }
@@ -380,8 +383,21 @@ class Agent:
 
                     # HTTP request
                     payload = request.to_api_payload()
-                    url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
 
+                    # Apply UseConversation context (if active and request has no explicit conversation_id)
+                    conv_ctx = ConversationScope.get_current()
+                    if conv_ctx is not None and not request.conversation_id:
+                        payload["use_conversation"] = True
+                        if conv_ctx.conversation_id:
+                            payload["conversation_id"] = conv_ctx.conversation_id
+
+                    sent_conv_id = payload.get("conversation_id")
+                    if sent_conv_id:
+                        logger.debug(
+                            f"{request.id[:26]:<26} | Agent | Request sent with conversation_id='{sent_conv_id}'"
+                        )
+
+                    url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
                     http_response = self.http_client.post(
                         url=url,
                         data=payload,
@@ -417,10 +433,18 @@ class Agent:
                         raw_response=response_data,
                     )
 
+                    # Auto-track conversation_id in UseConversation context
+                    if conv_ctx is not None and response.conversation_id:
+                        conv_ctx.update_if_absent(conversation_id=response.conversation_id)
+
                     logger.info(
                         f"{request.id[:26]:<26} | Agent | "
                         f"✅ Response received successfully (tokens: {response.tokens.total if response.tokens else 'N/A'})"
                     )
+                    if response.conversation_id:
+                        logger.debug(
+                            f"{request.id[:26]:<26} | Agent | Response received with conversation_id='{response.conversation_id}'"
+                        )
 
                     assert response.request is request, \
                         "🌀 Sanity check | Unexpected mismatch: response does not reference its corresponding request."

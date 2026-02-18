@@ -30,6 +30,7 @@ src/stkai/
 ├── agents/                        # AI Agents module
 │   ├── __init__.py                # Agents public API exports
 │   ├── _agent.py                  # Agent client
+│   ├── _conversation.py           # Conversation context: UseConversation, ConversationContext
 │   └── _models.py                 # ChatRequest, ChatResponse, ChatStatus
 └── rqc/                           # Remote Quick Commands module
     ├── __init__.py                # RQC public API exports
@@ -44,7 +45,8 @@ tests/
 ├── test_config.py
 ├── test_http.py
 ├── agents/
-│   └── test_agent.py
+│   ├── test_agent.py
+│   └── test_conversation.py
 └── rqc/
     ├── test_remote_quick_command.py
     ├── test_handlers.py
@@ -168,6 +170,31 @@ The `simulations/` directory contains discrete-event simulations (SimPy) to vali
    - `retry_initial_delay`: Initial delay for first retry (subsequent retries double)
    - `max_workers`: Max threads for batch execution
    - Fields set to `None` use defaults from `STKAI.config.agent` (Single Source of Truth)
+
+5. **UseConversation**: Context manager for automatic conversation tracking
+   - Auto-sets `use_conversation=True` in payloads inside the block
+   - Auto-captures `conversation_id` from first successful response
+   - Supports explicit initial `conversation_id`
+   - Nestable: inner overrides outer, restores on exit
+   - Thread-safe: works with `chat_many()` via `contextvars`
+
+6. **ConversationContext**: Holds mutable conversation state within a `UseConversation` block
+   - `conversation_id`: Current conversation ID (None until captured)
+   - `enrich(request)`: Returns a new `ChatRequest` with `use_conversation=True` and `conversation_id` set. Original request is never mutated. If request already has `conversation_id`, returns it unchanged (explicit wins).
+   - `update_if_absent()`: Thread-safe update (only sets if None)
+
+**Conversation Precedence:** `ChatRequest.conversation_id` (explicit) > `UseConversation` (implicit). By default, the payload is modified after `to_api_payload()` without mutating the user's `ChatRequest`. For explicit control, use `enrich()` to get a new request with conversation fields set:
+```python
+# Automatic (default) — request unchanged, payload modified behind the scenes
+with UseConversation():
+    response = agent.chat(ChatRequest(user_prompt="Hello"))
+
+# Explicit — request reflects what was sent, useful for debugging
+with UseConversation() as conv:
+    request = conv.enrich(ChatRequest(user_prompt="Hello"))
+    response = agent.chat(request)
+    # response.request.conversation_id reflects what was sent
+```
 
 **Retry:** Agent automatically retries on HTTP 5xx, 408, 429, and network errors with exponential backoff. HTTP 429 respects `Retry-After` header. Retry is handled by `Retrying` class.
 
@@ -353,9 +380,9 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 
 | Location | What to Export | Example |
 |----------|----------------|---------|
-| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients, CLI | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `StkCLI`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient` |
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients, CLI | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `StkCLI`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient`, `UseConversation`, `ConversationContext` |
 | `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener`, `CreateExecutionOptions`, `GetResultOptions` |
-| `stkai.agents` | Agent-specific handlers, listeners, options | `AgentOptions` (future: `AgentEventListener`, etc.) |
+| `stkai.agents` | Agent-specific handlers, listeners, options, conversation context | `AgentOptions`, `UseConversation`, `ConversationContext` |
 
 **Rationale:**
 - 80% of users only need root imports (simple usage)
@@ -395,6 +422,13 @@ agent = Agent(
     base_url="https://custom.api.com",  # optional
     options=AgentOptions(request_timeout=120),
 )
+
+# Multi-turn conversation with automatic conversation_id tracking
+from stkai import UseConversation
+with UseConversation() as conv:
+    r1 = agent.chat(ChatRequest(user_prompt="Hello"))
+    print(conv.conversation_id)  # auto-captured from r1
+    r2 = agent.chat(ChatRequest(user_prompt="Follow up"))  # auto-uses conv_id
 
 # Advanced usage - submodule imports for handlers/listeners
 from stkai.rqc import JsonResultHandler, ChainedResultHandler, FileLoggingListener
