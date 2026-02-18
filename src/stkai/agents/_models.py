@@ -18,7 +18,7 @@ class ChatStatus(StrEnum):
     Attributes:
         SUCCESS: Response received successfully from the Agent.
         ERROR: Client-side error (HTTP error, network issue, parsing error).
-        TIMEOUT: Request timed out waiting for response.
+        TIMEOUT: Any timeout, client or server-side (e.g., HTTP request timeout, HTTP 408, or HTTP 504).
     """
     SUCCESS = "SUCCESS"
     ERROR = "ERROR"
