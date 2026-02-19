@@ -29,6 +29,23 @@ Complete API reference for AI Agents.
     options:
       show_root_heading: true
 
+## Conversation
+
+::: stkai.agents.UseConversation
+    options:
+      show_root_heading: true
+      members:
+        - with_generated_id
+
+::: stkai.agents.ConversationContext
+    options:
+      show_root_heading: true
+      members:
+        - conversation_id
+        - has_conversation_id
+        - enrich
+        - update_if_absent
+
 ## Configuration
 
 ::: stkai.agents.AgentOptions

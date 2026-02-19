@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/claude-code) when working 
 ## Tech Stack
 
 - **Language**: Python 3.12+
-- **Dependencies**: `requests` (HTTP client)
+- **Dependencies**: `requests` (HTTP client), `python-ulid` (ULID generation)
 - **Dev Tools**: pytest, mypy, ruff
 - **Authentication**: StackSpot CLI (`oscli`) OR client credentials (environment variables)
 
@@ -175,11 +175,14 @@ The `simulations/` directory contains discrete-event simulations (SimPy) to vali
    - Auto-sets `use_conversation=True` in payloads inside the block
    - Auto-captures `conversation_id` from first successful response
    - Supports explicit initial `conversation_id`
+   - `with_generated_id()`: Factory method that pre-generates a ULID conversation ID (useful with `chat_many()`)
+   - Warns if explicit `conversation_id` is not a valid ULID
    - Nestable: inner overrides outer, restores on exit
    - Thread-safe: works with `chat_many()` via `contextvars`
 
 6. **ConversationContext**: Holds mutable conversation state within a `UseConversation` block
    - `conversation_id`: Current conversation ID (None until captured)
+   - `has_conversation_id()`: Returns True if a conversation_id is already set
    - `enrich(request)`: Returns a new `ChatRequest` with `use_conversation=True` and `conversation_id` set. Original request is never mutated. If request already has `conversation_id`, returns it unchanged (explicit wins).
    - `update_if_absent()`: Thread-safe update (only sets if None)
 
@@ -429,6 +432,11 @@ with UseConversation() as conv:
     r1 = agent.chat(ChatRequest(user_prompt="Hello"))
     print(conv.conversation_id)  # auto-captured from r1
     r2 = agent.chat(ChatRequest(user_prompt="Follow up"))  # auto-uses conv_id
+
+# Pre-generated ULID conversation ID (recommended for chat_many)
+with UseConversation.with_generated_id() as conv:
+    print(conv.conversation_id)  # ULID already available
+    agent.chat_many([ChatRequest(user_prompt="Q1"), ChatRequest(user_prompt="Q2")])
 
 # Advanced usage - submodule imports for handlers/listeners
 from stkai.rqc import JsonResultHandler, ChainedResultHandler, FileLoggingListener

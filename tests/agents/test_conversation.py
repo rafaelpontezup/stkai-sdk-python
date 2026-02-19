@@ -261,6 +261,29 @@ class TestUseConversation(unittest.TestCase):
 
         self.assertIsNone(ConversationScope.get_current())
 
+    def test_warns_when_conversation_id_is_not_ulid(self):
+        """Should log a warning when conversation_id is not a valid ULID."""
+        with self.assertLogs("stkai.agents._conversation", level="WARNING") as cm:
+            UseConversation(conversation_id="not-a-ulid")
+
+        self.assertTrue(
+            any("not a valid ULID" in msg for msg in cm.output),
+            f"Expected warning about invalid ULID, got: {cm.output}"
+        )
+
+    def test_no_warning_when_conversation_id_is_valid_ulid(self):
+        """Should NOT warn when conversation_id is a valid ULID."""
+        from ulid import ULID
+        valid_ulid = str(ULID())
+
+        with self.assertNoLogs("stkai.agents._conversation", level="WARNING"):
+            UseConversation(conversation_id=valid_ulid)
+
+    def test_no_warning_when_conversation_id_is_none(self):
+        """Should NOT warn when no conversation_id is provided."""
+        with self.assertNoLogs("stkai.agents._conversation", level="WARNING"):
+            UseConversation()
+
 
 # =============================================================================
 # Integration tests: Agent.chat + UseConversation
@@ -527,6 +550,124 @@ class TestAgentChatManyWithUseConversation(unittest.TestCase):
         _, followup_payload, _ = mock.calls[2]
         self.assertTrue(followup_payload["use_conversation"])
         self.assertEqual(followup_payload["conversation_id"], "captured-conv")
+
+
+# =============================================================================
+# Unit tests: UseConversation.with_generated_id()
+# =============================================================================
+
+
+class TestUseConversationWithGeneratedId(unittest.TestCase):
+    """Tests for UseConversation.with_generated_id() factory method."""
+
+    def test_returns_use_conversation_with_non_none_id(self):
+        """Should return a UseConversation whose context has a non-None conversation_id."""
+        with UseConversation.with_generated_id() as conv:
+            self.assertIsNotNone(conv.conversation_id)
+
+    def test_generated_id_is_valid_ulid(self):
+        """Should generate a valid ULID string (26 uppercase Crockford Base32 characters)."""
+        from ulid import ULID
+
+        with UseConversation.with_generated_id() as conv:
+            # Should parse without error
+            parsed = ULID.from_str(conv.conversation_id)
+            self.assertEqual(str(parsed), conv.conversation_id)
+
+    def test_successive_calls_produce_different_ids(self):
+        """Each call should generate a unique ID."""
+        ids = set()
+        for _ in range(10):
+            with UseConversation.with_generated_id() as conv:
+                ids.add(conv.conversation_id)
+
+        self.assertEqual(len(ids), 10)
+
+    def test_generated_id_sent_in_first_request_payload(self):
+        """Integration: with_generated_id() should send the generated ID in the very first request."""
+        mock = MockHttpClient(response_data={"message": "Hi", "conversation_id": "server-conv"})
+        agent = Agent(
+            agent_id="test-agent",
+            options=AgentOptions(retry_max_retries=0),
+            http_client=mock,
+        )
+
+        with UseConversation.with_generated_id() as conv:
+            generated_id = conv.conversation_id
+            agent.chat(ChatRequest(user_prompt="Hello"))
+
+        _, payload, _ = mock.calls[0]
+        self.assertTrue(payload["use_conversation"])
+        self.assertEqual(payload["conversation_id"], generated_id)
+
+
+# =============================================================================
+# Tests: chat_many() warning when inside UseConversation without conversation_id
+# =============================================================================
+
+
+class TestChatManyConversationWarning(unittest.TestCase):
+    """Tests for the warning logged when chat_many() is called inside UseConversation without a pre-set conversation_id."""
+
+    def _make_agent(self, http_client: HttpClient) -> Agent:
+        return Agent(
+            agent_id="test-agent",
+            options=AgentOptions(retry_max_retries=0, max_workers=3),
+            http_client=http_client,
+        )
+
+    def test_warns_when_no_conversation_id_and_multiple_requests(self):
+        """Should log a warning when inside UseConversation without conversation_id and >1 requests."""
+        mock = MockHttpClient(response_data={"message": "Hi", "conversation_id": "conv-1"})
+        agent = self._make_agent(mock)
+
+        with self.assertLogs("stkai.agents._agent", level="WARNING") as cm:
+            with UseConversation():
+                agent.chat_many([
+                    ChatRequest(user_prompt="Q1"),
+                    ChatRequest(user_prompt="Q2"),
+                ])
+
+        self.assertTrue(
+            any("with_generated_id()" in msg for msg in cm.output),
+            f"Expected warning mentioning with_generated_id(), got: {cm.output}"
+        )
+
+    def test_no_warning_when_conversation_id_is_set(self):
+        """Should NOT warn when UseConversation has a pre-set conversation_id."""
+
+        mock = MockHttpClient(response_data={"message": "Hi", "conversation_id": "conv-1"})
+        agent = self._make_agent(mock)
+
+        with UseConversation(conversation_id="pre-set-id"):
+            # Capture all logs at WARNING level — we expect none from chat_many
+            with self.assertNoLogs("stkai.agents._agent", level="WARNING"):
+                agent.chat_many([
+                    ChatRequest(user_prompt="Q1"),
+                    ChatRequest(user_prompt="Q2"),
+                ])
+
+    def test_no_warning_when_single_request(self):
+        """Should NOT warn when there's only one request (no race condition)."""
+        mock = MockHttpClient(response_data={"message": "Hi", "conversation_id": "conv-1"})
+        agent = self._make_agent(mock)
+
+        with UseConversation():
+            with self.assertNoLogs("stkai.agents._agent", level="WARNING"):
+                agent.chat_many([
+                    ChatRequest(user_prompt="Q1"),
+                ])
+
+    def test_no_warning_outside_use_conversation(self):
+        """Should NOT warn when not inside UseConversation."""
+        mock = MockHttpClient(response_data={"message": "Hi"})
+        agent = self._make_agent(mock)
+
+        with self.assertNoLogs("stkai.agents._agent", level="WARNING"):
+            agent.chat_many([
+                ChatRequest(user_prompt="Q1"),
+                ChatRequest(user_prompt="Q2"),
+            ])
 
 
 if __name__ == "__main__":

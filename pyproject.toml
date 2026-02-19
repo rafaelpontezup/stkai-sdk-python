@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "requests>=2.28.0",
+    "python-ulid>=2.2.0",
 ]
 
 [project.optional-dependencies]

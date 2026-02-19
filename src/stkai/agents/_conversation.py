@@ -20,12 +20,17 @@ Inspired by DBOS's `SetWorkflowID` context manager.
 
 import dataclasses
 import functools
+import logging
 import threading
 from collections.abc import Callable
 from contextvars import ContextVar, Token
 from typing import Any, TypeVar
 
+from ulid import ULID
+
 from stkai.agents._models import ChatRequest
+
+logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
@@ -48,6 +53,10 @@ class ConversationContext:
     @property
     def conversation_id(self) -> str | None:
         return self._conversation_id
+
+    def has_conversation_id(self) -> bool:
+        """Returns True if a conversation_id is already set."""
+        return self._conversation_id is not None
 
     def enrich(self, request: ChatRequest) -> ChatRequest:
         """
@@ -171,8 +180,27 @@ class UseConversation:
     """
 
     def __init__(self, conversation_id: str | None = None) -> None:
+        if conversation_id is not None:
+            self._warn_if_not_ulid(conversation_id)
         self._context = ConversationContext(conversation_id=conversation_id)
         self._token: Token[ConversationContext | None] | None = None
+
+    @classmethod
+    def with_generated_id(cls) -> "UseConversation":
+        """
+        Factory method that creates a ``UseConversation`` with a pre-generated
+        conversation ID in ULID format.
+
+        This is useful when you want the conversation ID available before
+        the first request, especially with ``chat_many()`` where concurrent
+        requests would otherwise race to capture the server-assigned ID.
+
+        Example:
+            >>> with UseConversation.with_generated_id() as conv:
+            ...     print(conv.conversation_id)  # ULID already available
+            ...     agent.chat(ChatRequest(user_prompt="Hello"))
+        """
+        return cls(conversation_id=str(ULID()))
 
     def __enter__(self) -> ConversationContext:
         self._token = ConversationScope._set(self._context)
@@ -183,3 +211,17 @@ class UseConversation:
             "UseConversation.__exit__ called without __enter__"
         ConversationScope._reset(self._token)
         self._token = None
+
+    @staticmethod
+    def _warn_if_not_ulid(conversation_id: str) -> None:
+        """Logs a warning if ``conversation_id`` is not a valid ULID."""
+        try:
+            ULID.from_str(conversation_id)
+        except ValueError:
+            logger.warning(
+                "⚠️ conversation_id '%s' is not a valid ULID. "
+                "The StackSpot AI API currently expects ULID format — "
+                "an invalid ID may be ignored by the server or start a new conversation scope. "
+                "Consider using UseConversation.with_generated_id() for automatic ULID generation.",
+                conversation_id,
+            )

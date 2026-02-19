@@ -228,14 +228,44 @@ with UseConversation() as conv:
     agent_b.chat(ChatRequest(user_prompt="Now review the analysis above"))
 ```
 
+#### Pre-generated Conversation ID
+
+Use `with_generated_id()` when you want the conversation ID available **before** the first request. This is especially important with `chat_many()`, where concurrent requests would otherwise race to capture the server-assigned ID:
+
+```python
+with UseConversation.with_generated_id() as conv:
+    print(conv.conversation_id)  # ULID already available
+
+    r1 = agent.chat(ChatRequest(user_prompt="Hello"))
+    r2 = agent.chat(ChatRequest(user_prompt="Follow up"))
+```
+
+The generated ID uses [ULID](https://github.com/ulid/spec) format, which is the format expected by the StackSpot AI API.
+
+!!! tip "chat_many() + UseConversation"
+    When using `chat_many()` inside a `UseConversation` block **without** a pre-set `conversation_id`, concurrent requests will race to capture the server-assigned ID — likely starting independent conversations. The SDK logs a warning in this case. Use `with_generated_id()` to avoid this:
+
+    ```python
+    # ⚠️ Race condition: concurrent requests start independent conversations
+    with UseConversation():
+        agent.chat_many([ChatRequest(user_prompt="Q1"), ChatRequest(user_prompt="Q2")])
+
+    # ✅ All requests share the same conversation
+    with UseConversation.with_generated_id():
+        agent.chat_many([ChatRequest(user_prompt="Q1"), ChatRequest(user_prompt="Q2")])
+    ```
+
 #### Resuming a Known Conversation
 
 If you already have a `conversation_id` (e.g., from a database or previous session), pass it directly:
 
 ```python
-with UseConversation(conversation_id="conv-abc-123") as conv:
+with UseConversation(conversation_id="01HGW2N7...") as conv:
     r1 = agent.chat(ChatRequest(user_prompt="Continue where we left off"))
 ```
+
+!!! note "ULID Validation"
+    The StackSpot AI API expects `conversation_id` in ULID format. If you pass a non-ULID string, the SDK logs a warning — the API may ignore the ID or start a new conversation scope.
 
 #### Explicit Enrichment with `enrich()`
 
@@ -320,6 +350,7 @@ for prompt in prompts:
 
 !!! tip "Conversation Best Practices"
     - Prefer `UseConversation` for multi-turn flows — it handles ID tracking automatically
+    - Use `with_generated_id()` when combining `UseConversation` with `chat_many()`
     - Use manual tracking only when you need explicit control over each request
     - Always set `use_conversation=True` when managing IDs manually
 

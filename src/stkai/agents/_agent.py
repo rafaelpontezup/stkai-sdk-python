@@ -280,6 +280,18 @@ class Agent:
         logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    ├ agent_id='{self.agent_id}'")
         logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    └ max_concurrent={self.max_workers}")
 
+        # Warn about race condition: chat_many inside UseConversation without a pre-set conversation_id
+        if len(request_list) > 1:
+            conv_ctx = ConversationScope.get_current()
+            if conv_ctx and not conv_ctx.has_conversation_id():
+                logger.warning(
+                    f"{'Agent-Batch-Execution'[:26]:<26} | Agent | "
+                    "⚠️ chat_many() called inside UseConversation without a pre-set conversation_id. "
+                    "Concurrent requests will race to capture the server-assigned ID, "
+                    "likely starting independent conversations. "
+                    "Consider using UseConversation.with_generated_id() or passing an explicit conversation_id."
+                )
+
         # Use thread-pool for parallel calls to `_do_chat`
         # The ConversationScope::propagate method captures the active UseConversation context (if any)
         # and installs it in each worker thread — only conversation state is propagated.
