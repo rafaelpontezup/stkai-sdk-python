@@ -41,11 +41,11 @@ The RQC client automatically retries failed requests during the **create-executi
 
 | Error Type | Retried? |
 |------------|----------|
-| HTTP 5xx (500, 502, 503, 504) | :white_check_mark: Yes |
-| HTTP 408 (Request Timeout) | :white_check_mark: Yes |
-| HTTP 429 (Rate Limited) | :white_check_mark: Yes |
-| Network errors (Timeout, ConnectionError) | :white_check_mark: Yes |
-| HTTP 4xx (except 408, 429) | :x: No |
+| HTTP 5xx (500, 502, 503, 504) | ✅ Yes |
+| HTTP 408 (Request Timeout) | ✅ Yes |
+| HTTP 429 (Rate Limited) | ✅ Yes |
+| Network errors (Timeout, ConnectionError) | ✅ Yes |
+| HTTP 4xx (except 408, 429) | ❌ No |
 
 !!! note "Retry Scope"
     Automatic retry only applies to the **create-execution phase** (submitting the request). The **polling phase** (waiting for results) uses a different strategy: it retries on temporary failures but respects HTTP 4xx errors.
