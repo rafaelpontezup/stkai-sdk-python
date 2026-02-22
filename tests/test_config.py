@@ -11,6 +11,7 @@ from stkai._config import (
     AuthConfig,
     ConfigEntry,
     ConfigValidationError,
+    FileUploadConfig,
     RateLimitConfig,
     RqcConfig,
     STKAIConfig,
@@ -42,14 +43,14 @@ class TestDefaults(unittest.TestCase):
         self.assertEqual(STKAI.config.agent.base_url, "https://genai-inference-app.stackspot.com")
         self.assertEqual(STKAI.config.agent.request_timeout, 60)
 
-    def test_agent_file_upload_defaults(self):
-        """Should return sensible defaults for Agent file upload config."""
-        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.stackspot.com")
-        self.assertEqual(STKAI.config.agent.file_upload_request_timeout, 30)
-        self.assertEqual(STKAI.config.agent.file_upload_transfer_timeout, 120)
-        self.assertEqual(STKAI.config.agent.file_upload_retry_max_retries, 3)
-        self.assertEqual(STKAI.config.agent.file_upload_retry_initial_delay, 0.5)
-        self.assertEqual(STKAI.config.agent.file_upload_max_workers, 8)
+    def test_file_upload_defaults(self):
+        """Should return sensible defaults for file upload config."""
+        self.assertEqual(STKAI.config.file_upload.base_url, "https://data-integration-api.stackspot.com")
+        self.assertEqual(STKAI.config.file_upload.request_timeout, 30)
+        self.assertEqual(STKAI.config.file_upload.transfer_timeout, 120)
+        self.assertEqual(STKAI.config.file_upload.retry_max_retries, 3)
+        self.assertEqual(STKAI.config.file_upload.retry_initial_delay, 0.5)
+        self.assertEqual(STKAI.config.file_upload.max_workers, 8)
 
     def test_auth_defaults(self):
         """Should return None for auth credentials when not userd."""
@@ -835,7 +836,7 @@ class TestCLIPrecedence(unittest.TestCase):
         STKAI.reset()
         self.assertEqual(STKAI.config.agent.base_url, "https://env.example.com")
 
-    # --- file_upload_base_url precedence ---
+    # --- file_upload.base_url precedence ---
 
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
@@ -843,25 +844,25 @@ class TestCLIPrecedence(unittest.TestCase):
     def test_cli_file_upload_base_url_overrides_hardcoded_default(self, mock_codebuddy, mock_inference, mock_data):
         """CLI data_integration_base_url should override hardcoded default."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.example.com")
+        self.assertEqual(STKAI.config.file_upload.base_url, "https://data-integration-api.example.com")
 
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
     def test_cli_file_upload_base_url_overrides_env_var(self, mock_codebuddy, mock_inference, mock_data):
         """CLI data_integration_base_url should override env var."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.example.com")
+        self.assertEqual(STKAI.config.file_upload.base_url, "https://data-integration-api.example.com")
 
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
     def test_user_overrides_cli_file_upload_base_url(self, mock_codebuddy, mock_inference, mock_data):
-        """STKAI.configure() should override CLI file_upload_base_url."""
-        STKAI.configure(agent={"file_upload_base_url": "https://user.example.com"})
-        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://user.example.com")
+        """STKAI.configure() should override CLI file_upload base_url."""
+        STKAI.configure(file_upload={"base_url": "https://user.example.com"})
+        self.assertEqual(STKAI.config.file_upload.base_url, "https://user.example.com")
 
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
@@ -869,16 +870,16 @@ class TestCLIPrecedence(unittest.TestCase):
     def test_hardcoded_default_file_upload_base_url_when_no_cli(self, mock_codebuddy, mock_inference, mock_data):
         """Should use hardcoded default when CLI is not available."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.stackspot.com")
+        self.assertEqual(STKAI.config.file_upload.base_url, "https://data-integration-api.stackspot.com")
 
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
     def test_env_var_file_upload_base_url_when_no_cli(self, mock_codebuddy, mock_inference, mock_data):
         """Should use env var when CLI is not available."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://env.example.com")
+        self.assertEqual(STKAI.config.file_upload.base_url, "https://env.example.com")
 
 
 class TestWithCliDefaults(unittest.TestCase):
@@ -924,10 +925,10 @@ class TestWithCliDefaults(unittest.TestCase):
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_applies_cli_file_upload_base_url_to_agent(self, mock_codebuddy, mock_inference, mock_data):
-        """Should apply CLI data_integration_base_url to Agent file_upload_base_url."""
+    def test_applies_cli_file_upload_base_url(self, mock_codebuddy, mock_inference, mock_data):
+        """Should apply CLI data_integration_base_url to file_upload.base_url."""
         config = STKAIConfig().with_cli_defaults()
-        self.assertEqual(config.agent.file_upload_base_url, "https://data-integration-api.example.com")
+        self.assertEqual(config.file_upload.base_url, "https://data-integration-api.example.com")
 
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
@@ -938,7 +939,7 @@ class TestWithCliDefaults(unittest.TestCase):
         result = original.with_cli_defaults()
         self.assertEqual(result.rqc.base_url, original.rqc.base_url)
         self.assertEqual(result.agent.base_url, original.agent.base_url)
-        self.assertEqual(result.agent.file_upload_base_url, original.agent.file_upload_base_url)
+        self.assertEqual(result.file_upload.base_url, original.file_upload.base_url)
 
     @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
@@ -1063,6 +1064,7 @@ class TestExplain(unittest.TestCase):
         self.assertIn("[auth]", output)
         self.assertIn("[rqc]", output)
         self.assertIn("[agent]", output)
+        self.assertIn("[file_upload]", output)
         self.assertIn("[rate_limit]", output)
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
@@ -1503,47 +1505,56 @@ class TestConfigValidation(unittest.TestCase):
         self.assertIn("base_url", str(ctx.exception))
         self.assertIn("http", str(ctx.exception))
 
-    def test_agent_file_upload_base_url_must_be_http(self):
-        """file_upload_base_url must start with http:// or https://."""
-        with self.assertRaises(ConfigValidationError) as ctx:
-            AgentConfig(file_upload_base_url="ftp://invalid").validate()
-        self.assertIn("file_upload_base_url", str(ctx.exception))
-        self.assertIn("http", str(ctx.exception))
-
-    def test_agent_file_upload_request_timeout_must_be_positive(self):
-        """file_upload_request_timeout must be > 0."""
-        with self.assertRaises(ConfigValidationError) as ctx:
-            AgentConfig(file_upload_request_timeout=0).validate()
-        self.assertIn("file_upload_request_timeout", str(ctx.exception))
-
-    def test_agent_file_upload_transfer_timeout_must_be_positive(self):
-        """file_upload_transfer_timeout must be > 0."""
-        with self.assertRaises(ConfigValidationError) as ctx:
-            AgentConfig(file_upload_transfer_timeout=-1).validate()
-        self.assertIn("file_upload_transfer_timeout", str(ctx.exception))
-
-    def test_agent_file_upload_retry_max_retries_cannot_be_negative(self):
-        """file_upload_retry_max_retries must be >= 0."""
-        with self.assertRaises(ConfigValidationError) as ctx:
-            AgentConfig(file_upload_retry_max_retries=-1).validate()
-        self.assertIn("file_upload_retry_max_retries", str(ctx.exception))
-
-    def test_agent_file_upload_retry_initial_delay_must_be_positive(self):
-        """file_upload_retry_initial_delay must be > 0."""
-        with self.assertRaises(ConfigValidationError) as ctx:
-            AgentConfig(file_upload_retry_initial_delay=0).validate()
-        self.assertIn("file_upload_retry_initial_delay", str(ctx.exception))
-
-    def test_agent_file_upload_max_workers_must_be_positive(self):
-        """file_upload_max_workers must be > 0."""
-        with self.assertRaises(ConfigValidationError) as ctx:
-            AgentConfig(file_upload_max_workers=0).validate()
-        self.assertIn("file_upload_max_workers", str(ctx.exception))
-
     def test_agent_valid_config_passes(self):
         """Valid Agent config should pass validation."""
         config = AgentConfig().validate()
         self.assertEqual(config.request_timeout, 60)
+
+    # -------------------------------------------------------------------------
+    # FileUploadConfig validation
+    # -------------------------------------------------------------------------
+
+    def test_file_upload_base_url_must_be_http(self):
+        """base_url must start with http:// or https://."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            FileUploadConfig(base_url="ftp://invalid").validate()
+        self.assertIn("base_url", str(ctx.exception))
+        self.assertIn("http", str(ctx.exception))
+
+    def test_file_upload_request_timeout_must_be_positive(self):
+        """request_timeout must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            FileUploadConfig(request_timeout=0).validate()
+        self.assertIn("request_timeout", str(ctx.exception))
+
+    def test_file_upload_transfer_timeout_must_be_positive(self):
+        """transfer_timeout must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            FileUploadConfig(transfer_timeout=-1).validate()
+        self.assertIn("transfer_timeout", str(ctx.exception))
+
+    def test_file_upload_retry_max_retries_cannot_be_negative(self):
+        """retry_max_retries must be >= 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            FileUploadConfig(retry_max_retries=-1).validate()
+        self.assertIn("retry_max_retries", str(ctx.exception))
+
+    def test_file_upload_retry_initial_delay_must_be_positive(self):
+        """retry_initial_delay must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            FileUploadConfig(retry_initial_delay=0).validate()
+        self.assertIn("retry_initial_delay", str(ctx.exception))
+
+    def test_file_upload_max_workers_must_be_positive(self):
+        """max_workers must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            FileUploadConfig(max_workers=0).validate()
+        self.assertIn("max_workers", str(ctx.exception))
+
+    def test_file_upload_valid_config_passes(self):
+        """Valid file upload config should pass validation."""
+        config = FileUploadConfig().validate()
+        self.assertEqual(config.request_timeout, 30)
 
     # -------------------------------------------------------------------------
     # RateLimitConfig validation

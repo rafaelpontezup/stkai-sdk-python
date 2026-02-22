@@ -1,16 +1,16 @@
 """
-File upload support for StackSpot AI Agents.
+File upload support for StackSpot AI.
 
-This module provides a client for uploading files to be used as context
-during agent chat conversations. The upload is a two-step process:
+This module provides a client for uploading files to the StackSpot platform.
+The upload is a two-step process:
 1. POST to Data Integration API to get S3 pre-signed credentials + upload_id
 2. POST file to S3 using the pre-signed form data
 
 Note: File uploading via API is only available for Enterprise accounts.
 
 Example:
-    >>> from stkai.agents import AgentFileUploader, FileUploadRequest
-    >>> uploader = AgentFileUploader()
+    >>> from stkai import FileUploader, FileUploadRequest
+    >>> uploader = FileUploader()
     >>> response = uploader.upload(FileUploadRequest(file_path="doc.pdf"))
     >>> if response.is_success():
     ...     print(response.upload_id)
@@ -27,11 +27,23 @@ from typing import Any
 
 import requests
 
-from stkai._config import AgentConfig
+from stkai._config import FileUploadConfig
 from stkai._http import HttpClient
 from stkai._retry import Retrying
 
 logger = logging.getLogger(__name__)
+
+
+class FileUploadTargetType(StrEnum):
+    """
+    Target type for file uploads.
+
+    Attributes:
+        CONTEXT: Upload file as context for agent chat conversations.
+        KNOWLEDGE_SOURCE: Upload file to a Knowledge Source.
+    """
+    CONTEXT = "CONTEXT"
+    KNOWLEDGE_SOURCE = "KNOWLEDGE_SOURCE"
 
 
 class FileUploadStatus(StrEnum):
@@ -69,17 +81,24 @@ class FileUploadRequest:
 
     Attributes:
         file_path: Path to the file to upload.
-        target_type: Upload target type (default: "CONTEXT").
+        target_type: Upload target type (default: CONTEXT).
+            Use CONTEXT for agent chat context, KNOWLEDGE_SOURCE for knowledge sources.
+        target_id: Knowledge source slug. Required when target_type is KNOWLEDGE_SOURCE.
         expiration: Expiration in minutes for the uploaded file (default: 60).
         id: Unique identifier for this request. Auto-generated as UUID if not provided.
         metadata: Optional dictionary for storing custom metadata.
 
     Example:
         >>> request = FileUploadRequest(file_path="document.pdf")
-        >>> request = FileUploadRequest(file_path=Path("/tmp/doc.pdf"), expiration=120)
+        >>> request = FileUploadRequest(
+        ...     file_path="doc.pdf",
+        ...     target_type=FileUploadTargetType.KNOWLEDGE_SOURCE,
+        ...     target_id="my-ks-slug",
+        ... )
     """
     file_path: str | Path
-    target_type: str = "CONTEXT"
+    target_type: FileUploadTargetType = FileUploadTargetType.CONTEXT
+    target_id: str | None = None
     expiration: int = 60
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -87,9 +106,13 @@ class FileUploadRequest:
     def __post_init__(self) -> None:
         assert self.id, "Request ID cannot be empty."
         assert self.file_path, "File path cannot be empty."
-        assert self.target_type, "Target type cannot be empty."
-        assert self.expiration is not None, "Target type cannot be None."
+        assert self.expiration is not None, "Expiration cannot be None."
         assert self.expiration > 0, "Expiration must be greater than 0."
+
+        assert self.target_type, "Target type cannot be None."
+        assert isinstance(self.target_type, FileUploadTargetType), f"Target type must be a FileUploadTargetType, got {type(self.target_type).__name__}."
+        if self.target_type == FileUploadTargetType.KNOWLEDGE_SOURCE:
+            assert self.target_id and self.target_id.strip(), f"Target ID is required when Target type is {self.target_type}."
 
         file_path = Path(self.file_path)
         assert file_path.exists(), f"File path not found: {file_path}"
@@ -102,11 +125,14 @@ class FileUploadRequest:
 
     def to_api_payload(self) -> dict[str, Any]:
         """Converts the request to the API payload format for the pre-signed form endpoint."""
-        return {
+        payload: dict[str, Any] = {
             "file_name": self.file_name,
             "target_type": self.target_type,
             "expiration": self.expiration,
         }
+        if self.target_id is not None:
+            payload["target_id"] = self.target_id
+        return payload
 
 
 @dataclass(frozen=True)
@@ -164,9 +190,9 @@ class FileUploadResponse:
 @dataclass(frozen=True)
 class FileUploadOptions:
     """
-    Configuration options for the AgentFileUploader client.
+    Configuration options for the FileUploader client.
 
-    Fields set to None will use values from global config (STKAI.config.agent).
+    Fields set to None will use values from global config (STKAI.config.file_upload).
 
     Attributes:
         request_timeout: HTTP timeout for Step 1 (get pre-signed form).
@@ -177,7 +203,7 @@ class FileUploadOptions:
 
     Example:
         >>> options = FileUploadOptions(request_timeout=15, transfer_timeout=60)
-        >>> uploader = AgentFileUploader(options=options)
+        >>> uploader = FileUploader(options=options)
     """
     request_timeout: int | None = None
     transfer_timeout: int | None = None
@@ -185,30 +211,28 @@ class FileUploadOptions:
     retry_initial_delay: float | None = None
     max_workers: int | None = None
 
-    def with_defaults_from(self, cfg: AgentConfig) -> "FileUploadOptions":
+    def with_defaults_from(self, cfg: FileUploadConfig) -> "FileUploadOptions":
         """
         Returns a new FileUploadOptions with None values filled from config.
 
-        Reads from the dedicated cfg.file_upload_* fields.
-
         Args:
-            cfg: The AgentConfig to use for default values.
+            cfg: The FileUploadConfig to use for default values.
 
         Returns:
             A new FileUploadOptions with all fields resolved (no None values).
         """
         return FileUploadOptions(
-            request_timeout=self.request_timeout if self.request_timeout is not None else cfg.file_upload_request_timeout,
-            transfer_timeout=self.transfer_timeout if self.transfer_timeout is not None else cfg.file_upload_transfer_timeout,
-            retry_max_retries=self.retry_max_retries if self.retry_max_retries is not None else cfg.file_upload_retry_max_retries,
-            retry_initial_delay=self.retry_initial_delay if self.retry_initial_delay is not None else cfg.file_upload_retry_initial_delay,
-            max_workers=self.max_workers if self.max_workers is not None else cfg.file_upload_max_workers,
+            request_timeout=self.request_timeout if self.request_timeout is not None else cfg.request_timeout,
+            transfer_timeout=self.transfer_timeout if self.transfer_timeout is not None else cfg.transfer_timeout,
+            retry_max_retries=self.retry_max_retries if self.retry_max_retries is not None else cfg.retry_max_retries,
+            retry_initial_delay=self.retry_initial_delay if self.retry_initial_delay is not None else cfg.retry_initial_delay,
+            max_workers=self.max_workers if self.max_workers is not None else cfg.max_workers,
         )
 
 
-class AgentFileUploader:
+class FileUploader:
     """
-    Client for uploading files to be used as context in StackSpot AI Agent chats.
+    Client for uploading files to the StackSpot platform.
 
     The upload is a two-step process:
     1. Request pre-signed S3 credentials from the Data Integration API (authenticated)
@@ -217,8 +241,8 @@ class AgentFileUploader:
     Note: File uploading via API is only available for Enterprise accounts.
 
     Example:
-        >>> from stkai.agents import AgentFileUploader, FileUploadRequest
-        >>> uploader = AgentFileUploader()
+        >>> from stkai import FileUploader, FileUploadRequest
+        >>> uploader = FileUploader()
         >>> response = uploader.upload(FileUploadRequest(file_path="doc.pdf"))
         >>> if response.is_success():
         ...     print(response.upload_id)
@@ -236,23 +260,23 @@ class AgentFileUploader:
         http_client: HttpClient | None = None,
     ):
         """
-        Initialize the AgentFileUploader client.
+        Initialize the FileUploader client.
 
         Args:
             base_url: Base URL for the Data Integration API.
-                If None, uses global config (STKAI.config.agent.file_upload_base_url).
+                If None, uses global config (STKAI.config.file_upload.base_url).
             options: Configuration options for the client.
                 If None, uses defaults from global config.
             http_client: Custom HTTP client for authenticated API calls (Step 1).
                 If None, uses EnvironmentAwareHttpClient (auto-detects CLI or standalone).
         """
         from stkai._config import STKAI
-        cfg = STKAI.config.agent
+        cfg = STKAI.config.file_upload
 
         resolved_options = (options or FileUploadOptions()).with_defaults_from(cfg)
 
         if base_url is None:
-            base_url = cfg.file_upload_base_url
+            base_url = cfg.base_url
 
         if not http_client:
             from stkai._http import EnvironmentAwareHttpClient
@@ -260,7 +284,7 @@ class AgentFileUploader:
 
         assert base_url, "FileUploader base_url cannot be empty."
         assert http_client is not None, "FileUploader http_client cannot be None."
-        assert resolved_options.max_workers is not None, "Thread-pool max_workers can not be empty."
+        assert resolved_options.max_workers is not None, "Thread-pool max_workers can not be None."
         assert resolved_options.max_workers > 0, "Thread-pool max_workers must be greater than 0."
 
         self.base_url = base_url.rstrip("/")
@@ -323,8 +347,8 @@ class AgentFileUploader:
             return []
 
         logger.info(
-            f"{'FileUpload-Batch'[:26]:<26} | FileUpload | "
-            f"📤 Starting batch upload of {len(request_list)} files."
+            f"{'FileUpload-Batch'[:26]:<26} | FileUpload | 📤 "
+            f"Starting batch upload of {len(request_list)} files."
         )
         logger.info(f"{'FileUpload-Batch'[:26]:<26} | FileUpload |    ├ base_url={self.base_url}")
         logger.info(f"{'FileUpload-Batch'[:26]:<26} | FileUpload |    └ max_concurrent={self.max_workers}")
@@ -389,15 +413,6 @@ class AgentFileUploader:
         assert request, "🌀 Sanity check | FileUploadRequest can not be None."
         assert request.id, "🌀 Sanity check | FileUploadRequest ID can not be None."
 
-        assert self.options.request_timeout is not None, \
-            "🌀 Sanity check | request_timeout must be set after with_defaults_from()"
-        assert self.options.transfer_timeout is not None, \
-            "🌀 Sanity check | transfer_timeout must be set after with_defaults_from()"
-        assert self.options.retry_max_retries is not None, \
-            "🌀 Sanity check | retry_max_retries must be set after with_defaults_from()"
-        assert self.options.retry_initial_delay is not None, \
-            "🌀 Sanity check | retry_initial_delay must be set after with_defaults_from()"
-
         form_data: dict[str, Any] | None = None
 
         try:
@@ -410,9 +425,14 @@ class AgentFileUploader:
 
             # Step 1: Generate pre-signed upload form
             form_data = self._generate_presigned_form(request)
-            upload_id = form_data["id"]
-            s3_url = form_data["url"]
-            s3_form_fields = form_data["form"]
+
+            upload_id = form_data.get("id")
+            s3_url = form_data.get("url")
+            s3_form_fields = form_data.get("form")
+
+            assert upload_id, "🌀 Sanity check | Presigned upload form was created but `id` field is missing."
+            assert s3_url, "🌀 Sanity check | Presigned upload form was created but `url` field is missing."
+            assert s3_form_fields, "🌀 Sanity check | Presigned upload form was created but `form` field is missing."
 
             # Step 2: Upload file to S3
             self._upload_file_to_s3(request, s3_url, s3_form_fields)
@@ -459,9 +479,11 @@ class AgentFileUploader:
             requests.HTTPError: On non-2xx response.
             MaxRetriesExceededError: When retries are exhausted.
         """
-        assert self.options.request_timeout is not None
-        assert self.options.retry_max_retries is not None
-        assert self.options.retry_initial_delay is not None
+        assert request, "🌀 Sanity check | FileUpload-Request not provided to generate_presigned_form phase."
+
+        assert self.options.request_timeout is not None, "request_timeout must be set after with_defaults_from()"
+        assert self.options.retry_max_retries is not None, "retry_max_retries must be set after with_defaults_from()"
+        assert self.options.retry_initial_delay is not None, "retry_initial_delay must be set after with_defaults_from()"
 
         for attempt in Retrying(
             max_retries=self.options.retry_max_retries,
@@ -483,12 +505,14 @@ class AgentFileUploader:
                 assert isinstance(http_response, requests.Response), \
                     f"🌀 Sanity check | Object returned by `post` method is not an instance of `requests.Response`. ({http_response.__class__})"
 
+                logger.debug(
+                    f"{request.id[:26]:<26} | FileUpload | "
+                    f"Step 1: Presigned upload form response: status={http_response.status_code}"
+                    f"\n{http_response.text}"
+                )
+
                 http_response.raise_for_status()
                 response_data: dict[str, Any] = http_response.json()
-
-                assert "id" in response_data, f"🌀 Sanity check | API response missing 'id' field. Response: {response_data}"
-                assert "url" in response_data, f"🌀 Sanity check | API response missing 'url' field. Response: {response_data}"
-                assert "form" in response_data, f"🌀 Sanity check | API response missing 'form' field. Response: {response_data}"
 
                 logger.info(
                     f"{request.id[:26]:<26} | FileUpload | "
@@ -497,7 +521,7 @@ class AgentFileUploader:
                 return response_data
 
         raise RuntimeError(
-            "Unexpected error while getting upload form: "
+            "Unexpected error while generating presigned upload form: "
             "reached end of `_generate_presigned_form` method without returning a response."
         )
 
@@ -521,9 +545,13 @@ class AgentFileUploader:
             requests.HTTPError: On non-2xx response from S3.
             MaxRetriesExceededError: When retries are exhausted.
         """
-        assert self.options.transfer_timeout is not None
-        assert self.options.retry_max_retries is not None
-        assert self.options.retry_initial_delay is not None
+        assert request, "🌀 Sanity check | FileUpload-Request not provided to upload_file_to_s3 phase."
+        assert s3_url is not None, "🌀 Sanity check | S3 URL not provided to upload_file_to_s3 phase."
+        assert form_fields is not None, "🌀 Sanity check | Form fields not provided to upload_file_to_s3 phase."
+
+        assert self.options.transfer_timeout is not None, "transfer_timeout must be set after with_defaults_from()"
+        assert self.options.retry_max_retries is not None, "retry_max_retries must be set after with_defaults_from()"
+        assert self.options.retry_initial_delay is not None, "retry_initial_delay must be set after with_defaults_from()"
 
         for attempt in Retrying(
             max_retries=self.options.retry_max_retries,
@@ -547,12 +575,14 @@ class AgentFileUploader:
                         timeout=self.options.transfer_timeout,
                     )
 
-                http_response.raise_for_status()
-
                 logger.debug(
                     f"{request.id[:26]:<26} | FileUpload | "
-                    f"Step 2: S3 response: status={http_response.status_code}\n{http_response.text}"
+                    f"Step 2: S3 response: status={http_response.status_code}"
+                    f"\n{http_response.text}"
                 )
+
+                http_response.raise_for_status()
+
                 logger.info(
                     f"{request.id[:26]:<26} | FileUpload | "
                     f"Step 2: File uploaded to S3 successfully"
@@ -560,6 +590,6 @@ class AgentFileUploader:
                 return
 
         raise RuntimeError(
-            "Unexpected error while uploading to S3: "
+            "Unexpected error while uploading file to S3: "
             "reached end of `_upload_file_to_s3` method without returning."
         )

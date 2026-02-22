@@ -97,11 +97,20 @@ from stkai._config import (
     ConfigEntry,
     ConfigEnvVarError,
     ConfigValidationError,
+    FileUploadConfig,
     RateLimitConfig,
     RateLimitStrategy,
     RqcConfig,
     SdkConfig,
     STKAIConfig,
+)
+from stkai._file_upload import (
+    FileUploader,
+    FileUploadOptions,
+    FileUploadRequest,
+    FileUploadResponse,
+    FileUploadStatus,
+    FileUploadTargetType,
 )
 from stkai._http import (
     EnvironmentAwareHttpClient,
@@ -124,13 +133,10 @@ from stkai._retry import (
 )
 from stkai.agents import (
     Agent,
-    AgentFileUploader,
     ChatRequest,
     ChatResponse,
     ChatStatus,
     ConversationContext,
-    FileUploadRequest,
-    FileUploadResponse,
     UseConversation,
 )
 from stkai.rqc import (
@@ -155,6 +161,7 @@ __all__ = [
     "AuthConfig",
     "RqcConfig",
     "AgentConfig",
+    "FileUploadConfig",
     "RateLimitConfig",
     "RateLimitStrategy",
     # Authentication (Standalone)
@@ -191,7 +198,10 @@ __all__ = [
     "UseConversation",
     "ConversationContext",
     # File upload
-    "AgentFileUploader",
+    "FileUploader",
+    "FileUploadOptions",
     "FileUploadRequest",
     "FileUploadResponse",
+    "FileUploadStatus",
+    "FileUploadTargetType",
 ]

@@ -456,9 +456,9 @@ Upload files to be used as context during agent conversations. This is a two-ste
 ### Single File Upload
 
 ```python
-from stkai import AgentFileUploader, FileUploadRequest
+from stkai import FileUploader, FileUploadRequest
 
-uploader = AgentFileUploader()
+uploader = FileUploader()
 
 response = uploader.upload(
     FileUploadRequest(file_path="document.pdf")
@@ -475,9 +475,9 @@ else:
 Upload multiple files concurrently with `upload_many()`:
 
 ```python
-from stkai import AgentFileUploader, FileUploadRequest
+from stkai import FileUploader, FileUploadRequest
 
-uploader = AgentFileUploader()
+uploader = FileUploader()
 
 responses = uploader.upload_many([
     FileUploadRequest(file_path="doc1.pdf"),
@@ -499,10 +499,10 @@ for r in responses:
 Pass `upload_ids` to `ChatRequest` so the agent can use the files as context:
 
 ```python
-from stkai import Agent, ChatRequest, AgentFileUploader, FileUploadRequest
+from stkai import Agent, ChatRequest, FileUploader, FileUploadRequest
 
 # Step 1: Upload files
-uploader = AgentFileUploader()
+uploader = FileUploader()
 responses = uploader.upload_many([
     FileUploadRequest(file_path="doc1.pdf"),
     FileUploadRequest(file_path="doc2.pdf"),
@@ -528,6 +528,7 @@ if response.is_success():
 |-------|------|---------|-------------|
 | `file_path` | `str` \| `Path` | *required* | Path to the file to upload |
 | `target_type` | `str` | `"CONTEXT"` | Upload target type |
+| `target_id` | `str` \| `None` | `None` | Target ID (e.g., knowledge source ID) |
 | `expiration` | `int` | `60` | Expiration in minutes |
 | `id` | `str` | auto-generated UUID | Unique request identifier |
 | `metadata` | `dict` | `{}` | Custom metadata |
@@ -555,10 +556,9 @@ The request validates that the file exists and is a regular file at creation tim
 Configure the uploader with `FileUploadOptions`:
 
 ```python
-from stkai import AgentFileUploader
-from stkai.agents import FileUploadOptions
+from stkai import FileUploader, FileUploadOptions
 
-uploader = AgentFileUploader(
+uploader = FileUploader(
     options=FileUploadOptions(
         request_timeout=15,      # Timeout for API request (Step 1)
         transfer_timeout=60,     # Timeout for S3 upload (Step 2)
@@ -574,10 +574,10 @@ Or configure globally via `STKAI.configure()`:
 from stkai import STKAI
 
 STKAI.configure(
-    agent={
-        "file_upload_request_timeout": 15,
-        "file_upload_transfer_timeout": 60,
-        "file_upload_max_workers": 4,
+    file_upload={
+        "request_timeout": 15,
+        "transfer_timeout": 60,
+        "max_workers": 4,
     }
 )
 ```
@@ -585,9 +585,9 @@ STKAI.configure(
 Or via environment variables:
 
 ```bash
-STKAI_AGENT_FILE_UPLOAD_REQUEST_TIMEOUT=15
-STKAI_AGENT_FILE_UPLOAD_TRANSFER_TIMEOUT=60
-STKAI_AGENT_FILE_UPLOAD_MAX_WORKERS=4
+STKAI_FILE_UPLOAD_REQUEST_TIMEOUT=15
+STKAI_FILE_UPLOAD_TRANSFER_TIMEOUT=60
+STKAI_FILE_UPLOAD_MAX_WORKERS=4
 ```
 
 ### Custom HTTP Client
@@ -595,7 +595,7 @@ STKAI_AGENT_FILE_UPLOAD_MAX_WORKERS=4
 Inject a custom HTTP client for the authenticated API call (Step 1):
 
 ```python
-from stkai import AgentFileUploader, StkCLIHttpClient, TokenBucketRateLimitedHttpClient
+from stkai import FileUploader, StkCLIHttpClient, TokenBucketRateLimitedHttpClient
 
 http_client = TokenBucketRateLimitedHttpClient(
     delegate=StkCLIHttpClient(),
@@ -603,7 +603,7 @@ http_client = TokenBucketRateLimitedHttpClient(
     time_window=60.0,
 )
 
-uploader = AgentFileUploader(http_client=http_client)
+uploader = FileUploader(http_client=http_client)
 ```
 
 !!! info "S3 Upload (Step 2)"

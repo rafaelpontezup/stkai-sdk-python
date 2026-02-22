@@ -1,4 +1,4 @@
-"""Tests for AgentFileUploader and related classes."""
+"""Tests for FileUploader and related classes."""
 
 import os
 import tempfile
@@ -11,12 +11,13 @@ import requests
 
 from stkai import HttpClient
 from stkai._config import STKAI
-from stkai.agents import (
-    AgentFileUploader,
+from stkai._file_upload import (
+    FileUploader,
     FileUploadOptions,
     FileUploadRequest,
     FileUploadResponse,
     FileUploadStatus,
+    FileUploadTargetType,
 )
 
 
@@ -92,7 +93,7 @@ class TestFileUploadRequest(unittest.TestCase):
 
         self.assertEqual(request.file_path, str(test_file))
         self.assertEqual(request.file_name, "document.pdf")
-        self.assertEqual(request.target_type, "CONTEXT")
+        self.assertEqual(request.target_type, FileUploadTargetType.CONTEXT)
         self.assertEqual(request.expiration, 60)
         self.assertIsNotNone(request.id)
         self.assertEqual(request.metadata, {})
@@ -117,13 +118,15 @@ class TestFileUploadRequest(unittest.TestCase):
         test_file = self._make_file("doc.pdf")
         request = FileUploadRequest(
             file_path=str(test_file),
-            target_type="CUSTOM",
+            target_type=FileUploadTargetType.KNOWLEDGE_SOURCE,
+            target_id="my-ks-slug",
             expiration=120,
             id="custom-id",
             metadata={"source": "test"},
         )
 
-        self.assertEqual(request.target_type, "CUSTOM")
+        self.assertEqual(request.target_type, FileUploadTargetType.KNOWLEDGE_SOURCE)
+        self.assertEqual(request.target_id, "my-ks-slug")
         self.assertEqual(request.expiration, 120)
         self.assertEqual(request.id, "custom-id")
         self.assertEqual(request.metadata, {"source": "test"})
@@ -139,11 +142,49 @@ class TestFileUploadRequest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             FileUploadRequest(file_path=str(test_file), id="")
 
-    def test_creation_fails_when_target_type_is_empty(self):
-        """Should fail when target_type is empty."""
+    def test_creation_fails_when_target_type_is_raw_string(self):
+        """Should fail when target_type is a raw string instead of FileUploadTargetType."""
         test_file = self._make_file("doc.pdf")
         with self.assertRaises(AssertionError):
-            FileUploadRequest(file_path=str(test_file), target_type="")
+            FileUploadRequest(file_path=str(test_file), target_type="CONTEXT")  # type: ignore
+
+    def test_creation_fails_when_knowledge_source_without_target_id(self):
+        """Should fail when target_type is KNOWLEDGE_SOURCE but target_id is missing."""
+        test_file = self._make_file("doc.pdf")
+        with self.assertRaises(AssertionError):
+            FileUploadRequest(
+                file_path=str(test_file),
+                target_type=FileUploadTargetType.KNOWLEDGE_SOURCE,
+            )
+
+    def test_creation_fails_when_knowledge_source_with_empty_target_id(self):
+        """Should fail when target_type is KNOWLEDGE_SOURCE but target_id is empty."""
+        test_file = self._make_file("doc.pdf")
+        with self.assertRaises(AssertionError):
+            FileUploadRequest(
+                file_path=str(test_file),
+                target_type=FileUploadTargetType.KNOWLEDGE_SOURCE,
+                target_id="",
+            )
+
+    def test_creation_fails_when_knowledge_source_with_blank_target_id(self):
+        """Should fail when target_type is KNOWLEDGE_SOURCE but target_id is blank."""
+        test_file = self._make_file("doc.pdf")
+        with self.assertRaises(AssertionError):
+            FileUploadRequest(
+                file_path=str(test_file),
+                target_type=FileUploadTargetType.KNOWLEDGE_SOURCE,
+                target_id="   ",
+            )
+
+    def test_creation_succeeds_when_context_without_target_id(self):
+        """Should succeed when target_type is CONTEXT and target_id is not provided."""
+        test_file = self._make_file("doc.pdf")
+        request = FileUploadRequest(
+            file_path=str(test_file),
+            target_type=FileUploadTargetType.CONTEXT,
+        )
+        self.assertIsNone(request.target_id)
 
     def test_creation_fails_when_expiration_is_zero(self):
         """Should fail when expiration is zero."""
@@ -336,21 +377,21 @@ class TestFileUploadOptions(unittest.TestCase):
         self.assertEqual(options.max_workers, 4)
 
     def test_with_defaults_from_fills_none_values(self):
-        """Should fill None values from config's file_upload_* fields."""
-        cfg = STKAI.config.agent
+        """Should fill None values from FileUploadConfig fields."""
+        cfg = STKAI.config.file_upload
 
         options = FileUploadOptions()
         resolved = options.with_defaults_from(cfg)
 
-        self.assertEqual(resolved.request_timeout, cfg.file_upload_request_timeout)
-        self.assertEqual(resolved.transfer_timeout, cfg.file_upload_transfer_timeout)
-        self.assertEqual(resolved.retry_max_retries, cfg.file_upload_retry_max_retries)
-        self.assertEqual(resolved.retry_initial_delay, cfg.file_upload_retry_initial_delay)
-        self.assertEqual(resolved.max_workers, cfg.file_upload_max_workers)
+        self.assertEqual(resolved.request_timeout, cfg.request_timeout)
+        self.assertEqual(resolved.transfer_timeout, cfg.transfer_timeout)
+        self.assertEqual(resolved.retry_max_retries, cfg.retry_max_retries)
+        self.assertEqual(resolved.retry_initial_delay, cfg.retry_initial_delay)
+        self.assertEqual(resolved.max_workers, cfg.max_workers)
 
     def test_with_defaults_from_preserves_user_values(self):
         """Should preserve user-provided values and only fill None values."""
-        cfg = STKAI.config.agent
+        cfg = STKAI.config.file_upload
 
         options = FileUploadOptions(request_timeout=999, transfer_timeout=888)
         resolved = options.with_defaults_from(cfg)
@@ -358,7 +399,7 @@ class TestFileUploadOptions(unittest.TestCase):
         self.assertEqual(resolved.request_timeout, 999)
         self.assertEqual(resolved.transfer_timeout, 888)
         # Filled from config
-        self.assertEqual(resolved.retry_max_retries, cfg.file_upload_retry_max_retries)
+        self.assertEqual(resolved.retry_max_retries, cfg.retry_max_retries)
 
     def test_is_frozen(self):
         """Should be immutable."""
@@ -368,20 +409,20 @@ class TestFileUploadOptions(unittest.TestCase):
             options.request_timeout = 10  # type: ignore
 
 
-class TestAgentFileUploader(unittest.TestCase):
-    """Tests for AgentFileUploader client."""
+class TestFileUploader(unittest.TestCase):
+    """Tests for FileUploader client."""
 
     def test_init_with_defaults(self):
         """Should initialize with default values from config."""
-        uploader = AgentFileUploader()
+        uploader = FileUploader()
 
         self.assertIsNotNone(uploader.options)
         self.assertIsNotNone(uploader.http_client)
-        self.assertEqual(uploader.base_url, STKAI.config.agent.file_upload_base_url.rstrip("/"))
+        self.assertEqual(uploader.base_url, STKAI.config.file_upload.base_url.rstrip("/"))
 
     def test_init_with_custom_base_url(self):
         """Should use custom base_url when provided."""
-        uploader = AgentFileUploader(
+        uploader = FileUploader(
             base_url="https://custom.api.com/",
             http_client=MockHttpClient(),
         )
@@ -391,18 +432,18 @@ class TestAgentFileUploader(unittest.TestCase):
     def test_init_with_custom_options(self):
         """Should use custom options when provided."""
         options = FileUploadOptions(request_timeout=15)
-        uploader = AgentFileUploader(options=options, http_client=MockHttpClient())
+        uploader = FileUploader(options=options, http_client=MockHttpClient())
 
         self.assertEqual(uploader.options.request_timeout, 15)
 
     def test_init_with_custom_http_client(self):
         """Should use custom HTTP client when provided."""
         mock_client = MockHttpClient()
-        uploader = AgentFileUploader(http_client=mock_client)
+        uploader = FileUploader(http_client=mock_client)
 
         self.assertEqual(uploader.http_client, mock_client)
 
-    @patch("stkai.agents._file_upload.requests.post")
+    @patch("stkai._file_upload.requests.post")
     def test_upload_success(self, mock_s3_post: MagicMock, tmp_path=None):
         """Should upload file successfully through both steps."""
         if tmp_path is None:
@@ -431,7 +472,7 @@ class TestAgentFileUploader(unittest.TestCase):
         mock_s3_post.return_value = mock_s3_response
 
         options = FileUploadOptions(retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_api_client, options=options)
+        uploader = FileUploader(http_client=mock_api_client, options=options)
 
         response = uploader.upload(FileUploadRequest(file_path=str(test_file)))
 
@@ -457,7 +498,7 @@ class TestAgentFileUploader(unittest.TestCase):
         self.assertEqual(s3_call_args[0][0], "https://s3.amazonaws.com/bucket")
         self.assertEqual(s3_call_args[1]["data"], {"key": "uploads/test.pdf", "AWSAccessKeyId": "AKIA..."})
 
-    @patch("stkai.agents._file_upload.requests.post")
+    @patch("stkai._file_upload.requests.post")
     def test_upload_form_request_payload(self, mock_s3_post: MagicMock):
         """Should send correct payload for Step 1."""
         import tempfile
@@ -479,18 +520,20 @@ class TestAgentFileUploader(unittest.TestCase):
         mock_s3_post.return_value = mock_s3_response
 
         options = FileUploadOptions(retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_api_client, options=options)
+        uploader = FileUploader(http_client=mock_api_client, options=options)
 
         request = FileUploadRequest(
             file_path=str(test_file),
-            target_type="CUSTOM",
+            target_type=FileUploadTargetType.KNOWLEDGE_SOURCE,
+            target_id="my-ks-slug",
             expiration=120,
         )
         uploader.upload(request)
 
         _, payload, _ = mock_api_client.calls[0]
         self.assertEqual(payload["file_name"], "report.csv")
-        self.assertEqual(payload["target_type"], "CUSTOM")
+        self.assertEqual(payload["target_type"], "KNOWLEDGE_SOURCE")
+        self.assertEqual(payload["target_id"], "my-ks-slug")
         self.assertEqual(payload["expiration"], 120)
 
     def test_upload_file_deleted_between_creation_and_upload(self):
@@ -501,7 +544,7 @@ class TestAgentFileUploader(unittest.TestCase):
 
         mock_client = MockHttpClient()
         options = FileUploadOptions(retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_client, options=options)
+        uploader = FileUploader(http_client=mock_client, options=options)
 
         request = FileUploadRequest(file_path=str(test_file))
         test_file.unlink()  # delete file after request creation
@@ -520,7 +563,7 @@ class TestAgentFileUploader(unittest.TestCase):
             status_code=401,
         )
         options = FileUploadOptions(retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_client, options=options)
+        uploader = FileUploader(http_client=mock_client, options=options)
 
         import tempfile
         tmp_dir = Path(tempfile.mkdtemp())
@@ -533,7 +576,7 @@ class TestAgentFileUploader(unittest.TestCase):
         self.assertIn("HTTP error 401", response.error)
         self.assertIsNone(response.raw_response)
 
-    @patch("stkai.agents._file_upload.requests.post")
+    @patch("stkai._file_upload.requests.post")
     def test_upload_step2_http_error(self, mock_s3_post: MagicMock):
         """Should return error when Step 2 (S3 upload) fails."""
         import tempfile
@@ -558,7 +601,7 @@ class TestAgentFileUploader(unittest.TestCase):
         mock_s3_post.return_value = mock_s3_response
 
         options = FileUploadOptions(retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_api_client, options=options)
+        uploader = FileUploader(http_client=mock_api_client, options=options)
 
         response = uploader.upload(FileUploadRequest(file_path=str(test_file)))
 
@@ -567,7 +610,7 @@ class TestAgentFileUploader(unittest.TestCase):
         self.assertIsNotNone(response.raw_response)
         self.assertEqual(response.raw_response["id"], "upload-id")
 
-    @patch("stkai.agents._file_upload.requests.post")
+    @patch("stkai._file_upload.requests.post")
     def test_upload_many_returns_responses_in_order(self, mock_s3_post: MagicMock):
         """Should return responses in the same order as requests."""
         import tempfile
@@ -593,7 +636,7 @@ class TestAgentFileUploader(unittest.TestCase):
         mock_s3_post.return_value = mock_s3_response
 
         options = FileUploadOptions(retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_api_client, options=options)
+        uploader = FileUploader(http_client=mock_api_client, options=options)
 
         request_list = [
             FileUploadRequest(file_path=str(f), id=f"req-{i}")
@@ -607,13 +650,13 @@ class TestAgentFileUploader(unittest.TestCase):
 
     def test_upload_many_empty_list(self):
         """Should return empty list for empty request list."""
-        uploader = AgentFileUploader(http_client=MockHttpClient())
+        uploader = FileUploader(http_client=MockHttpClient())
 
         responses = uploader.upload_many([])
 
         self.assertEqual(responses, [])
 
-    @patch("stkai.agents._file_upload.requests.post")
+    @patch("stkai._file_upload.requests.post")
     def test_upload_many_handles_individual_failures(self, mock_s3_post: MagicMock):
         """Should handle individual failures without affecting other uploads."""
         tmp_dir = Path(tempfile.mkdtemp())
@@ -638,7 +681,7 @@ class TestAgentFileUploader(unittest.TestCase):
         mock_s3_post.return_value = mock_s3_response
 
         options = FileUploadOptions(retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_api_client, options=options)
+        uploader = FileUploader(http_client=mock_api_client, options=options)
 
         request_list = [
             FileUploadRequest(file_path=str(real_file)),
@@ -669,10 +712,10 @@ class TestAgentFileUploader(unittest.TestCase):
         )
 
         options = FileUploadOptions(request_timeout=15, retry_max_retries=0)
-        uploader = AgentFileUploader(http_client=mock_client, options=options)
+        uploader = FileUploader(http_client=mock_client, options=options)
 
         # Will fail at S3 step (not mocked), but Step 1 should use our timeout
-        with patch("stkai.agents._file_upload.requests.post") as mock_s3:
+        with patch("stkai._file_upload.requests.post") as mock_s3:
             mock_s3_resp = MagicMock(spec=requests.Response)
             mock_s3_resp.status_code = 204
             mock_s3_resp.raise_for_status.return_value = None
@@ -713,41 +756,41 @@ class TestFileUploadConfigEnvVars(unittest.TestCase):
     def tearDown(self):
         STKAI.reset()
 
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_BASE_URL": "https://custom.api.com"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_BASE_URL": "https://custom.api.com"})
     def test_file_upload_base_url_env_var(self):
-        """Should read file_upload_base_url from env var."""
+        """Should read base_url from env var."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://custom.api.com")
+        self.assertEqual(STKAI.config.file_upload.base_url, "https://custom.api.com")
 
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_REQUEST_TIMEOUT": "15"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_REQUEST_TIMEOUT": "15"})
     def test_file_upload_request_timeout_env_var(self):
-        """Should read file_upload_request_timeout from env var."""
+        """Should read request_timeout from env var."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_request_timeout, 15)
+        self.assertEqual(STKAI.config.file_upload.request_timeout, 15)
 
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_TRANSFER_TIMEOUT": "60"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_TRANSFER_TIMEOUT": "60"})
     def test_file_upload_transfer_timeout_env_var(self):
-        """Should read file_upload_transfer_timeout from env var."""
+        """Should read transfer_timeout from env var."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_transfer_timeout, 60)
+        self.assertEqual(STKAI.config.file_upload.transfer_timeout, 60)
 
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_RETRY_MAX_RETRIES": "5"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_RETRY_MAX_RETRIES": "5"})
     def test_file_upload_retry_max_retries_env_var(self):
-        """Should read file_upload_retry_max_retries from env var."""
+        """Should read retry_max_retries from env var."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_retry_max_retries, 5)
+        self.assertEqual(STKAI.config.file_upload.retry_max_retries, 5)
 
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_RETRY_INITIAL_DELAY": "1.0"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_RETRY_INITIAL_DELAY": "1.0"})
     def test_file_upload_retry_initial_delay_env_var(self):
-        """Should read file_upload_retry_initial_delay from env var."""
+        """Should read retry_initial_delay from env var."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_retry_initial_delay, 1.0)
+        self.assertEqual(STKAI.config.file_upload.retry_initial_delay, 1.0)
 
-    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_MAX_WORKERS": "4"})
+    @patch.dict(os.environ, {"STKAI_FILE_UPLOAD_MAX_WORKERS": "4"})
     def test_file_upload_max_workers_env_var(self):
-        """Should read file_upload_max_workers from env var."""
+        """Should read max_workers from env var."""
         STKAI.reset()
-        self.assertEqual(STKAI.config.agent.file_upload_max_workers, 4)
+        self.assertEqual(STKAI.config.file_upload.max_workers, 4)
 
 
 if __name__ == "__main__":

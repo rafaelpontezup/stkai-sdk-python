@@ -6,7 +6,7 @@ The SDK provides a flexible configuration system with sensible defaults that can
 
 Settings are resolved in this order (highest precedence first):
 
-1. **Options passed to client constructors** (e.g., `RqcOptions`, `AgentOptions`)
+1. **Options passed to client constructors** (e.g., `RqcOptions`, `AgentOptions`, `FileUploadOptions`)
 2. **Values set via `STKAI.configure()`**
 3. **StackSpot CLI values** (`oscli`) - if CLI is available
 4. **Environment variables** (`STKAI_*`)
@@ -38,6 +38,9 @@ STKAI.configure(
     },
     agent={
         "request_timeout": 120,
+    },
+    file_upload={
+        "request_timeout": 15,
     },
 )
 ```
@@ -220,6 +223,13 @@ STKAI Configuration:
   retry_max_retries ........ 3                                                    default
   retry_initial_delay ...... 0.5                                                  default
   max_workers .............. 8                                                    default
+[file_upload]
+  base_url ................. https://data-integration-api.stackspot.com         ✎ CLI
+  request_timeout .......... 30                                                   default
+  transfer_timeout ......... 120                                                  default
+  retry_max_retries ........ 3                                                    default
+  retry_initial_delay ...... 0.5                                                  default
+  max_workers .............. 8                                                    default
 [rate_limit]
   enabled .................. False                                                default
   strategy ................. token_bucket                                         default
@@ -291,18 +301,28 @@ Settings for `Agent` clients:
 | `retry_max_retries` | `STKAI_AGENT_RETRY_MAX_RETRIES` | 3 | Max retry attempts (0 = disabled) |
 | `retry_initial_delay` | `STKAI_AGENT_RETRY_INITIAL_DELAY` | 0.5 | Initial delay for first retry (seconds) |
 | `max_workers` | `STKAI_AGENT_MAX_WORKERS` | 8 | Concurrent workers for `chat_many()` |
-| `file_upload_base_url` | `STKAI_AGENT_FILE_UPLOAD_BASE_URL` | StackSpot Data Integration URL | Data Integration API URL |
-| `file_upload_request_timeout` | `STKAI_AGENT_FILE_UPLOAD_REQUEST_TIMEOUT` | 30 | HTTP timeout for pre-signed form request (seconds) |
-| `file_upload_transfer_timeout` | `STKAI_AGENT_FILE_UPLOAD_TRANSFER_TIMEOUT` | 120 | HTTP timeout for file transfer to S3 (seconds) |
-| `file_upload_retry_max_retries` | `STKAI_AGENT_FILE_UPLOAD_RETRY_MAX_RETRIES` | 3 | Max retry attempts for file upload |
-| `file_upload_retry_initial_delay` | `STKAI_AGENT_FILE_UPLOAD_RETRY_INITIAL_DELAY` | 0.5 | Initial retry delay (seconds) |
-| `file_upload_max_workers` | `STKAI_AGENT_FILE_UPLOAD_MAX_WORKERS` | 8 | Concurrent workers for `upload_many()` |
 
 !!! tip "Retry Behavior"
     Retry is enabled by default. Use `retry_max_retries=3` for 4 total attempts (1 original + 3 retries). The delay doubles each retry: with `retry_initial_delay=0.5`, delays are 0.5s, 1s, 2s, 4s.
 
 !!! tip "CLI Base URL"
-    In CLI mode, the Agent `base_url` is automatically derived from the CLI's codebuddy URL (replacing `genai-code-buddy-api` with `genai-inference-app`). The `file_upload_base_url` is also automatically derived (replacing `genai-code-buddy-api` with `data-integration-api`). Since CLI has higher precedence than environment variables, you can override it via `STKAI.configure()`, constructor parameter (`base_url=`), or by disabling CLI override with `allow_cli_override=False`.
+    In CLI mode, the Agent `base_url` is automatically derived from the CLI's codebuddy URL (replacing `genai-code-buddy-api` with `genai-inference-app`). Since CLI has higher precedence than environment variables, you can override it via `STKAI.configure()`, constructor parameter (`base_url=`), or by disabling CLI override with `allow_cli_override=False`.
+
+### FileUploadConfig
+
+Settings for `FileUploader` clients:
+
+| Field | Env Var | Default | Description |
+|-------|---------|---------|-------------|
+| `base_url` | `STKAI_FILE_UPLOAD_BASE_URL` | StackSpot Data Integration URL | Data Integration API URL |
+| `request_timeout` | `STKAI_FILE_UPLOAD_REQUEST_TIMEOUT` | 30 | HTTP timeout for pre-signed form request (seconds) |
+| `transfer_timeout` | `STKAI_FILE_UPLOAD_TRANSFER_TIMEOUT` | 120 | HTTP timeout for file transfer to S3 (seconds) |
+| `retry_max_retries` | `STKAI_FILE_UPLOAD_RETRY_MAX_RETRIES` | 3 | Max retry attempts for file upload |
+| `retry_initial_delay` | `STKAI_FILE_UPLOAD_RETRY_INITIAL_DELAY` | 0.5 | Initial retry delay (seconds) |
+| `max_workers` | `STKAI_FILE_UPLOAD_MAX_WORKERS` | 8 | Concurrent workers for `upload_many()` |
+
+!!! tip "CLI Base URL"
+    In CLI mode, the `base_url` is automatically derived from the CLI's codebuddy URL (replacing `genai-code-buddy-api` with `data-integration-api`). Since CLI has higher precedence than environment variables, you can override it via `STKAI.configure()`, constructor parameter (`base_url=`), or by disabling CLI override with `allow_cli_override=False`.
 
 ### RateLimitConfig
 
@@ -432,7 +452,7 @@ env:
 
 ## Overriding at Client Level
 
-You can override global settings per-client using `RqcOptions`, `AgentOptions`, and `FileUploadOptions`. Fields set to `None` use defaults from `STKAI.config` (Single Source of Truth):
+You can override global settings per-client using `RqcOptions`, `AgentOptions`, and `FileUploadOptions`. Fields set to `None` use defaults from `STKAI.config` (Single Source of Truth for defaults):
 
 ```python
 from stkai import RemoteQuickCommand, RqcOptions, Agent
@@ -465,10 +485,9 @@ agent = Agent(
 )
 
 # Override File Upload settings
-from stkai import AgentFileUploader
-from stkai.agents import FileUploadOptions
+from stkai import FileUploader, FileUploadOptions
 
-uploader = AgentFileUploader(
+uploader = FileUploader(
     base_url="https://custom-data.api.com",  # Override API URL
     options=FileUploadOptions(
         request_timeout=15,     # Override global

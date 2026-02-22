@@ -477,13 +477,6 @@ class AgentConfig(OverridableConfig):
     retry_max_retries: int = field(default=3, metadata={"env": "STKAI_AGENT_RETRY_MAX_RETRIES"})
     retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_AGENT_RETRY_INITIAL_DELAY"})
     max_workers: int = field(default=8, metadata={"env": "STKAI_AGENT_MAX_WORKERS"})
-    # File upload settings
-    file_upload_base_url: str = field(default="https://data-integration-api.stackspot.com", metadata={"env": "STKAI_AGENT_FILE_UPLOAD_BASE_URL"})
-    file_upload_request_timeout: int = field(default=30, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_REQUEST_TIMEOUT"})
-    file_upload_transfer_timeout: int = field(default=120, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_TRANSFER_TIMEOUT"})
-    file_upload_retry_max_retries: int = field(default=3, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_RETRY_MAX_RETRIES"})
-    file_upload_retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_RETRY_INITIAL_DELAY"})
-    file_upload_max_workers: int = field(default=8, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_MAX_WORKERS"})
 
     def validate(self) -> Self:
         """Validate Agent configuration fields."""
@@ -512,36 +505,85 @@ class AgentConfig(OverridableConfig):
                 "max_workers", self.max_workers,
                 "Must be greater than 0.", section="agent"
             )
-        # File upload validation
-        if self.file_upload_base_url and not (self.file_upload_base_url.startswith("http://") or self.file_upload_base_url.startswith("https://")):
+        return self
+
+
+@dataclass(frozen=True)
+class FileUploadConfig(OverridableConfig):
+    """
+    Configuration for FileUploader clients.
+
+    These settings are used as defaults when creating FileUploader instances
+    without explicitly providing FileUploadOptions.
+
+    Attributes:
+        base_url: Base URL for the Data Integration API.
+            Env var: STKAI_FILE_UPLOAD_BASE_URL
+
+        request_timeout: HTTP timeout in seconds for Step 1 (get pre-signed form).
+            Env var: STKAI_FILE_UPLOAD_REQUEST_TIMEOUT
+
+        transfer_timeout: HTTP timeout in seconds for Step 2 (file transfer to S3).
+            Env var: STKAI_FILE_UPLOAD_TRANSFER_TIMEOUT
+
+        retry_max_retries: Maximum retry attempts for transient failures.
+            Use 0 to disable retries (single attempt only).
+            Use 3 for 4 total attempts (1 original + 3 retries).
+            Env var: STKAI_FILE_UPLOAD_RETRY_MAX_RETRIES
+
+        retry_initial_delay: Initial delay in seconds for the first retry attempt.
+            Subsequent retries use exponential backoff (delay doubles each attempt).
+            Env var: STKAI_FILE_UPLOAD_RETRY_INITIAL_DELAY
+
+        max_workers: Maximum number of concurrent threads for upload_many().
+            Env var: STKAI_FILE_UPLOAD_MAX_WORKERS
+
+    Example:
+        >>> from stkai import STKAI
+        >>> STKAI.config.file_upload.base_url
+        'https://data-integration-api.stackspot.com'
+        >>> STKAI.config.file_upload.request_timeout
+        30
+    """
+
+    base_url: str = field(default="https://data-integration-api.stackspot.com", metadata={"env": "STKAI_FILE_UPLOAD_BASE_URL"})
+    request_timeout: int = field(default=30, metadata={"env": "STKAI_FILE_UPLOAD_REQUEST_TIMEOUT"})
+    transfer_timeout: int = field(default=120, metadata={"env": "STKAI_FILE_UPLOAD_TRANSFER_TIMEOUT"})
+    retry_max_retries: int = field(default=3, metadata={"env": "STKAI_FILE_UPLOAD_RETRY_MAX_RETRIES"})
+    retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_FILE_UPLOAD_RETRY_INITIAL_DELAY"})
+    max_workers: int = field(default=8, metadata={"env": "STKAI_FILE_UPLOAD_MAX_WORKERS"})
+
+    def validate(self) -> Self:
+        """Validate file upload configuration fields."""
+        if self.base_url and not (self.base_url.startswith("http://") or self.base_url.startswith("https://")):
             raise ConfigValidationError(
-                "file_upload_base_url", self.file_upload_base_url,
-                "Must start with 'http://' or 'https://'.", section="agent"
+                "base_url", self.base_url,
+                "Must start with 'http://' or 'https://'.", section="file_upload"
             )
-        if self.file_upload_request_timeout <= 0:
+        if self.request_timeout <= 0:
             raise ConfigValidationError(
-                "file_upload_request_timeout", self.file_upload_request_timeout,
-                "Must be greater than 0.", section="agent"
+                "request_timeout", self.request_timeout,
+                "Must be greater than 0.", section="file_upload"
             )
-        if self.file_upload_transfer_timeout <= 0:
+        if self.transfer_timeout <= 0:
             raise ConfigValidationError(
-                "file_upload_transfer_timeout", self.file_upload_transfer_timeout,
-                "Must be greater than 0.", section="agent"
+                "transfer_timeout", self.transfer_timeout,
+                "Must be greater than 0.", section="file_upload"
             )
-        if self.file_upload_retry_max_retries < 0:
+        if self.retry_max_retries < 0:
             raise ConfigValidationError(
-                "file_upload_retry_max_retries", self.file_upload_retry_max_retries,
-                "Must be >= 0.", section="agent"
+                "retry_max_retries", self.retry_max_retries,
+                "Must be >= 0.", section="file_upload"
             )
-        if self.file_upload_retry_initial_delay <= 0:
+        if self.retry_initial_delay <= 0:
             raise ConfigValidationError(
-                "file_upload_retry_initial_delay", self.file_upload_retry_initial_delay,
-                "Must be greater than 0.", section="agent"
+                "retry_initial_delay", self.retry_initial_delay,
+                "Must be greater than 0.", section="file_upload"
             )
-        if self.file_upload_max_workers <= 0:
+        if self.max_workers <= 0:
             raise ConfigValidationError(
-                "file_upload_max_workers", self.file_upload_max_workers,
-                "Must be greater than 0.", section="agent"
+                "max_workers", self.max_workers,
+                "Must be greater than 0.", section="file_upload"
             )
         return self
 
@@ -1048,7 +1090,7 @@ class STKAIConfigTracker:
         """
         touched: dict[str, list[str]] = {}
 
-        for section_name in ("auth", "rqc", "agent", "rate_limit"):
+        for section_name in ("auth", "rqc", "agent", "file_upload", "rate_limit"):
             new_section = getattr(new_config, section_name)
             touched_fields = []
 
@@ -1068,7 +1110,8 @@ class STKAIConfigTracker:
                     elif section_name == "agent":
                         if f.name == "base_url" and StkCLI.get_inference_app_base_url() is not None:
                             touched_fields.append(f.name)
-                        elif f.name == "file_upload_base_url" and StkCLI.get_data_integration_base_url() is not None:
+                    elif section_name == "file_upload":
+                        if f.name == "base_url" and StkCLI.get_data_integration_base_url() is not None:
                             touched_fields.append(f.name)
 
                 elif source_type == "user" and overrides:
@@ -1134,14 +1177,15 @@ class STKAIConfig:
     """
     Global configuration for the stkai SDK.
 
-    Aggregates all configuration sections: sdk, auth, rqc, agent, and rate_limit.
-    Access via the global `STKAI.config` property.
+    Aggregates all configuration sections: sdk, auth, rqc, agent, file_upload,
+    and rate_limit. Access via the global `STKAI.config` property.
 
     Attributes:
         sdk: SDK metadata (version, cli_mode). Read-only.
         auth: Authentication configuration.
         rqc: RemoteQuickCommand configuration.
         agent: Agent configuration.
+        file_upload: File upload configuration.
         rate_limit: Rate limiting configuration for HTTP clients.
 
     Example:
@@ -1154,6 +1198,8 @@ class STKAIConfig:
         30
         >>> STKAI.config.auth.has_credentials()
         False
+        >>> STKAI.config.file_upload.base_url
+        'https://data-integration-api.stackspot.com'
         >>> STKAI.config.rate_limit.enabled
         False
     """
@@ -1162,6 +1208,7 @@ class STKAIConfig:
     auth: AuthConfig = field(default_factory=AuthConfig)
     rqc: RqcConfig = field(default_factory=RqcConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
+    file_upload: FileUploadConfig = field(default_factory=FileUploadConfig)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     _tracker: STKAIConfigTracker = field(default_factory=STKAIConfigTracker, repr=False)
 
@@ -1187,6 +1234,7 @@ class STKAIConfig:
             auth=self.auth.with_env_vars(),
             rqc=self.rqc.with_env_vars(),
             agent=self.agent.with_env_vars(),
+            file_upload=self.file_upload.with_env_vars(),
             rate_limit=self.rate_limit.with_env_vars(),
         )
 
@@ -1214,14 +1262,17 @@ class STKAIConfig:
         cli_agent_overrides: dict[str, Any] = {}
         if inference_app_base_url := StkCLI.get_inference_app_base_url():
             cli_agent_overrides["base_url"] = inference_app_base_url
+
+        cli_file_upload_overrides: dict[str, Any] = {}
         if data_integration_base_url := StkCLI.get_data_integration_base_url():
-            cli_agent_overrides["file_upload_base_url"] = data_integration_base_url
+            cli_file_upload_overrides["base_url"] = data_integration_base_url
 
         return STKAIConfig(
             sdk=self.sdk,
             auth=self.auth,
             rqc=self.rqc.with_overrides(cli_rqc_overrides),
             agent=self.agent.with_overrides(cli_agent_overrides),
+            file_upload=self.file_upload.with_overrides(cli_file_upload_overrides),
             rate_limit=self.rate_limit,
         )
 
@@ -1232,6 +1283,7 @@ class STKAIConfig:
         auth: dict[str, Any] | None = None,
         rqc: dict[str, Any] | None = None,
         agent: dict[str, Any] | None = None,
+        file_upload: dict[str, Any] | None = None,
         rate_limit: dict[str, Any] | None = None,
     ) -> STKAIConfig:
         """
@@ -1244,6 +1296,7 @@ class STKAIConfig:
             auth: Authentication config overrides.
             rqc: RemoteQuickCommand config overrides.
             agent: Agent config overrides.
+            file_upload: File upload config overrides.
             rate_limit: Rate limiting config overrides.
 
         Returns:
@@ -1261,6 +1314,7 @@ class STKAIConfig:
             auth=self.auth.with_overrides(auth or {}),
             rqc=self.rqc.with_overrides(rqc or {}),
             agent=self.agent.with_overrides(agent or {}),
+            file_upload=self.file_upload.with_overrides(file_upload or {}),
             rate_limit=self.rate_limit.with_overrides(rate_limit or {}),
         )
 
@@ -1290,7 +1344,7 @@ class STKAIConfig:
             for f in fields(self.sdk)
         ]
 
-        for section_name in ("auth", "rqc", "agent", "rate_limit"):
+        for section_name in ("auth", "rqc", "agent", "file_upload", "rate_limit"):
             section_config = getattr(self, section_name)
             section_sources = self._tracker.sources.get(section_name, {})
             result[section_name] = [
@@ -1334,6 +1388,7 @@ class _STKAI:
         auth: dict[str, Any] | None = None,
         rqc: dict[str, Any] | None = None,
         agent: dict[str, Any] | None = None,
+        file_upload: dict[str, Any] | None = None,
         rate_limit: dict[str, Any] | None = None,
         allow_env_override: bool = True,
         allow_cli_override: bool = True,
@@ -1348,6 +1403,7 @@ class _STKAI:
             auth: Authentication config overrides (client_id, client_secret, token_url).
             rqc: RemoteQuickCommand config overrides (timeouts, retries, polling).
             agent: Agent config overrides (timeout, base_url).
+            file_upload: File upload config overrides (timeouts, retries, base_url).
             rate_limit: Rate limiting config overrides (enabled, strategy, max_requests, etc.).
             allow_env_override: If True (default), env vars are used as fallback
                 for fields NOT provided. If False, ignores env vars entirely.
@@ -1375,6 +1431,7 @@ class _STKAI:
             >>> STKAI.configure(
             ...     auth={"client_id": "x", "client_secret": "y"},
             ...     rqc={"request_timeout": 60},
+            ...     file_upload={"request_timeout": 15},
             ...     rate_limit={"enabled": True, "max_requests": 10},
             ... )
         """
@@ -1390,6 +1447,7 @@ class _STKAI:
             auth=auth,
             rqc=rqc,
             agent=agent,
+            file_upload=file_upload,
             rate_limit=rate_limit,
         )
 
@@ -1451,6 +1509,7 @@ class _STKAI:
         self._config.auth.validate()
         self._config.rqc.validate()
         self._config.agent.validate()
+        self._config.file_upload.validate()
         self._config.rate_limit.validate()
         return self._config
 

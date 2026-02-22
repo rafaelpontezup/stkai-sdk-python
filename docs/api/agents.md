@@ -48,26 +48,26 @@ Complete API reference for AI Agents.
 
 ## File Upload
 
-::: stkai.agents.AgentFileUploader
+::: stkai.FileUploader
     options:
       show_root_heading: true
       members:
         - upload
         - upload_many
 
-::: stkai.agents.FileUploadRequest
+::: stkai.FileUploadRequest
     options:
       show_root_heading: true
 
-::: stkai.agents.FileUploadResponse
+::: stkai.FileUploadResponse
     options:
       show_root_heading: true
 
-::: stkai.agents.FileUploadStatus
+::: stkai.FileUploadStatus
     options:
       show_root_heading: true
 
-::: stkai.agents.FileUploadOptions
+::: stkai.FileUploadOptions
     options:
       show_root_heading: true
 
