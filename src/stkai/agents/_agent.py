@@ -148,7 +148,7 @@ class Agent:
         assert base_url, "Agent base_url cannot be empty."
         assert http_client is not None, "Agent http_client cannot be None."
 
-        assert resolved_options.max_workers is not None, "Thread-pool max_workers can not be empty."
+        assert resolved_options.max_workers is not None, "Thread-pool max_workers can not be None."
         assert resolved_options.max_workers > 0, "Thread-pool max_workers must be greater than 0."
 
         self.agent_id = agent_id

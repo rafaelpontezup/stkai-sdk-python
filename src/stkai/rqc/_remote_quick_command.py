@@ -239,7 +239,7 @@ class RemoteQuickCommand:
 
         assert slug_name, "RQC slug_name can not be empty."
         assert base_url, "RQC base_url can not be empty."
-        assert resolved_options.max_workers is not None, "Thread-pool max_workers can not be empty."
+        assert resolved_options.max_workers is not None, "Thread-pool max_workers can not be None."
         assert resolved_options.max_workers > 0, "Thread-pool max_workers must be greater than 0."
         assert http_client is not None, "RQC http_client can not be None."
         assert listeners is not None, "RQC listeners can not be None."
