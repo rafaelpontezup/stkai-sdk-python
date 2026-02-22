@@ -70,7 +70,7 @@ if response.is_success():
 | **[Conversation Context](usage.md#conversation-context)** | Multi-turn conversations with automatic ID tracking via `UseConversation` |
 | **[Knowledge Sources](usage.md#knowledge-sources)** | Enrich responses with your organization's knowledge bases |
 | **[Token Tracking](usage.md#token-usage)** | Track token usage for monitoring and cost management |
-| **[File Upload](usage.md#file-upload)** | Upload files as context for agent conversations (Enterprise only) |
+| **[File Upload](usage.md#file-upload)** | Upload files as context for agent conversations ([Enterprise only](https://ai.stackspot.com/docs/agents/agent-api/upload-files)) |
 | **[Result Handlers](handlers.md)** | Customize response processing (JSON parsing, transformations) |
 
 ## Quick Example

@@ -451,7 +451,7 @@ Upload files to be used as context during agent conversations. This is a two-ste
 2. Upload the file to S3 using the pre-signed form (unauthenticated)
 
 !!! warning "Enterprise Only"
-    File uploading via API is only available for **Enterprise accounts** (per StackSpot docs).
+    File uploading via API is only available for **Enterprise accounts**. See the [official StackSpot documentation](https://ai.stackspot.com/docs/agents/agent-api/upload-files) for details.
 
 ### Single File Upload
 
