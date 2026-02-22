@@ -785,7 +785,7 @@ STKAI_RATE_LIMIT_RECOVERY_FACTOR=0.05
 | `strategy` | `"token_bucket"` \| `"adaptive"` | `"token_bucket"` | Rate limiting algorithm |
 | `max_requests` | `int` | `100` | Max requests per time window |
 | `time_window` | `float` | `60.0` | Time window in seconds |
-| `max_wait_time` | `float \| None` | `45.0` | Max wait for token (None = unlimited) |
+| `max_wait_time` | `float` \| `None` | `45.0` | Max wait for token (None = unlimited) |
 | `min_rate_floor` | `float` | `0.1` | (adaptive) Min rate as fraction of max |
 | `penalty_factor` | `float` | `0.3` | (adaptive) Rate reduction on 429 |
 | `recovery_factor` | `float` | `0.05` | (adaptive) Rate increase on success |

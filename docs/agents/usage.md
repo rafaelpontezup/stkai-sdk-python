@@ -526,7 +526,7 @@ if response.is_success():
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `file_path` | `str \| Path` | *required* | Path to the file to upload |
+| `file_path` | `str` \| `Path` | *required* | Path to the file to upload |
 | `target_type` | `str` | `"CONTEXT"` | Upload target type |
 | `expiration` | `int` | `60` | Expiration in minutes |
 | `id` | `str` | auto-generated UUID | Unique request identifier |
@@ -538,10 +538,10 @@ The request validates that the file exists and is a regular file at creation tim
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `upload_id` | `str \| None` | Upload ID (available on success) |
+| `upload_id` | `str` \| `None` | Upload ID (available on success) |
 | `status` | `FileUploadStatus` | `SUCCESS`, `ERROR`, or `TIMEOUT` |
-| `error` | `str \| None` | Error message if failed |
-| `raw_response` | `dict \| None` | Raw API response from pre-signed form request |
+| `error` | `str` \| `None` | Error message if failed |
+| `raw_response` | `dict` \| `None` | Raw API response from pre-signed form request |
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -685,15 +685,15 @@ elif response.is_timeout():
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `raw_result` | `str \| None` | Agent's raw response message (from API) |
-| `result` | `Any \| None` | Processed result (by handler) |
+| `raw_result` | `str` \| `None` | Agent's raw response message (from API) |
+| `result` | `Any` \| `None` | Processed result (by handler) |
 | `status` | `ChatStatus` | Response status |
-| `tokens` | `ChatTokenUsage \| None` | Token usage info |
-| `conversation_id` | `str \| None` | ID for continuing conversation |
+| `tokens` | `ChatTokenUsage` \| `None` | Token usage info |
+| `conversation_id` | `str` \| `None` | ID for continuing conversation |
 | `knowledge_sources` | `list[str]` | KS IDs used (if requested) |
-| `stop_reason` | `str \| None` | Why generation stopped |
-| `error` | `str \| None` | Error message if failed |
-| `raw_response` | `dict \| None` | Raw API response (source of truth) |
+| `stop_reason` | `str` \| `None` | Why generation stopped |
+| `error` | `str` \| `None` | Error message if failed |
+| `raw_response` | `dict` \| `None` | Raw API response (source of truth) |
 
 ### Response Methods
 
