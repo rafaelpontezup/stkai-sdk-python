@@ -531,6 +531,7 @@ class TestAgentFileUploader(unittest.TestCase):
 
         self.assertTrue(response.is_error())
         self.assertIn("HTTP error 401", response.error)
+        self.assertIsNone(response.raw_response)
 
     @patch("stkai.agents._file_upload.requests.post")
     def test_upload_step2_http_error(self, mock_s3_post: MagicMock):
@@ -563,6 +564,8 @@ class TestAgentFileUploader(unittest.TestCase):
 
         self.assertTrue(response.is_error())
         self.assertIn("File upload failed", response.error)
+        self.assertIsNotNone(response.raw_response)
+        self.assertEqual(response.raw_response["id"], "upload-id")
 
     @patch("stkai.agents._file_upload.requests.post")
     def test_upload_many_returns_responses_in_order(self, mock_s3_post: MagicMock):

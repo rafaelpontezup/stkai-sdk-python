@@ -398,6 +398,8 @@ class AgentFileUploader:
         assert self.options.retry_initial_delay is not None, \
             "🌀 Sanity check | retry_initial_delay must be set after with_defaults_from()"
 
+        form_data: dict[str, Any] | None = None
+
         try:
             # Validate file exists before making API calls
             file_path = Path(request.file_path)
@@ -440,6 +442,7 @@ class AgentFileUploader:
                 request=request,
                 status=error_status,
                 error=error_msg,
+                raw_response=form_data,
             )
 
     def _generate_presigned_form(self, request: FileUploadRequest) -> dict[str, Any]:
