@@ -124,10 +124,13 @@ from stkai._retry import (
 )
 from stkai.agents import (
     Agent,
+    AgentFileUploader,
     ChatRequest,
     ChatResponse,
     ChatStatus,
     ConversationContext,
+    FileUploadRequest,
+    FileUploadResponse,
     UseConversation,
 )
 from stkai.rqc import (
@@ -187,4 +190,8 @@ __all__ = [
     "ChatStatus",
     "UseConversation",
     "ConversationContext",
+    # File upload
+    "AgentFileUploader",
+    "FileUploadRequest",
+    "FileUploadResponse",
 ]

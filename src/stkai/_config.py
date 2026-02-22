@@ -477,6 +477,13 @@ class AgentConfig(OverridableConfig):
     retry_max_retries: int = field(default=3, metadata={"env": "STKAI_AGENT_RETRY_MAX_RETRIES"})
     retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_AGENT_RETRY_INITIAL_DELAY"})
     max_workers: int = field(default=8, metadata={"env": "STKAI_AGENT_MAX_WORKERS"})
+    # File upload settings
+    file_upload_base_url: str = field(default="https://data-integration-api.stackspot.com", metadata={"env": "STKAI_AGENT_FILE_UPLOAD_BASE_URL"})
+    file_upload_request_timeout: int = field(default=30, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_REQUEST_TIMEOUT"})
+    file_upload_transfer_timeout: int = field(default=120, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_TRANSFER_TIMEOUT"})
+    file_upload_retry_max_retries: int = field(default=3, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_RETRY_MAX_RETRIES"})
+    file_upload_retry_initial_delay: float = field(default=0.5, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_RETRY_INITIAL_DELAY"})
+    file_upload_max_workers: int = field(default=8, metadata={"env": "STKAI_AGENT_FILE_UPLOAD_MAX_WORKERS"})
 
     def validate(self) -> Self:
         """Validate Agent configuration fields."""
@@ -503,6 +510,37 @@ class AgentConfig(OverridableConfig):
         if self.max_workers <= 0:
             raise ConfigValidationError(
                 "max_workers", self.max_workers,
+                "Must be greater than 0.", section="agent"
+            )
+        # File upload validation
+        if self.file_upload_base_url and not (self.file_upload_base_url.startswith("http://") or self.file_upload_base_url.startswith("https://")):
+            raise ConfigValidationError(
+                "file_upload_base_url", self.file_upload_base_url,
+                "Must start with 'http://' or 'https://'.", section="agent"
+            )
+        if self.file_upload_request_timeout <= 0:
+            raise ConfigValidationError(
+                "file_upload_request_timeout", self.file_upload_request_timeout,
+                "Must be greater than 0.", section="agent"
+            )
+        if self.file_upload_transfer_timeout <= 0:
+            raise ConfigValidationError(
+                "file_upload_transfer_timeout", self.file_upload_transfer_timeout,
+                "Must be greater than 0.", section="agent"
+            )
+        if self.file_upload_retry_max_retries < 0:
+            raise ConfigValidationError(
+                "file_upload_retry_max_retries", self.file_upload_retry_max_retries,
+                "Must be >= 0.", section="agent"
+            )
+        if self.file_upload_retry_initial_delay <= 0:
+            raise ConfigValidationError(
+                "file_upload_retry_initial_delay", self.file_upload_retry_initial_delay,
+                "Must be greater than 0.", section="agent"
+            )
+        if self.file_upload_max_workers <= 0:
+            raise ConfigValidationError(
+                "file_upload_max_workers", self.file_upload_max_workers,
                 "Must be greater than 0.", section="agent"
             )
         return self
@@ -1023,12 +1061,14 @@ class STKAIConfigTracker:
                         touched_fields.append(f.name)
 
                 elif source_type == "CLI":
-                    # CLI touches base_url in rqc and agent sections
-                    if f.name == "base_url":
-                        from stkai._cli import StkCLI
-                        if section_name == "rqc" and StkCLI.get_codebuddy_base_url() is not None:
+                    from stkai._cli import StkCLI
+                    if section_name == "rqc":
+                        if f.name == "base_url" and StkCLI.get_codebuddy_base_url() is not None:
                             touched_fields.append(f.name)
-                        elif section_name == "agent" and StkCLI.get_inference_app_base_url() is not None:
+                    elif section_name == "agent":
+                        if f.name == "base_url" and StkCLI.get_inference_app_base_url() is not None:
+                            touched_fields.append(f.name)
+                        elif f.name == "file_upload_base_url" and StkCLI.get_data_integration_base_url() is not None:
                             touched_fields.append(f.name)
 
                 elif source_type == "user" and overrides:
@@ -1174,6 +1214,8 @@ class STKAIConfig:
         cli_agent_overrides: dict[str, Any] = {}
         if inference_app_base_url := StkCLI.get_inference_app_base_url():
             cli_agent_overrides["base_url"] = inference_app_base_url
+        if data_integration_base_url := StkCLI.get_data_integration_base_url():
+            cli_agent_overrides["file_upload_base_url"] = data_integration_base_url
 
         return STKAIConfig(
             sdk=self.sdk,

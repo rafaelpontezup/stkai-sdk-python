@@ -70,3 +70,17 @@ class StkCLI:
         if codebuddy_base_url:
             return codebuddy_base_url.replace("genai-code-buddy-api", "genai-inference-app")
         return None
+
+    @staticmethod
+    def get_data_integration_base_url() -> str | None:
+        """
+        Get Data Integration API base URL from CLI if available.
+
+        Returns:
+            The CLI's Data Integration base URL if oscli is installed
+            and the attribute exists, None otherwise.
+        """
+        codebuddy_base_url = StkCLI.get_codebuddy_base_url()
+        if codebuddy_base_url:
+            return codebuddy_base_url.replace("genai-code-buddy-api", "data-integration-api")
+        return None

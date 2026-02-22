@@ -42,6 +42,13 @@ from stkai.agents._conversation import (
     ConversationContext,
     UseConversation,
 )
+from stkai.agents._file_upload import (
+    AgentFileUploader,
+    FileUploadOptions,
+    FileUploadRequest,
+    FileUploadResponse,
+    FileUploadStatus,
+)
 from stkai.agents._handlers import (
     DEFAULT_RESULT_HANDLER,
     JSON_RESULT_HANDLER,
@@ -67,6 +74,12 @@ __all__ = [
     # Conversation context
     "UseConversation",
     "ConversationContext",
+    # File upload
+    "AgentFileUploader",
+    "FileUploadOptions",
+    "FileUploadRequest",
+    "FileUploadResponse",
+    "FileUploadStatus",
     # Data models
     "ChatRequest",
     "ChatResponse",

@@ -103,6 +103,7 @@ class ChatRequest:
     use_conversation: bool = False
     use_knowledge_sources: bool = True
     return_knowledge_sources: bool = False
+    upload_ids: list[str] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -126,6 +127,9 @@ class ChatRequest:
 
         if self.conversation_id:
             payload["conversation_id"] = self.conversation_id
+
+        if self.upload_ids:
+            payload["upload_ids"] = self.upload_ids
 
         return payload
 

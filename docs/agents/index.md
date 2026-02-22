@@ -32,6 +32,7 @@ request = ChatRequest(
     use_conversation=True,                       # Enable conversation context
     use_knowledge_sources=True,                  # Use StackSpot knowledge
     return_knowledge_sources=True,               # Include KS IDs in response
+    upload_ids=["upload-id-1", "upload-id-2"],   # Optional: file upload IDs (Enterprise only)
     metadata={"source": "cli"},                  # Custom metadata
 )
 ```
@@ -69,6 +70,7 @@ if response.is_success():
 | **[Conversation Context](usage.md#conversation-context)** | Multi-turn conversations with automatic ID tracking via `UseConversation` |
 | **[Knowledge Sources](usage.md#knowledge-sources)** | Enrich responses with your organization's knowledge bases |
 | **[Token Tracking](usage.md#token-usage)** | Track token usage for monitoring and cost management |
+| **[File Upload](usage.md#file-upload)** | Upload files as context for agent conversations (Enterprise only) |
 | **[Result Handlers](handlers.md)** | Customize response processing (JSON parsing, transformations) |
 
 ## Quick Example

@@ -42,6 +42,15 @@ class TestDefaults(unittest.TestCase):
         self.assertEqual(STKAI.config.agent.base_url, "https://genai-inference-app.stackspot.com")
         self.assertEqual(STKAI.config.agent.request_timeout, 60)
 
+    def test_agent_file_upload_defaults(self):
+        """Should return sensible defaults for Agent file upload config."""
+        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.stackspot.com")
+        self.assertEqual(STKAI.config.agent.file_upload_request_timeout, 30)
+        self.assertEqual(STKAI.config.agent.file_upload_transfer_timeout, 120)
+        self.assertEqual(STKAI.config.agent.file_upload_retry_max_retries, 3)
+        self.assertEqual(STKAI.config.agent.file_upload_retry_initial_delay, 0.5)
+        self.assertEqual(STKAI.config.agent.file_upload_max_workers, 8)
+
     def test_auth_defaults(self):
         """Should return None for auth credentials when not userd."""
         self.assertIsNone(STKAI.config.auth.client_id)
@@ -786,6 +795,91 @@ class TestCLIPrecedence(unittest.TestCase):
         STKAI.configure(allow_env_override=False, allow_cli_override=False)
         self.assertEqual(STKAI.config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
 
+    # --- agent.base_url precedence ---
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://inference-app.cli.example.com")
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_cli_agent_base_url_overrides_hardcoded_default(self, mock_codebuddy, mock_inference):
+        """CLI inference_app_base_url should override agent hardcoded default."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.base_url, "https://inference-app.cli.example.com")
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://inference-app.cli.example.com")
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_AGENT_BASE_URL": "https://env.example.com"})
+    def test_cli_agent_base_url_overrides_env_var(self, mock_codebuddy, mock_inference):
+        """CLI inference_app_base_url should override env var."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.base_url, "https://inference-app.cli.example.com")
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://inference-app.cli.example.com")
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_AGENT_BASE_URL": "https://env.example.com"})
+    def test_user_overrides_cli_agent_base_url(self, mock_codebuddy, mock_inference):
+        """STKAI.configure() should override CLI agent base_url."""
+        STKAI.configure(agent={"base_url": "https://user.example.com"})
+        self.assertEqual(STKAI.config.agent.base_url, "https://user.example.com")
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_hardcoded_default_agent_base_url_when_no_cli(self, mock_codebuddy, mock_inference):
+        """Should use agent hardcoded default when CLI is not available."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.base_url, "https://genai-inference-app.stackspot.com")
+
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_AGENT_BASE_URL": "https://env.example.com"})
+    def test_env_var_agent_base_url_when_no_cli(self, mock_codebuddy, mock_inference):
+        """Should use env var for agent base_url when CLI is not available."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.base_url, "https://env.example.com")
+
+    # --- file_upload_base_url precedence ---
+
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_cli_file_upload_base_url_overrides_hardcoded_default(self, mock_codebuddy, mock_inference, mock_data):
+        """CLI data_integration_base_url should override hardcoded default."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.example.com")
+
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
+    def test_cli_file_upload_base_url_overrides_env_var(self, mock_codebuddy, mock_inference, mock_data):
+        """CLI data_integration_base_url should override env var."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.example.com")
+
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
+    def test_user_overrides_cli_file_upload_base_url(self, mock_codebuddy, mock_inference, mock_data):
+        """STKAI.configure() should override CLI file_upload_base_url."""
+        STKAI.configure(agent={"file_upload_base_url": "https://user.example.com"})
+        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://user.example.com")
+
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_hardcoded_default_file_upload_base_url_when_no_cli(self, mock_codebuddy, mock_inference, mock_data):
+        """Should use hardcoded default when CLI is not available."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://data-integration-api.stackspot.com")
+
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    @patch.dict(os.environ, {"STKAI_AGENT_FILE_UPLOAD_BASE_URL": "https://env.example.com"})
+    def test_env_var_file_upload_base_url_when_no_cli(self, mock_codebuddy, mock_inference, mock_data):
+        """Should use env var when CLI is not available."""
+        STKAI.reset()
+        self.assertEqual(STKAI.config.agent.file_upload_base_url, "https://env.example.com")
+
 
 class TestWithCliDefaults(unittest.TestCase):
     """Tests for STKAIConfig.with_cli_defaults() method."""
@@ -797,20 +891,20 @@ class TestWithCliDefaults(unittest.TestCase):
         config = STKAIConfig().with_cli_defaults()
         self.assertEqual(config.rqc.base_url, "https://cli.example.com")
 
-    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://inference-app.cli.example.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
     def test_applies_cli_base_url_to_agent(self, mock_codebuddy, mock_inference):
         """Should apply CLI base_url to Agent config."""
         config = STKAIConfig().with_cli_defaults()
-        self.assertEqual(config.agent.base_url, "https://genai-inference-app.stackspot.com")
+        self.assertEqual(config.agent.base_url, "https://inference-app.cli.example.com")
 
-    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
-    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://genai-code-buddy-api.stackspot.com")
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://inference-app.cli.example.com")
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
     def test_applies_cli_base_url_to_both_rqc_and_agent(self, mock_codebuddy, mock_inference):
         """Should apply CLI base_url to both RQC and Agent configs."""
         config = STKAIConfig().with_cli_defaults()
-        self.assertEqual(config.rqc.base_url, "https://genai-code-buddy-api.stackspot.com")
-        self.assertEqual(config.agent.base_url, "https://genai-inference-app.stackspot.com")
+        self.assertEqual(config.rqc.base_url, "https://cli.example.com")
+        self.assertEqual(config.agent.base_url, "https://inference-app.cli.example.com")
 
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
@@ -827,18 +921,29 @@ class TestWithCliDefaults(unittest.TestCase):
         config = STKAIConfig().with_cli_defaults()
         self.assertEqual(config.agent.request_timeout, 60)
 
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value="https://data-integration-api.example.com")
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
-    def test_no_op_when_cli_not_available(self, mock_codebuddy, mock_inference):
+    def test_applies_cli_file_upload_base_url_to_agent(self, mock_codebuddy, mock_inference, mock_data):
+        """Should apply CLI data_integration_base_url to Agent file_upload_base_url."""
+        config = STKAIConfig().with_cli_defaults()
+        self.assertEqual(config.agent.file_upload_base_url, "https://data-integration-api.example.com")
+
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value=None)
+    @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value=None)
+    def test_no_op_when_cli_not_available(self, mock_codebuddy, mock_inference, mock_data):
         """Should be a no-op when CLI is not available."""
         original = STKAIConfig()
         result = original.with_cli_defaults()
         self.assertEqual(result.rqc.base_url, original.rqc.base_url)
         self.assertEqual(result.agent.base_url, original.agent.base_url)
+        self.assertEqual(result.agent.file_upload_base_url, original.agent.file_upload_base_url)
 
+    @patch("stkai._cli.StkCLI.get_data_integration_base_url", return_value=None)
     @patch("stkai._cli.StkCLI.get_inference_app_base_url", return_value="https://genai-inference-app.stackspot.com")
     @patch("stkai._cli.StkCLI.get_codebuddy_base_url", return_value="https://cli.example.com")
-    def test_returns_new_instance(self, mock_codebuddy, mock_inference):
+    def test_returns_new_instance(self, mock_codebuddy, mock_inference, mock_data):
         """Should return a new instance, not modify original."""
         original = STKAIConfig()
         result = original.with_cli_defaults()
@@ -1397,6 +1502,43 @@ class TestConfigValidation(unittest.TestCase):
             AgentConfig(base_url="ws://invalid").validate()
         self.assertIn("base_url", str(ctx.exception))
         self.assertIn("http", str(ctx.exception))
+
+    def test_agent_file_upload_base_url_must_be_http(self):
+        """file_upload_base_url must start with http:// or https://."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(file_upload_base_url="ftp://invalid").validate()
+        self.assertIn("file_upload_base_url", str(ctx.exception))
+        self.assertIn("http", str(ctx.exception))
+
+    def test_agent_file_upload_request_timeout_must_be_positive(self):
+        """file_upload_request_timeout must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(file_upload_request_timeout=0).validate()
+        self.assertIn("file_upload_request_timeout", str(ctx.exception))
+
+    def test_agent_file_upload_transfer_timeout_must_be_positive(self):
+        """file_upload_transfer_timeout must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(file_upload_transfer_timeout=-1).validate()
+        self.assertIn("file_upload_transfer_timeout", str(ctx.exception))
+
+    def test_agent_file_upload_retry_max_retries_cannot_be_negative(self):
+        """file_upload_retry_max_retries must be >= 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(file_upload_retry_max_retries=-1).validate()
+        self.assertIn("file_upload_retry_max_retries", str(ctx.exception))
+
+    def test_agent_file_upload_retry_initial_delay_must_be_positive(self):
+        """file_upload_retry_initial_delay must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(file_upload_retry_initial_delay=0).validate()
+        self.assertIn("file_upload_retry_initial_delay", str(ctx.exception))
+
+    def test_agent_file_upload_max_workers_must_be_positive(self):
+        """file_upload_max_workers must be > 0."""
+        with self.assertRaises(ConfigValidationError) as ctx:
+            AgentConfig(file_upload_max_workers=0).validate()
+        self.assertIn("file_upload_max_workers", str(ctx.exception))
 
     def test_agent_valid_config_passes(self):
         """Valid Agent config should pass validation."""

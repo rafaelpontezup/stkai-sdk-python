@@ -939,6 +939,36 @@ class TestAgentChatMany(unittest.TestCase):
         self.assertTrue(all(r.is_success() for r in responses))
 
 
+class TestChatRequestUploadIds(unittest.TestCase):
+    """Tests for ChatRequest upload_ids field."""
+
+    def test_upload_ids_default_is_none(self):
+        """upload_ids should default to None."""
+        request = ChatRequest(user_prompt="Hello!")
+        self.assertIsNone(request.upload_ids)
+
+    def test_upload_ids_in_payload_when_set(self):
+        """Should include upload_ids in payload when set."""
+        request = ChatRequest(
+            user_prompt="Hello!",
+            upload_ids=["id-1", "id-2"],
+        )
+        payload = request.to_api_payload()
+        self.assertEqual(payload["upload_ids"], ["id-1", "id-2"])
+
+    def test_upload_ids_not_in_payload_when_none(self):
+        """Should not include upload_ids in payload when None."""
+        request = ChatRequest(user_prompt="Hello!")
+        payload = request.to_api_payload()
+        self.assertNotIn("upload_ids", payload)
+
+    def test_upload_ids_not_in_payload_when_empty(self):
+        """Should not include upload_ids in payload when empty list."""
+        request = ChatRequest(user_prompt="Hello!", upload_ids=[])
+        payload = request.to_api_payload()
+        self.assertNotIn("upload_ids", payload)
+
+
 class TestAgentMaxWorkers(unittest.TestCase):
     """Tests for Agent max_workers configuration."""
 

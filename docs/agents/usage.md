@@ -443,6 +443,172 @@ print(f"Session total: {tracker.total} tokens")
 !!! tip "Alternative: Result Handlers"
     You can also implement token tracking using a [Result Handler](handlers.md). This approach is useful when you want to automatically track tokens for every request without manually calling `tracker.track()`.
 
+## File Upload
+
+Upload files to be used as context during agent conversations. This is a two-step process handled automatically by the SDK:
+
+1. Request pre-signed S3 credentials from the Data Integration API (authenticated)
+2. Upload the file to S3 using the pre-signed form (unauthenticated)
+
+!!! warning "Enterprise Only"
+    File uploading via API is only available for **Enterprise accounts** (per StackSpot docs).
+
+### Single File Upload
+
+```python
+from stkai import AgentFileUploader, FileUploadRequest
+
+uploader = AgentFileUploader()
+
+response = uploader.upload(
+    FileUploadRequest(file_path="document.pdf")
+)
+
+if response.is_success():
+    print(f"Upload ID: {response.upload_id}")
+else:
+    print(response.error_with_details())
+```
+
+### Batch Upload
+
+Upload multiple files concurrently with `upload_many()`:
+
+```python
+from stkai import AgentFileUploader, FileUploadRequest
+
+uploader = AgentFileUploader()
+
+responses = uploader.upload_many([
+    FileUploadRequest(file_path="doc1.pdf"),
+    FileUploadRequest(file_path="doc2.pdf"),
+    FileUploadRequest(file_path="report.txt", expiration=120),
+])
+
+# Collect successful upload IDs
+upload_ids = [r.upload_id for r in responses if r.is_success()]
+
+# Check for failures
+for r in responses:
+    if not r.is_success():
+        print(f"Failed: {r.request.file_name} - {r.error}")
+```
+
+### Using Uploaded Files in Chat
+
+Pass `upload_ids` to `ChatRequest` so the agent can use the files as context:
+
+```python
+from stkai import Agent, ChatRequest, AgentFileUploader, FileUploadRequest
+
+# Step 1: Upload files
+uploader = AgentFileUploader()
+responses = uploader.upload_many([
+    FileUploadRequest(file_path="doc1.pdf"),
+    FileUploadRequest(file_path="doc2.pdf"),
+])
+upload_ids = [r.upload_id for r in responses if r.is_success()]
+
+# Step 2: Chat with uploaded files as context
+agent = Agent(agent_id="my-assistant")
+response = agent.chat(
+    ChatRequest(
+        user_prompt="Summarize these documents",
+        upload_ids=upload_ids,
+    )
+)
+
+if response.is_success():
+    print(response.result)
+```
+
+### FileUploadRequest
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file_path` | `str \| Path` | *required* | Path to the file to upload |
+| `target_type` | `str` | `"CONTEXT"` | Upload target type |
+| `expiration` | `int` | `60` | Expiration in minutes |
+| `id` | `str` | auto-generated UUID | Unique request identifier |
+| `metadata` | `dict` | `{}` | Custom metadata |
+
+The request validates that the file exists and is a regular file at creation time (fail-fast).
+
+### FileUploadResponse
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `upload_id` | `str \| None` | Upload ID (available on success) |
+| `status` | `FileUploadStatus` | `SUCCESS`, `ERROR`, or `TIMEOUT` |
+| `error` | `str \| None` | Error message if failed |
+| `raw_response` | `dict \| None` | Raw API response from pre-signed form request |
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `is_success()` | `bool` | True if status is SUCCESS |
+| `is_error()` | `bool` | True if status is ERROR |
+| `is_timeout()` | `bool` | True if status is TIMEOUT |
+| `error_with_details()` | `dict` | Error details dict (empty if success) |
+
+### Custom Options
+
+Configure the uploader with `FileUploadOptions`:
+
+```python
+from stkai import AgentFileUploader
+from stkai.agents import FileUploadOptions
+
+uploader = AgentFileUploader(
+    options=FileUploadOptions(
+        request_timeout=15,      # Timeout for API request (Step 1)
+        transfer_timeout=60,     # Timeout for S3 upload (Step 2)
+        retry_max_retries=5,     # More retries
+        max_workers=4,           # Fewer concurrent threads
+    ),
+)
+```
+
+Or configure globally via `STKAI.configure()`:
+
+```python
+from stkai import STKAI
+
+STKAI.configure(
+    agent={
+        "file_upload_request_timeout": 15,
+        "file_upload_transfer_timeout": 60,
+        "file_upload_max_workers": 4,
+    }
+)
+```
+
+Or via environment variables:
+
+```bash
+STKAI_AGENT_FILE_UPLOAD_REQUEST_TIMEOUT=15
+STKAI_AGENT_FILE_UPLOAD_TRANSFER_TIMEOUT=60
+STKAI_AGENT_FILE_UPLOAD_MAX_WORKERS=4
+```
+
+### Custom HTTP Client
+
+Inject a custom HTTP client for the authenticated API call (Step 1):
+
+```python
+from stkai import AgentFileUploader, StkCLIHttpClient, TokenBucketRateLimitedHttpClient
+
+http_client = TokenBucketRateLimitedHttpClient(
+    delegate=StkCLIHttpClient(),
+    max_requests=60,
+    time_window=60.0,
+)
+
+uploader = AgentFileUploader(http_client=http_client)
+```
+
+!!! info "S3 Upload (Step 2)"
+    The S3 upload uses raw `requests.post()` since it's an unauthenticated multipart upload with pre-signed credentials. The custom HTTP client only applies to Step 1 (the authenticated API request).
+
 ## Configuration
 
 Customize agent behavior with `AgentOptions`. Fields set to `None` use defaults from global config (`STKAI.config.agent`):

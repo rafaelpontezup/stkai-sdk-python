@@ -132,5 +132,47 @@ class TestStkCLIGetInferenceAppBaseUrl(unittest.TestCase):
         mock_get_codebuddy.assert_called_once()
 
 
+class TestStkCLIGetDataIntegrationBaseUrl(unittest.TestCase):
+    """Tests for StkCLI.get_data_integration_base_url() method."""
+
+    @patch.object(StkCLI, "get_codebuddy_base_url")
+    def test_returns_transformed_url_when_available(self, mock_get_codebuddy):
+        """Should return codebuddy URL with data-integration-api replacement."""
+        mock_get_codebuddy.return_value = "https://genai-code-buddy-api.stackspot.com"
+
+        result = StkCLI.get_data_integration_base_url()
+
+        self.assertEqual(result, "https://data-integration-api.stackspot.com")
+        mock_get_codebuddy.assert_called_once()
+
+    @patch.object(StkCLI, "get_codebuddy_base_url")
+    def test_replaces_genai_code_buddy_api_in_url(self, mock_get_codebuddy):
+        """Should replace genai-code-buddy-api with data-integration-api."""
+        mock_get_codebuddy.return_value = "https://genai-code-buddy-api.example.com/api"
+
+        result = StkCLI.get_data_integration_base_url()
+
+        self.assertEqual(result, "https://data-integration-api.example.com/api")
+
+    @patch.object(StkCLI, "get_codebuddy_base_url")
+    def test_returns_original_url_when_pattern_not_found(self, mock_get_codebuddy):
+        """Should return original URL if genai-code-buddy-api is not in the URL."""
+        mock_get_codebuddy.return_value = "https://custom-api.example.com"
+
+        result = StkCLI.get_data_integration_base_url()
+
+        self.assertEqual(result, "https://custom-api.example.com")
+
+    @patch.object(StkCLI, "get_codebuddy_base_url")
+    def test_returns_none_when_codebuddy_url_is_none(self, mock_get_codebuddy):
+        """Should return None when get_codebuddy_base_url returns None."""
+        mock_get_codebuddy.return_value = None
+
+        result = StkCLI.get_data_integration_base_url()
+
+        self.assertIsNone(result)
+        mock_get_codebuddy.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

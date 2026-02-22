@@ -46,6 +46,31 @@ Complete API reference for AI Agents.
         - enrich
         - update_if_absent
 
+## File Upload
+
+::: stkai.agents.AgentFileUploader
+    options:
+      show_root_heading: true
+      members:
+        - upload
+        - upload_many
+
+::: stkai.agents.FileUploadRequest
+    options:
+      show_root_heading: true
+
+::: stkai.agents.FileUploadResponse
+    options:
+      show_root_heading: true
+
+::: stkai.agents.FileUploadStatus
+    options:
+      show_root_heading: true
+
+::: stkai.agents.FileUploadOptions
+    options:
+      show_root_heading: true
+
 ## Configuration
 
 ::: stkai.agents.AgentOptions

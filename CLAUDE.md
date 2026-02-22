@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/claude-code) when working 
 src/stkai/
 ├── __init__.py                    # Public API exports (root module)
 ├── _auth.py                       # Authentication: AuthProvider, ClientCredentialsAuthProvider
-├── _cli.py                        # CLI abstraction: StkCLI (is_available, get_codebuddy_base_url, get_inference_app_base_url)
+├── _cli.py                        # CLI abstraction: StkCLI (is_available, get_codebuddy_base_url, get_inference_app_base_url, get_data_integration_base_url)
 ├── _config.py                     # Global config: STKAI singleton (configure, config, reset, explain)
 ├── _http.py                       # HTTP clients: HttpClient (ABC), EnvironmentAwareHttpClient, StkCLIHttpClient, StandaloneHttpClient
 ├── _rate_limit.py                 # Rate limiting: TokenBucketRateLimitedHttpClient, AdaptiveRateLimitedHttpClient, exceptions
@@ -31,6 +31,7 @@ src/stkai/
 │   ├── __init__.py                # Agents public API exports
 │   ├── _agent.py                  # Agent client
 │   ├── _conversation.py           # Conversation context: UseConversation, ConversationContext
+│   ├── _file_upload.py            # File upload: AgentFileUploader, FileUploadRequest, FileUploadResponse
 │   └── _models.py                 # ChatRequest, ChatResponse, ChatStatus
 └── rqc/                           # Remote Quick Commands module
     ├── __init__.py                # RQC public API exports
@@ -46,7 +47,8 @@ tests/
 ├── test_http.py
 ├── agents/
 │   ├── test_agent.py
-│   └── test_conversation.py
+│   ├── test_conversation.py
+│   └── test_file_upload.py
 └── rqc/
     ├── test_remote_quick_command.py
     ├── test_handlers.py
@@ -185,6 +187,29 @@ The `simulations/` directory contains discrete-event simulations (SimPy) to vali
    - `has_conversation_id()`: Returns True if a conversation_id is already set
    - `enrich(request)`: Returns a new `ChatRequest` with `use_conversation=True` and `conversation_id` set. Original request is never mutated. If request already has `conversation_id`, returns it unchanged (explicit wins).
    - `update_if_absent()`: Thread-safe update (only sets if None)
+
+7. **AgentFileUploader**: Standalone client for uploading files as context for agent chats
+   - `upload()`: Upload a single file (blocking)
+   - `upload_many()`: Batch upload with thread pool (blocking)
+   - Two-step flow: POST to Data Integration API (authenticated) + POST to S3 (unauthenticated)
+   - Returns `FileUploadResponse` with `upload_id` on success
+   - Note: Only available for Enterprise accounts
+
+8. **FileUploadRequest**: Request data model with `file_path`, `target_type`, `expiration`
+   - `file_name` property: Extracted from `file_path`
+   - `to_api_payload()`: Converts to API payload format
+   - Auto-generates UUID if `id` not provided
+   - Validates file existence and type in `__post_init__` (fail-fast)
+
+9. **FileUploadResponse**: Response data model with `status`, `upload_id`, `error`, `raw_response`
+   - Status: `SUCCESS`, `ERROR`, `TIMEOUT`
+   - Helper methods: `is_success()`, `is_error()`, `is_timeout()`, `error_with_details()`
+
+10. **FileUploadOptions**: Configuration with `with_defaults_from(cfg)` pattern
+    - `request_timeout`: HTTP timeout for API request (Step 1)
+    - `transfer_timeout`: HTTP timeout for S3 upload (Step 2)
+    - `retry_max_retries`, `retry_initial_delay`, `max_workers`
+    - Fields set to `None` use defaults from `STKAI.config.agent.file_upload_*` fields
 
 **Conversation Precedence:** `ChatRequest.conversation_id` (explicit) > `UseConversation` (implicit). By default, the payload is modified after `to_api_payload()` without mutating the user's `ChatRequest`. For explicit control, use `enrich()` to get a new request with conversation fields set:
 ```python
@@ -345,7 +370,7 @@ STKAI.configure(
 - `SdkConfig`: `version`, `cli_mode` (read-only, auto-detected)
 - `AuthConfig`: `client_id`, `client_secret`, `token_url`
 - `RqcConfig`: `request_timeout`, `retry_max_retries`, `retry_initial_delay`, `poll_interval`, `poll_max_duration`, etc.
-- `AgentConfig`: `request_timeout`, `base_url`, `retry_max_retries`, `retry_initial_delay`
+- `AgentConfig`: `request_timeout`, `base_url`, `retry_max_retries`, `retry_initial_delay`, `file_upload_base_url`, `file_upload_request_timeout`, `file_upload_transfer_timeout`, `file_upload_retry_max_retries`, `file_upload_retry_initial_delay`, `file_upload_max_workers`
 - `RateLimitConfig`: `enabled`, `strategy`, `max_requests`, etc. (see [HTTP Client > Rate Limiting](#rate-limiting))
 - `ConfigEntry`: Represents a config field with its value and source (used by `explain()`)
 
@@ -383,9 +408,9 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 
 | Location | What to Export | Example |
 |----------|----------------|---------|
-| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients, CLI | `RemoteQuickCommand`, `Agent`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `STKAI`, `StkCLI`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient`, `UseConversation`, `ConversationContext` |
+| `stkai` (root) | Main clients, requests, responses, configs, HTTP clients, CLI | `RemoteQuickCommand`, `Agent`, `AgentFileUploader`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `FileUploadRequest`, `FileUploadResponse`, `STKAI`, `StkCLI`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient`, `UseConversation`, `ConversationContext` |
 | `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener`, `CreateExecutionOptions`, `GetResultOptions` |
-| `stkai.agents` | Agent-specific handlers, listeners, options, conversation context | `AgentOptions`, `UseConversation`, `ConversationContext` |
+| `stkai.agents` | Agent-specific handlers, listeners, options, file upload, conversation context | `AgentOptions`, `FileUploadOptions`, `FileUploadStatus`, `UseConversation`, `ConversationContext` |
 
 **Rationale:**
 - 80% of users only need root imports (simple usage)
@@ -437,6 +462,21 @@ with UseConversation() as conv:
 with UseConversation.with_generated_id() as conv:
     print(conv.conversation_id)  # ULID already available
     agent.chat_many([ChatRequest(user_prompt="Q1"), ChatRequest(user_prompt="Q2")])
+
+# File upload (Enterprise only)
+from stkai import AgentFileUploader, FileUploadRequest
+uploader = AgentFileUploader()
+responses = uploader.upload_many([
+    FileUploadRequest(file_path="doc1.pdf"),
+    FileUploadRequest(file_path="doc2.pdf"),
+])
+upload_ids = [r.upload_id for r in responses if r.is_success()]
+
+# Use uploaded files in chat
+response = agent.chat(ChatRequest(
+    user_prompt="Summarize these documents",
+    upload_ids=upload_ids,
+))
 
 # Advanced usage - submodule imports for handlers/listeners
 from stkai.rqc import JsonResultHandler, ChainedResultHandler, FileLoggingListener
