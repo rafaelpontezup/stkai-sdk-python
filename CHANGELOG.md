@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `FileUploader` for uploading files to the StackSpot platform (Enterprise only)
+- `FileUploader.upload()` and `upload_many()` for single and batch uploads
+- `FileUploadRequest` with support for `CONTEXT` and `KNOWLEDGE_SOURCE` target types
+- `CHANGELOG.md` with historical entries from v0.2.1 to v0.4.13
+- Automated GitHub Releases creation from changelog content in CI pipeline
+- Release script now validates and updates `CHANGELOG.md` during release process
+
+### Changed
+- `FileUploader` is now a standalone top-level component (previously nested under Agents)
+
+### Fixed
+- Include `raw_response` in `FileUploadResponse` even on error
+
 ## [0.4.13] - 2026-02-19
 
 ### Added
