@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.14] - 2026-02-23
+
 ### Added
 - `FileUploader` for uploading files to the StackSpot platform (Enterprise only)
 - `FileUploader.upload()` and `upload_many()` for single and batch uploads
