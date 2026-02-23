@@ -33,7 +33,7 @@ error() { echo -e "${RED}✗${NC} $1"; exit 1; }
 show_help() {
     echo "Usage: $0 [OPTIONS] [major|minor|patch]"
     echo ""
-    echo "Bump version, commit, tag, and push to trigger release."
+    echo "Bump version, update CHANGELOG.md, commit, tag, and push to trigger release."
     echo ""
     echo "Arguments:"
     echo "  major    Bump major version (0.2.4 → 1.0.0)"
@@ -79,6 +79,7 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PYPROJECT_FILE="$PROJECT_ROOT/pyproject.toml"
+CHANGELOG_FILE="$PROJECT_ROOT/CHANGELOG.md"
 
 # Change to project root
 cd "$PROJECT_ROOT"
@@ -98,6 +99,11 @@ info "Starting release process..."
 # Check if pyproject.toml exists
 if [[ ! -f "$PYPROJECT_FILE" ]]; then
     error "pyproject.toml not found at $PYPROJECT_FILE"
+fi
+
+# Check if CHANGELOG.md exists
+if [[ ! -f "$CHANGELOG_FILE" ]]; then
+    error "CHANGELOG.md not found. Create it before releasing."
 fi
 
 # Check if on main branch
@@ -163,6 +169,7 @@ esac
 
 NEW_VERSION="${NEW_MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
 TAG_NAME="v${NEW_VERSION}"
+RELEASE_DATE=$(date +%Y-%m-%d)
 
 info "New version: $NEW_VERSION ($BUMP_TYPE bump)"
 
@@ -170,6 +177,24 @@ info "New version: $NEW_VERSION ($BUMP_TYPE bump)"
 if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
     error "Tag '$TAG_NAME' already exists!"
 fi
+
+# ============================================
+# CHANGELOG validation
+# ============================================
+
+# Check that [Unreleased] section exists
+if ! grep -q '## \[Unreleased\]' "$CHANGELOG_FILE"; then
+    error "CHANGELOG.md is missing the [Unreleased] section."
+fi
+
+# Extract content between [Unreleased] and the next ## heading
+UNRELEASED_CONTENT=$(awk '/^## \[Unreleased\]/{found=1;next} /^## \[/{found=0} found && NF' "$CHANGELOG_FILE")
+
+if [[ -z "$UNRELEASED_CONTENT" ]]; then
+    error "CHANGELOG.md [Unreleased] section is empty. Add changelog entries before releasing."
+fi
+
+success "CHANGELOG.md has unreleased entries"
 
 # ============================================
 # Confirmation
@@ -188,6 +213,10 @@ echo "  Bump type:       $BUMP_TYPE"
 echo "  Current version: $CURRENT_VERSION"
 echo "  New version:     $NEW_VERSION"
 echo "  Tag:             $TAG_NAME"
+echo "  Date:            $RELEASE_DATE"
+echo ""
+echo -e "${BLUE}  Changelog entries:${NC}"
+echo "$UNRELEASED_CONTENT" | sed 's/^/    /'
 echo ""
 echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
@@ -195,11 +224,12 @@ echo ""
 # In dry-run mode, show what would happen and exit
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${BLUE}Would execute the following steps:${NC}"
-    echo "  1. Update pyproject.toml: version = \"$CURRENT_VERSION\" → \"$NEW_VERSION\""
-    echo "  2. Create commit: \"release new version v${NEW_VERSION};\""
-    echo "  3. Create tag: $TAG_NAME"
-    echo "  4. Push commit to origin/main"
-    echo "  5. Push tag $TAG_NAME to origin"
+    echo "  1. Update CHANGELOG.md: [Unreleased] → [${NEW_VERSION}] - ${RELEASE_DATE}"
+    echo "  2. Update pyproject.toml: version = \"$CURRENT_VERSION\" → \"$NEW_VERSION\""
+    echo "  3. Create commit: \"release v${NEW_VERSION}\""
+    echo "  4. Create tag: $TAG_NAME"
+    echo "  5. Push commit to origin/main"
+    echo "  6. Push tag $TAG_NAME to origin"
     echo ""
     success "Dry-run completed. No changes were made."
     exit 0
@@ -218,6 +248,13 @@ fi
 # ============================================
 
 echo ""
+
+# Update CHANGELOG.md: replace [Unreleased] content with versioned section
+info "Updating CHANGELOG.md..."
+sed -i.bak "s/^## \[Unreleased\]/## [Unreleased]\n\n## [${NEW_VERSION}] - ${RELEASE_DATE}/" "$CHANGELOG_FILE"
+rm -f "${CHANGELOG_FILE}.bak"
+success "Updated CHANGELOG.md"
+
 info "Updating pyproject.toml..."
 
 # Update version in pyproject.toml
@@ -227,8 +264,8 @@ rm -f "${PYPROJECT_FILE}.bak"
 success "Updated version to $NEW_VERSION"
 
 info "Creating commit..."
-git add "$PYPROJECT_FILE"
-git commit -m "release new version v${NEW_VERSION};"
+git add "$PYPROJECT_FILE" "$CHANGELOG_FILE"
+git commit -m "release v${NEW_VERSION}"
 success "Created commit"
 
 info "Creating tag '$TAG_NAME'..."
@@ -253,6 +290,7 @@ echo "  GitHub Actions will now:"
 echo "    1. Run tests"
 echo "    2. Build package"
 echo "    3. Publish to PyPI"
+echo "    4. Create GitHub Release with changelog"
 echo ""
 echo "  Monitor progress at:"
 echo "    https://github.com/rafaelpontezup/stkai-sdk/actions"

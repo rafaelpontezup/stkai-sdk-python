@@ -6,7 +6,7 @@ on:
       - "v*"  # Triggers on tags like v0.1.0, v1.0.0, etc.
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # Run tests before publishing
@@ -62,3 +62,24 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+
+  # Create GitHub Release with changelog
+  github-release:
+    needs: publish  # Only create release after successful publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog for this version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Extract content between this version's header and the next version header
+          awk "/^## \[${VERSION}\]/{found=1;next} /^## \[/{found=0} found" CHANGELOG.md > /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file /tmp/release-notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
