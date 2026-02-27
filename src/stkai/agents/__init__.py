@@ -58,6 +58,11 @@ from stkai.agents._models import (
     ChatStatus,
     ChatTokenUsage,
 )
+from stkai.agents._stream import (
+    ChatResponseStream,
+    ChatResponseStreamEvent,
+    ChatResponseStreamEventType,
+)
 
 __all__ = [
     # Main client
@@ -72,6 +77,10 @@ __all__ = [
     "ChatResponse",
     "ChatStatus",
     "ChatTokenUsage",
+    # Streaming
+    "ChatResponseStream",
+    "ChatResponseStreamEvent",
+    "ChatResponseStreamEventType",
     # Result handlers
     "ChatResultContext",
     "ChatResultHandler",

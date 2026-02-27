@@ -106,6 +106,38 @@ class HttpClient(ABC):
         """
         pass
 
+    def post_stream(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Execute an authenticated POST request with streaming response.
+
+        The returned response has ``stream=True``, meaning the body is NOT
+        pre-downloaded. The caller MUST iterate and close the response.
+
+        This is a separate method from ``post()`` because a streaming response
+        behaves fundamentally differently — the body must be iterated and the
+        connection explicitly closed.
+
+        Args:
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include (merged with auth headers).
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response with stream=True.
+
+        Raises:
+            NotImplementedError: If the implementation does not support streaming.
+            requests.RequestException: If the HTTP request fails.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support streaming.")
+
 
 # =============================================================================
 # StackSpot CLI Implementation
@@ -207,6 +239,44 @@ class StkCLIHttpClient(HttpClient):
             body=data,
             timeout=timeout,
             headers=headers,
+        )
+        return response
+
+    @override
+    def post_stream(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Execute an authenticated streaming POST request using oscli.
+
+        Delegates to oscli's ``post_with_authorization`` with ``stream=True``
+        passed via kwargs (forwarded to ``requests.post``).
+
+        Args:
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response with stream=True.
+        """
+        assert url, "URL cannot be empty."
+        assert timeout is not None, "Timeout cannot be None."
+        assert timeout > 0, "Timeout must be greater than 0."
+
+        from oscli.core.http import post_with_authorization
+
+        response: requests.Response = post_with_authorization(
+            url=url,
+            body=data,
+            timeout=timeout,
+            headers=headers,
+            stream=True,
         )
         return response
 
@@ -335,6 +405,40 @@ class StandaloneHttpClient(HttpClient):
             json=data,
             headers=merged_headers,
             timeout=timeout,
+        )
+
+    @override
+    def post_stream(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Execute an authenticated streaming POST request.
+
+        Args:
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response with stream=True.
+        """
+        assert url, "URL cannot be empty."
+        assert timeout is not None, "Timeout cannot be None."
+        assert timeout > 0, "Timeout must be greater than 0."
+
+        merged_headers = {**self._auth.get_auth_headers(), **(headers or {})}
+
+        return requests.post(
+            url,
+            json=data,
+            headers=merged_headers,
+            timeout=timeout,
+            stream=True,
         )
 
 
@@ -574,3 +678,25 @@ class EnvironmentAwareHttpClient(HttpClient):
             The HTTP response.
         """
         return self._get_delegate().post(url, data, headers, timeout)
+
+    @override
+    def post_stream(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """
+        Delegate streaming POST request to the appropriate HTTP client.
+
+        Args:
+            url: The full URL to request.
+            data: JSON-serializable data to send in the request body.
+            headers: Additional headers to include.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            The HTTP response with stream=True.
+        """
+        return self._get_delegate().post_stream(url, data, headers, timeout)

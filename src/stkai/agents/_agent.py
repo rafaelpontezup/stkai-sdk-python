@@ -14,9 +14,10 @@ import requests
 from stkai._config import AgentConfig
 from stkai._http import HttpClient
 from stkai._retry import Retrying
-from stkai.agents._conversation import ConversationScope
+from stkai.agents._conversation import ConversationContext, ConversationScope
 from stkai.agents._handlers import ChatResultHandler, ChatResultHandlerError
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
+from stkai.agents._stream import ChatResponseStream
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +351,141 @@ class Agent:
             logger.info(f"{'Agent-Batch-Execution'[:26]:<26} | Agent |    {icon} total of responses with status {status:<7} = {total}")
 
         return responses
+
+    def chat_stream(
+        self,
+        request: ChatRequest,
+        result_handler: ChatResultHandler | None = None,
+    ) -> ChatResponseStream:
+        """
+        Send a message to the Agent and return a streaming response.
+
+        Returns a ``ChatResponseStream`` context manager that yields SSE events
+        as they arrive from the server. Must be used with ``with``::
+
+            with agent.chat_stream(ChatRequest(user_prompt="Hello")) as stream:
+                for event in stream:
+                    if event.is_delta:
+                        print(event.text, end="", flush=True)
+                print(f"\\nTokens: {stream.response.tokens.total}")
+
+        If retry is configured, retries only the initial connection (before
+        the stream begins). Mid-stream errors are not retried.
+
+        ``chat_many`` + stream is **not supported** — streaming is real-time
+        by nature and batch execution defeats its purpose.
+
+        Args:
+            request: The request containing the user prompt and options.
+            result_handler: Optional handler to process the final accumulated text.
+                If None, uses RawResultHandler (returns accumulated text as-is).
+                The handler is applied once after the stream is fully consumed,
+                over the complete accumulated text — not per chunk.
+
+        Returns:
+            A ChatResponseStream context manager for iterating SSE events.
+
+        Raises:
+            requests.HTTPError: If the initial HTTP request fails (after retries).
+            RuntimeError: If the HTTP client does not support streaming.
+
+        Example:
+            >>> with agent.chat_stream(ChatRequest(user_prompt="Hello")) as stream:
+            ...     for text in stream.text_stream:
+            ...         print(text, end="", flush=True)
+            >>>
+            >>> # With JSON result handler
+            >>> from stkai.agents import JSON_RESULT_HANDLER
+            >>> with agent.chat_stream(request, result_handler=JSON_RESULT_HANDLER) as stream:
+            ...     response = stream.get_final_response()
+            ...     print(response.result)  # Parsed dict
+        """
+        logger.info(f"{request.id[:26]:<26} | Agent | 🛜 Starting streaming chat with agent '{self.agent_id}'.")
+        logger.info(f"{request.id[:26]:<26} | Agent |    ├ base_url={self.base_url}")
+        logger.info(f"{request.id[:26]:<26} | Agent |    └ agent_id='{self.agent_id}'")
+
+        # Assertion for type narrowing (mypy)
+        assert self.options.request_timeout is not None, \
+            "🌀 Sanity check | request_timeout must be set after with_defaults_from()"
+        assert self.options.retry_max_retries is not None, \
+            "🌀 Sanity check | retry_max_retries must be set after with_defaults_from()"
+        assert self.options.retry_initial_delay is not None, \
+            "🌀 Sanity check | retry_initial_delay must be set after with_defaults_from()"
+
+        # Build payload with streaming=True
+        payload = request.to_api_payload()
+        payload["streaming"] = True
+
+        # Apply UseConversation context (if active and request has no explicit conversation_id)
+        conv_ctx = ConversationScope.get_current()
+        if conv_ctx is not None and not request.conversation_id:
+            payload["use_conversation"] = True
+            if conv_ctx.conversation_id:
+                payload["conversation_id"] = conv_ctx.conversation_id
+
+        url = f"{self.base_url}/v1/agent/{self.agent_id}/chat"
+
+        # Retry only the initial connection
+        for attempt in Retrying(
+            max_retries=self.options.retry_max_retries,
+            initial_delay=self.options.retry_initial_delay,
+            logger_prefix=f"{request.id[:26]:<26} | Agent",
+        ):
+            with attempt:
+                logger.info(
+                    f"{request.id[:26]:<26} | Agent | "
+                    f"Opening stream to agent '{self.agent_id}' (attempt {attempt.attempt_number}/{attempt.max_attempts})..."
+                )
+
+                http_response = self.http_client.post_stream(
+                    url=url,
+                    data=payload,
+                    timeout=self.options.request_timeout,
+                )
+                assert isinstance(http_response, requests.Response), \
+                    f"🌀 Sanity check | Object returned by `post_stream` is not an instance of `requests.Response`. ({http_response.__class__})"
+
+                http_response.raise_for_status()
+
+                logger.info(f"{request.id[:26]:<26} | Agent | 🛜 Stream opened successfully.")
+
+                stream = ChatResponseStream(
+                    request=request,
+                    http_response=http_response,
+                    result_handler=result_handler,
+                )
+
+                # Hook: after stream is fully consumed, update UseConversation
+                if conv_ctx is not None:
+                    stream._build_response = self._make_conversation_tracking_hook(  # type: ignore[assignment,method-assign]
+                        stream=stream,
+                        conv_ctx=conv_ctx,
+                    )
+
+                return stream
+
+        # Should never reach here - Retrying raises MaxRetriesExceededError
+        raise RuntimeError(
+            "Unexpected error while opening stream: "
+            "reached end of `chat_stream` method without returning a ChatResponseStream."
+        )
+
+    @staticmethod
+    def _make_conversation_tracking_hook(
+        stream: ChatResponseStream,
+        conv_ctx: ConversationContext,
+    ) -> object:
+        """Create a _build_response hook that tracks conversation_id in UseConversation."""
+        original_build = stream._build_response
+
+        def _build_with_conversation_tracking() -> None:
+            original_build()
+            if stream._response is not None:
+                conv_id = stream._response.conversation_id
+                if conv_id:
+                    conv_ctx.update_if_absent(conversation_id=conv_id)
+
+        return _build_with_conversation_tracking
 
     def _do_chat(
         self,

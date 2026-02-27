@@ -422,6 +422,18 @@ class TokenBucketRateLimitedHttpClient(HttpClient):
         self._acquire_token()
         return self.delegate.post(url, data, headers, timeout)
 
+    @override
+    def post_stream(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """Acquire a rate limit token, then delegate streaming POST request."""
+        self._acquire_token()
+        return self.delegate.post_stream(url, data, headers, timeout)
+
 
 class AdaptiveRateLimitedHttpClient(HttpClient):
     """
@@ -673,6 +685,25 @@ class AdaptiveRateLimitedHttpClient(HttpClient):
         """
         self._acquire_token()
         response = self.delegate.post(url, data, headers, timeout)
+
+        if response.status_code == 429:
+            self._on_rate_limited()
+            raise ServerSideRateLimitError(response)
+
+        self._on_success()
+        return response
+
+    @override
+    def post_stream(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """Acquire token, delegate streaming POST, adapt rate based on response."""
+        self._acquire_token()
+        response = self.delegate.post_stream(url, data, headers, timeout)
 
         if response.status_code == 429:
             self._on_rate_limited()
@@ -965,6 +996,31 @@ class CongestionAwareHttpClient(HttpClient):
 
             # Only record latency for successful responses
             # 429s are fast rejections that don't reflect server processing
+            if response.status_code != 429:
+                latency = time.monotonic() - start
+                self._record_latency(latency)
+                self._adjust_concurrency()
+
+            return response
+
+        finally:
+            self._release_concurrency()
+
+    @override
+    def post_stream(
+        self,
+        url: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: int = 30,
+    ) -> requests.Response:
+        """Execute streaming POST with concurrency control."""
+        self._acquire_concurrency()
+        start = time.monotonic()
+
+        try:
+            response = self.delegate.post_stream(url, data, headers, timeout)
+
             if response.status_code != 429:
                 latency = time.monotonic() - start
                 self._record_latency(latency)

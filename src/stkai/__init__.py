@@ -135,6 +135,7 @@ from stkai.agents import (
     Agent,
     ChatRequest,
     ChatResponse,
+    ChatResponseStream,
     ChatStatus,
     ConversationContext,
     UseConversation,
@@ -195,6 +196,7 @@ __all__ = [
     "ChatRequest",
     "ChatResponse",
     "ChatStatus",
+    "ChatResponseStream",
     "UseConversation",
     "ConversationContext",
     # File upload
