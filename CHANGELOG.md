@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Experimental:** `Agent.chat_stream()` for real-time SSE streaming of Agent responses
+- `ChatResponseStream` context manager with `text_stream`, `until_done()`, and `get_final_response()` helpers
+- `ChatResponseStreamEvent` and `ChatResponseStreamEventType` for typed stream events (DELTA, DONE, ERROR)
+- `result_handler` support in `chat_stream()` (applied after full accumulation, not per chunk)
+- `post_stream()` method on all `HttpClient` implementations (CLI, Standalone, RateLimited)
+- `UseConversation` integration with streaming (auto-captures `conversation_id`)
+
+### Changed
+- `StkCLIHttpClient.post_stream()` now delegates to `post_with_authorization(stream=True)` instead of manual auth header workaround
+
 ## [0.4.14] - 2026-02-23
 
 ### Added
