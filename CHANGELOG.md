@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.15] - 2026-02-27
+
 ### Added
 - **Experimental:** `Agent.chat_stream()` for real-time SSE streaming of Agent responses
 - `ChatResponseStream` context manager with `text_stream`, `until_done()`, and `get_final_response()` helpers
