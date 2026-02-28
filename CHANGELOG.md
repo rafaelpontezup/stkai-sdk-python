@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.16] - 2026-02-28
+
 ### Fixed
 - SSE parser now supports StackSpot native format (flat `message` field) in addition to LiteLLM/OpenAI format (`choices[0].delta.content`)
 - `stop_reason` now correctly captured from StackSpot native SSE metadata chunks
