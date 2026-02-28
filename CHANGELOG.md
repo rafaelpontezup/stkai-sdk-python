@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- SSE parser now supports StackSpot native format (flat `message` field) in addition to LiteLLM/OpenAI format (`choices[0].delta.content`)
+- `stop_reason` now correctly captured from StackSpot native SSE metadata chunks
+
+### Changed
+- Streaming error handling follows SDK "requests in, responses out" principle: SSE and handler errors produce `ChatResponse` with ERROR/TIMEOUT status instead of propagating exceptions
+- `result_handler` errors in streaming produce ERROR response with raw accumulated text as `result`
+- SSE failures skip `result_handler` (partial text would be misleading) and produce ERROR/TIMEOUT response with partial text as `result`
+
 ## [0.4.15] - 2026-02-27
 
 ### Added

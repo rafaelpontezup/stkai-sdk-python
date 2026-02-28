@@ -615,6 +615,129 @@ class TestChatResponseStreamLiteLLMFormat(unittest.TestCase):
 
 
 # =============================================================================
+# StackSpot Native Format Tests
+# =============================================================================
+
+
+class TestChatResponseStreamStackSpotFormat(unittest.TestCase):
+    """Tests for the StackSpot native SSE format (flat 'message' field)."""
+
+    def _make_stackspot_sse(self, messages: list[str], metadata: dict | None = None) -> list[str]:
+        """Build SSE lines mimicking the real StackSpot API format."""
+        import json
+
+        lines: list[str] = []
+        base = {"upload_ids": {}, "knowledge_source_id": [], "source": [],
+                "cross_account_source": [], "tools_id": [], "agent_info": []}
+
+        for msg in messages:
+            chunk = {**base, "message": msg}
+            lines.append(f"data: {json.dumps(chunk)}")
+            lines.append("")
+
+        if metadata:
+            final = {**base, **metadata}
+            lines.append(f"data: {json.dumps(final)}")
+            lines.append("")
+
+        return lines
+
+    def test_extracts_text_from_message_field(self):
+        """Should extract text from StackSpot's flat 'message' field."""
+        sse_lines = self._make_stackspot_sse(
+            messages=["Olá", ", ", "mundo", "!"],
+            metadata={"stop_reason": "stop", "tokens": {"input": 10, "output": 4}},
+        )
+        stream = ChatResponseStream(
+            request=ChatRequest(user_prompt="Hi"),
+            http_response=make_stream_response(sse_lines),
+        )
+
+        with stream:
+            response = stream.get_final_response()
+
+        self.assertTrue(response.is_success())
+        self.assertEqual(response.result, "Olá, mundo!")
+
+    def test_text_stream_yields_non_empty_chunks(self):
+        """text_stream should yield only non-empty message chunks."""
+        sse_lines = self._make_stackspot_sse(
+            messages=["", "Olá", ",", " estou", " funcionando", "!", "", ""],
+            metadata={"stop_reason": "stop", "tokens": {"input": 749, "output": 5}},
+        )
+        stream = ChatResponseStream(
+            request=ChatRequest(user_prompt="Hi"),
+            http_response=make_stream_response(sse_lines),
+        )
+
+        chunks = []
+        with stream:
+            for text in stream.text_stream:
+                chunks.append(text)
+
+        self.assertEqual(chunks, ["Olá", ",", " estou", " funcionando", "!"])
+        self.assertEqual(stream.response.result, "Olá, estou funcionando!")
+
+    def test_stop_reason_tracked_from_metadata_chunk(self):
+        """Should capture stop_reason from the final metadata chunk."""
+        sse_lines = self._make_stackspot_sse(
+            messages=["Hello"],
+            metadata={"stop_reason": "stop", "tokens": {"input": 10, "output": 1}},
+        )
+        stream = ChatResponseStream(
+            request=ChatRequest(user_prompt="Hi"),
+            http_response=make_stream_response(sse_lines),
+        )
+
+        with stream:
+            stream.until_done()
+
+        self.assertEqual(stream.response.stop_reason, "stop")
+
+    def test_tokens_tracked_from_metadata_chunk(self):
+        """Should capture tokens from the final metadata chunk."""
+        sse_lines = self._make_stackspot_sse(
+            messages=["Hi"],
+            metadata={"stop_reason": "stop", "tokens": {"input": 749, "output": 5}},
+        )
+        stream = ChatResponseStream(
+            request=ChatRequest(user_prompt="Hi"),
+            http_response=make_stream_response(sse_lines),
+        )
+
+        with stream:
+            stream.until_done()
+
+        self.assertIsNotNone(stream.response.tokens)
+
+    def test_full_stackspot_flow(self):
+        """End-to-end test mimicking the real StackSpot API output."""
+        sse_lines = self._make_stackspot_sse(
+            messages=["", "Olá", ",", " estou", " funcionando", "!", "", ""],
+            metadata={
+                "stop_reason": "stop",
+                "tokens": {"input": 749, "output": 5},
+                "message_id": "01KJJB4T9SP5V1SYDEYHTZ5N6Y",
+            },
+        )
+        stream = ChatResponseStream(
+            request=ChatRequest(user_prompt="Responda apenas: 'Olá, estou funcionando!'"),
+            http_response=make_stream_response(sse_lines),
+        )
+
+        collected = []
+        with stream:
+            for event in stream:
+                if event.is_delta and event.text:
+                    collected.append(event.text)
+
+        self.assertEqual("".join(collected), "Olá, estou funcionando!")
+        self.assertTrue(stream.response.is_success())
+        self.assertEqual(stream.response.result, "Olá, estou funcionando!")
+        self.assertEqual(stream.response.stop_reason, "stop")
+
+
+# =============================================================================
 # Agent.chat_stream() Tests
 # =============================================================================
 

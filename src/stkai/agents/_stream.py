@@ -297,6 +297,7 @@ class ChatResponseStream:
                 raw_data=self._raw_done_data or {},
             )
 
+        logger.debug(f"SSE raw | event_type={event_type!r} data={data!r}")
         parsed_data = self._try_parse_json(data)
 
         # Error events
@@ -347,10 +348,21 @@ class ChatResponseStream:
     def _extract_delta_text(data: dict[str, Any]) -> str:
         """Extract text content from a delta event.
 
-        Supports the LiteLLM/OpenAI-compatible format
-        (``choices[0].delta.content``) used by StackSpot AI,
-        with fallback to flat fields for forward-compatibility.
+        Supports two SSE formats (checked in order):
+
+        1. **StackSpot native** — flat ``message`` field::
+
+            data: {"message": "Hello", "knowledge_source_id": [], ...}
+
+        2. **LiteLLM/OpenAI-compatible** — ``choices[0].delta.content``::
+
+            data: {"choices":[{"index":0,"delta":{"content":"Hello"}}]}
         """
+        # StackSpot native format: flat "message" field
+        message = data.get("message")
+        if message is not None and isinstance(message, str):
+            return str(message)
+
         # LiteLLM/OpenAI format: choices[0].delta.content
         choices = data.get("choices")
         if isinstance(choices, list) and len(choices) > 0:
@@ -378,7 +390,7 @@ class ChatResponseStream:
         ``conversation_id`` may also appear in chunks.
         """
         # StackSpot-specific fields (may appear in any chunk)
-        for field in ("conversation_id", "tokens", "knowledge_source_id"):
+        for field in ("conversation_id", "tokens", "knowledge_source_id", "stop_reason"):
             if field in data:
                 if self._raw_done_data is None:
                     self._raw_done_data = {}
