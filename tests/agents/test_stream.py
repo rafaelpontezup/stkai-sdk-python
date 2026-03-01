@@ -445,135 +445,12 @@ class TestChatResponseStream(unittest.TestCase):
 
 
 class TestChatResponseStreamLiteLLMFormat(unittest.TestCase):
-    """Tests for ChatResponseStream with LiteLLM/OpenAI-compatible SSE format.
+    """Integration tests for ChatResponseStream with LiteLLM/OpenAI-compatible SSE format.
 
-    StackSpot AI uses LiteLLM under the hood, which produces SSE events in the
-    OpenAI-compatible format: choices[0].delta.content for text chunks and
-    data: [DONE] for stream termination.
+    Pure SSE parsing tests are in test_sse_parser.py. These tests verify
+    end-to-end behavior through the ChatResponseStream layer (accumulation,
+    response building, etc.).
     """
-
-    def _make_litellm_chunk(self, content: str, finish_reason: str | None = None) -> str:
-        """Build a LiteLLM/OpenAI-compatible SSE data payload."""
-        import json
-        chunk: dict[str, Any] = {
-            "id": "chatcmpl-test",
-            "object": "chat.completion.chunk",
-            "choices": [{
-                "index": 0,
-                "delta": {"content": content} if content else {},
-                "finish_reason": finish_reason,
-            }],
-        }
-        return json.dumps(chunk)
-
-    def test_parses_litellm_delta_content(self):
-        """Should extract text from choices[0].delta.content."""
-        sse_lines = [
-            f"data: {self._make_litellm_chunk('Hello')}",
-            "",
-            f"data: {self._make_litellm_chunk(' world')}",
-            "",
-            "data: [DONE]",
-            "",
-        ]
-        http_response = make_stream_response(sse_lines)
-        request = ChatRequest(user_prompt="Hi")
-
-        with ChatResponseStream(request=request, http_response=http_response) as stream:
-            texts = list(stream.text_stream)
-
-        self.assertEqual(texts, ["Hello", " world"])
-        self.assertEqual(stream.accumulated_text, "Hello world")
-
-    def test_done_signal(self):
-        """Should recognize data: [DONE] as stream termination."""
-        sse_lines = [
-            f"data: {self._make_litellm_chunk('Hi')}",
-            "",
-            "data: [DONE]",
-            "",
-        ]
-        http_response = make_stream_response(sse_lines)
-        request = ChatRequest(user_prompt="Hi")
-
-        with ChatResponseStream(request=request, http_response=http_response) as stream:
-            events = list(stream)
-
-        done_events = [e for e in events if e.is_done]
-        self.assertEqual(len(done_events), 1)
-
-    def test_finish_reason_tracked_as_stop_reason(self):
-        """Should track finish_reason from last chunk as stop_reason in response."""
-        sse_lines = [
-            f"data: {self._make_litellm_chunk('Hello')}",
-            "",
-            f"data: {self._make_litellm_chunk('', finish_reason='stop')}",
-            "",
-            "data: [DONE]",
-            "",
-        ]
-        http_response = make_stream_response(sse_lines)
-        request = ChatRequest(user_prompt="Hi")
-
-        with ChatResponseStream(request=request, http_response=http_response) as stream:
-            for _ in stream:
-                pass
-
-        self.assertEqual(stream.response.stop_reason, "stop")
-
-    def test_usage_tracked_from_chunk(self):
-        """Should track usage data from chunks into response tokens."""
-        import json
-        chunk_with_usage = json.dumps({
-            "id": "chatcmpl-test",
-            "object": "chat.completion.chunk",
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-        })
-        sse_lines = [
-            f"data: {self._make_litellm_chunk('Result')}",
-            "",
-            f"data: {chunk_with_usage}",
-            "",
-            "data: [DONE]",
-            "",
-        ]
-        http_response = make_stream_response(sse_lines)
-        request = ChatRequest(user_prompt="Hi")
-
-        with ChatResponseStream(request=request, http_response=http_response) as stream:
-            for _ in stream:
-                pass
-
-        tokens = stream.response.tokens
-        self.assertIsNotNone(tokens)
-        self.assertEqual(tokens.user, 10)
-        self.assertEqual(tokens.output, 20)
-        self.assertEqual(tokens.total, 30)
-
-    def test_conversation_id_tracked_from_chunk(self):
-        """Should track conversation_id from StackSpot-specific chunk fields."""
-        import json
-        chunk_with_conv = json.dumps({
-            "id": "chatcmpl-test",
-            "object": "chat.completion.chunk",
-            "choices": [{"index": 0, "delta": {"content": "Hi"}}],
-            "conversation_id": "conv-123",
-        })
-        sse_lines = [
-            f"data: {chunk_with_conv}",
-            "",
-            "data: [DONE]",
-            "",
-        ]
-        http_response = make_stream_response(sse_lines)
-        request = ChatRequest(user_prompt="Hi")
-
-        with ChatResponseStream(request=request, http_response=http_response) as stream:
-            for _ in stream:
-                pass
-
-        self.assertEqual(stream.response.conversation_id, "conv-123")
 
     def test_full_litellm_stream_flow(self):
         """End-to-end test simulating a full LiteLLM streaming response."""
@@ -620,7 +497,11 @@ class TestChatResponseStreamLiteLLMFormat(unittest.TestCase):
 
 
 class TestChatResponseStreamStackSpotFormat(unittest.TestCase):
-    """Tests for the StackSpot native SSE format (flat 'message' field)."""
+    """Integration tests for StackSpot native SSE format through ChatResponseStream.
+
+    Pure SSE parsing tests are in test_sse_parser.py. These tests verify
+    end-to-end behavior: accumulation, text_stream convenience, and response building.
+    """
 
     def _make_stackspot_sse(self, messages: list[str], metadata: dict | None = None) -> list[str]:
         """Build SSE lines mimicking the real StackSpot API format."""
@@ -642,23 +523,6 @@ class TestChatResponseStreamStackSpotFormat(unittest.TestCase):
 
         return lines
 
-    def test_extracts_text_from_message_field(self):
-        """Should extract text from StackSpot's flat 'message' field."""
-        sse_lines = self._make_stackspot_sse(
-            messages=["Olá", ", ", "mundo", "!"],
-            metadata={"stop_reason": "stop", "tokens": {"input": 10, "output": 4}},
-        )
-        stream = ChatResponseStream(
-            request=ChatRequest(user_prompt="Hi"),
-            http_response=make_stream_response(sse_lines),
-        )
-
-        with stream:
-            response = stream.get_final_response()
-
-        self.assertTrue(response.is_success())
-        self.assertEqual(response.result, "Olá, mundo!")
-
     def test_text_stream_yields_non_empty_chunks(self):
         """text_stream should yield only non-empty message chunks."""
         sse_lines = self._make_stackspot_sse(
@@ -677,38 +541,6 @@ class TestChatResponseStreamStackSpotFormat(unittest.TestCase):
 
         self.assertEqual(chunks, ["Olá", ",", " estou", " funcionando", "!"])
         self.assertEqual(stream.response.result, "Olá, estou funcionando!")
-
-    def test_stop_reason_tracked_from_metadata_chunk(self):
-        """Should capture stop_reason from the final metadata chunk."""
-        sse_lines = self._make_stackspot_sse(
-            messages=["Hello"],
-            metadata={"stop_reason": "stop", "tokens": {"input": 10, "output": 1}},
-        )
-        stream = ChatResponseStream(
-            request=ChatRequest(user_prompt="Hi"),
-            http_response=make_stream_response(sse_lines),
-        )
-
-        with stream:
-            stream.until_done()
-
-        self.assertEqual(stream.response.stop_reason, "stop")
-
-    def test_tokens_tracked_from_metadata_chunk(self):
-        """Should capture tokens from the final metadata chunk."""
-        sse_lines = self._make_stackspot_sse(
-            messages=["Hi"],
-            metadata={"stop_reason": "stop", "tokens": {"input": 749, "output": 5}},
-        )
-        stream = ChatResponseStream(
-            request=ChatRequest(user_prompt="Hi"),
-            http_response=make_stream_response(sse_lines),
-        )
-
-        with stream:
-            stream.until_done()
-
-        self.assertIsNotNone(stream.response.tokens)
 
     def test_full_stackspot_flow(self):
         """End-to-end test mimicking the real StackSpot API output."""

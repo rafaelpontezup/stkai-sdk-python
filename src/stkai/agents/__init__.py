@@ -58,6 +58,7 @@ from stkai.agents._models import (
     ChatStatus,
     ChatTokenUsage,
 )
+from stkai.agents._sse_parser import SseEventParser
 from stkai.agents._stream import (
     ChatResponseStream,
     ChatResponseStreamEvent,
@@ -81,6 +82,7 @@ __all__ = [
     "ChatResponseStream",
     "ChatResponseStreamEvent",
     "ChatResponseStreamEventType",
+    "SseEventParser",
     # Result handlers
     "ChatResultContext",
     "ChatResultHandler",
