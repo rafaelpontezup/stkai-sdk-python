@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `SseEventParser` as a standalone, injectable SSE parser extracted from `ChatResponseStream` for better separation of concerns and testability
+- `event_parser` parameter on `Agent.chat_stream()` for custom SSE parsing (subclass `SseEventParser` to handle protocol changes without waiting for a new SDK release)
+- `on_response` callback on `ChatResponseStream` for post-stream lifecycle hooks
+
+### Changed
+- `SseEventParser` uses `parse(lines)` method instead of receiving lines in constructor (safe for reuse across streams)
+- Conversation tracking in streaming uses `on_response` callback instead of monkey-patching internal `_build_response` method
+
 ## [0.4.16] - 2026-02-28
 
 ### Fixed
