@@ -184,6 +184,24 @@ except ChatResultHandlerError as e:
     print(f"Original error: {e.cause}")
 ```
 
+## Handlers with Streaming
+
+Result handlers work with `chat_stream()` the same way as `chat()`. The handler is applied **once** after the stream is fully consumed, over the complete accumulated text — not per chunk:
+
+```python
+from stkai.agents import JSON_RESULT_HANDLER
+
+with agent.chat_stream(request, result_handler=JSON_RESULT_HANDLER) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+
+    # Handler applied after all chunks are accumulated
+    response = stream.response
+    print(response.result)  # Parsed dict
+```
+
+If the handler fails, `response.status` is `ERROR` and `response.result` contains the raw accumulated text so you can still inspect what the agent returned.
+
 ## When to Use Each Handler
 
 | Scenario | Handler |

@@ -25,6 +25,138 @@ else:
 
 The `chat()` method is **synchronous** and blocks until the response is received.
 
+## Streaming (Experimental)
+
+!!! warning "Experimental Feature"
+    Streaming support is **experimental** and may change in future releases. The API is functional but not yet considered stable.
+
+`chat_stream()` returns a `ChatResponseStream` context manager that yields SSE (Server-Sent Events) as they arrive from the server, enabling real-time token-by-token output:
+
+```python
+from stkai import Agent, ChatRequest
+
+agent = Agent(agent_id="my-assistant")
+
+with agent.chat_stream(ChatRequest(user_prompt="Explain SOLID principles")) as stream:
+    for event in stream:
+        if event.is_delta:
+            print(event.text, end="", flush=True)
+    print()  # newline after stream ends
+
+    # Final response is available after iteration
+    response = stream.response
+    if response.tokens:
+        print(f"Tokens used: {response.tokens.total}")
+```
+
+### text_stream (Convenience Helper)
+
+For the common case of printing text as it arrives, use `text_stream`:
+
+```python
+with agent.chat_stream(ChatRequest(user_prompt="Hello")) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+### Consuming Without Iteration
+
+If you don't need real-time output but want streaming for its lower time-to-first-token:
+
+```python
+# Option 1: get_final_response()
+with agent.chat_stream(ChatRequest(user_prompt="Hello")) as stream:
+    response = stream.get_final_response()
+    print(response.result)
+
+# Option 2: until_done() + response property
+with agent.chat_stream(ChatRequest(user_prompt="Hello")) as stream:
+    stream.until_done()
+    print(stream.response.result)
+```
+
+### Result Handlers
+
+Like `chat()`, you can pass a `result_handler` to process the final accumulated text:
+
+```python
+from stkai.agents import JSON_RESULT_HANDLER
+
+with agent.chat_stream(request, result_handler=JSON_RESULT_HANDLER) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+
+    # response.result is the parsed dict (handler applied after full accumulation)
+    data = stream.response.result
+```
+
+The handler is applied **once** after the stream is fully consumed, over the complete accumulated text — not per chunk.
+
+### Conversation Context
+
+Streaming works with `UseConversation` just like `chat()`:
+
+```python
+from stkai import UseConversation
+
+with UseConversation() as conv:
+    with agent.chat_stream(ChatRequest(user_prompt="What is Python?")) as stream:
+        stream.until_done()
+    # conv.conversation_id is auto-captured
+
+    with agent.chat_stream(ChatRequest(user_prompt="What are its features?")) as stream:
+        for text in stream.text_stream:
+            print(text, end="", flush=True)
+```
+
+### Custom SSE Parser
+
+If the server protocol changes, you can subclass `SseEventParser` and inject it without waiting for a new SDK release:
+
+```python
+from stkai.agents import SseEventParser
+
+class MyParser(SseEventParser):
+    @staticmethod
+    def _extract_delta_text(data: dict) -> str:
+        return data.get("response_text", "")
+
+with agent.chat_stream(request, event_parser=MyParser()) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+```
+
+### Error Handling
+
+Following the SDK principle of "requests in, responses out", **streaming never propagates exceptions** during iteration. Errors are captured in the final `ChatResponse`:
+
+```python
+with agent.chat_stream(request) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)
+
+    response = stream.response
+    if response.is_success():
+        print(f"\nDone! Tokens: {response.tokens.total}")
+    elif response.is_error():
+        print(f"\nError: {response.error}")
+    elif response.is_timeout():
+        print(f"\nTimeout: {response.error}")
+```
+
+| Scenario | Response Status | `result` contains |
+|----------|----------------|-------------------|
+| Stream completed, handler succeeded | `SUCCESS` | Processed result (from handler) |
+| Stream completed, handler failed | `ERROR` | Raw accumulated text |
+| SSE connection failed mid-stream | `ERROR` | Partial accumulated text |
+| SSE connection timed out | `TIMEOUT` | Partial accumulated text |
+
+!!! note "Initial connection errors"
+    If the initial HTTP connection fails (before streaming begins), `chat_stream()` raises `requests.HTTPError` — same as `chat()`. Only mid-stream errors are captured in the response. Retry is applied to the initial connection if configured.
+
+!!! note "Batch streaming"
+    `chat_many()` + streaming is **not supported**. Streaming is real-time by nature and batch execution defeats its purpose.
+
 ## Batch Execution
 
 You can send multiple chat requests concurrently and wait for all responses using the `chat_many()` method. This method is also **blocking**, so it waits for all responses to finish before resuming execution:

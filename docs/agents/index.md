@@ -65,6 +65,7 @@ if response.is_success():
 | Feature | Description |
 |---------|-------------|
 | **[Synchronous Chat](usage.md)** | Simple, blocking chat interface with automatic error handling |
+| **[Streaming (Experimental)](usage.md#streaming-experimental)** | Real-time SSE streaming with `chat_stream()` for token-by-token output |
 | **[Batch Execution](usage.md#batch-execution)** | Process multiple chat requests concurrently with `chat_many()` |
 | **[Automatic Retry](usage.md#automatic-retry)** | Automatic retry with exponential backoff for transient failures |
 | **[Conversation Context](usage.md#conversation-context)** | Multi-turn conversations with automatic ID tracking via `UseConversation` |

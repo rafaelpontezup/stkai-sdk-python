@@ -10,6 +10,7 @@ Complete API reference for AI Agents.
       members:
         - chat
         - chat_many
+        - chat_stream
 
 ## Data Models
 
@@ -28,6 +29,34 @@ Complete API reference for AI Agents.
 ::: stkai.agents.ChatTokenUsage
     options:
       show_root_heading: true
+
+## Streaming (Experimental)
+
+::: stkai.agents.ChatResponseStream
+    options:
+      show_root_heading: true
+      members:
+        - response
+        - accumulated_text
+        - text_stream
+        - until_done
+        - get_final_response
+        - close
+
+::: stkai.agents.ChatResponseStreamEvent
+    options:
+      show_root_heading: true
+
+::: stkai.agents.ChatResponseStreamEventType
+    options:
+      show_root_heading: true
+
+::: stkai.agents.SseEventParser
+    options:
+      show_root_heading: true
+      members:
+        - parse
+        - metadata
 
 ## Conversation
 

@@ -32,7 +32,10 @@ src/stkai/
 │   ├── __init__.py                # Agents public API exports
 │   ├── _agent.py                  # Agent client
 │   ├── _conversation.py           # Conversation context: UseConversation, ConversationContext
-│   └── _models.py                 # ChatRequest, ChatResponse, ChatStatus
+│   ├── _handlers.py               # Result handlers: JsonResultHandler, RawResultHandler, ChainedResultHandler
+│   ├── _models.py                 # ChatRequest, ChatResponse, ChatStatus
+│   ├── _sse_parser.py             # SSE parser: SseEventParser (standalone, injectable)
+│   └── _stream.py                 # Streaming: ChatResponseStream, ChatResponseStreamEvent
 └── rqc/                           # Remote Quick Commands module
     ├── __init__.py                # RQC public API exports
     ├── _remote_quick_command.py   # RemoteQuickCommand client
@@ -48,7 +51,9 @@ tests/
 ├── test_http.py
 ├── agents/
 │   ├── test_agent.py
-│   └── test_conversation.py
+│   ├── test_conversation.py
+│   ├── test_sse_parser.py
+│   └── test_stream.py
 └── rqc/
     ├── test_remote_quick_command.py
     ├── test_handlers.py
@@ -158,6 +163,7 @@ The `simulations/` directory contains discrete-event simulations (SimPy) to vali
 1. **Agent**: Main client class for chatting with AI agents
    - `chat()`: Send a single chat request (blocking)
    - `chat_many()`: Batch execution with thread pool (blocking)
+   - `chat_stream()`: **Experimental.** Returns a `ChatResponseStream` for real-time SSE streaming
 
 2. **ChatRequest**: Request data model with `user_prompt`, `conversation_id`, etc.
 
@@ -166,7 +172,26 @@ The `simulations/` directory contains discrete-event simulations (SimPy) to vali
    - Helper methods: `is_success()`, `is_error()`, `is_timeout()`, `error_with_details()`
    - Properties (from `raw_response`): `raw_result`, `stop_reason`, `tokens`, `conversation_id`, `knowledge_sources`
 
-4. **AgentOptions**: Configuration with `with_defaults_from(cfg)` pattern
+4. **ChatResponseStream**: **Experimental.** Context manager and iterator for streaming Agent responses
+   - Must be used with `with` statement (ensures HTTP connection cleanup)
+   - Yields `ChatResponseStreamEvent` objects (DELTA, DONE, ERROR)
+   - `text_stream`: Convenience iterator yielding only text chunks
+   - `until_done()`: Consume stream silently
+   - `get_final_response()`: Consume and return final `ChatResponse`
+   - `response`: Final `ChatResponse` (available after iteration)
+   - `accumulated_text`: Text accumulated so far during iteration
+   - Accepts optional `result_handler` (applied once after full accumulation) and `event_parser`
+   - `on_response` callback: Fires after response is built (used internally for conversation tracking)
+   - Error handling: SSE/handler errors never propagate — captured in `ChatResponse` with ERROR/TIMEOUT status
+
+5. **SseEventParser**: Standalone SSE parser extracted from `ChatResponseStream`
+   - Empty constructor + `parse(lines)` method (safe for reuse across streams)
+   - Supports two formats: StackSpot native (`message` field) + LiteLLM/OpenAI (`choices[0].delta.content`)
+   - Injectable via `Agent.chat_stream(event_parser=...)` for protocol customization
+   - Subclass and override `_extract_delta_text()` or `_track_chunk_metadata()` for custom formats
+   - `metadata` property: accumulated metadata (conversation_id, tokens, stop_reason) after iteration
+
+6. **AgentOptions**: Configuration with `with_defaults_from(cfg)` pattern
    - `request_timeout`: HTTP timeout in seconds
    - `retry_max_retries`: Max retry attempts (0 = disabled, 3 = 4 total attempts)
    - `retry_initial_delay`: Initial delay for first retry (subsequent retries double)
@@ -418,7 +443,7 @@ The SDK uses a **hybrid namespace** approach to balance simplicity and avoid nam
 |----------|----------------|---------|
 | `stkai` (root) | Main clients, requests, responses, configs, HTTP clients, CLI | `RemoteQuickCommand`, `Agent`, `FileUploader`, `RqcRequest`, `RqcOptions`, `ChatRequest`, `FileUploadRequest`, `FileUploadResponse`, `FileUploadOptions`, `FileUploadStatus`, `STKAI`, `StkCLI`, `FileUploadConfig`, `RateLimitConfig`, `RateLimitStrategy`, `ConfigEntry`, `EnvironmentAwareHttpClient`, `UseConversation`, `ConversationContext` |
 | `stkai.rqc` | RQC-specific handlers, listeners, options | `JsonResultHandler`, `FileLoggingListener`, `RqcEventListener`, `CreateExecutionOptions`, `GetResultOptions` |
-| `stkai.agents` | Agent-specific handlers, listeners, options, conversation context | `AgentOptions`, `UseConversation`, `ConversationContext` |
+| `stkai.agents` | Agent-specific handlers, options, conversation, streaming | `AgentOptions`, `UseConversation`, `ConversationContext`, `ChatResponseStream`, `ChatResponseStreamEvent`, `ChatResponseStreamEventType`, `SseEventParser` |
 
 **Rationale:**
 - 80% of users only need root imports (simple usage)
