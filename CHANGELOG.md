@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.17] - 2026-03-02
+
 ### Added
 - `SseEventParser` as a standalone, injectable SSE parser extracted from `ChatResponseStream` for better separation of concerns and testability
 - `event_parser` parameter on `Agent.chat_stream()` for custom SSE parsing (subclass `SseEventParser` to handle protocol changes without waiting for a new SDK release)
