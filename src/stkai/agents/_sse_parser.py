@@ -7,13 +7,24 @@ typed ``ChatResponseStreamEvent`` objects. It supports two SSE formats:
 1. **StackSpot native** — flat ``message`` field per chunk.
 2. **LiteLLM/OpenAI-compatible** — ``choices[0].delta.content`` per chunk.
 
-The parser is stateless with respect to text accumulation — it yields events
-and tracks metadata, but does not accumulate delta text. That responsibility
-belongs to ``ChatResponseStream``.
+The parser does not accumulate delta text — it yields events and tracks
+metadata. Text accumulation is the responsibility of ``ChatResponseStream``.
+
+The parser can be subclassed to handle protocol changes without waiting
+for a new SDK release::
+
+    class MyParser(SseEventParser):
+        @staticmethod
+        def _extract_delta_text(data: dict) -> str:
+            return data.get("response_text", "")
+
+    with agent.chat_stream(request, event_parser=MyParser()) as stream:
+        for text in stream.text_stream:
+            print(text, end="", flush=True)
 
 Example:
-    >>> parser = SseEventParser(response.iter_lines(decode_unicode=True))
-    >>> for event in parser:
+    >>> parser = SseEventParser()
+    >>> for event in parser.parse(response.iter_lines(decode_unicode=True)):
     ...     if event.is_delta:
     ...         print(event.text, end="", flush=True)
     >>> print(parser.metadata)  # conversation_id, tokens, etc.
@@ -34,38 +45,46 @@ logger = logging.getLogger(__name__)
 class SseEventParser:
     """Parses SSE (Server-Sent Events) lines into ``ChatResponseStreamEvent`` objects.
 
-    Receives an iterable of lines (typically from ``response.iter_lines()``)
-    and yields parsed events. Metadata accumulated from chunks (conversation_id,
-    tokens, stop_reason, etc.) is available via the ``metadata`` property after
-    iteration.
+    Call ``parse(lines)`` to iterate over parsed events. Metadata accumulated
+    from chunks (conversation_id, tokens, stop_reason, etc.) is available via
+    the ``metadata`` property after the returned iterator is fully consumed.
 
-    Args:
-        lines: An iterable of SSE lines (strings or bytes).
+    The parser is safe to reuse — each ``parse()`` call resets internal state.
+    Subclass and override ``_extract_delta_text`` or ``_track_chunk_metadata``
+    to handle protocol changes.
     """
 
-    def __init__(self, lines: Iterable[str | bytes]) -> None:
-        self._lines = lines
+    def __init__(self) -> None:
         self._raw_done_data: dict[str, Any] | None = None
 
     @property
     def metadata(self) -> dict[str, Any] | None:
         """Accumulated metadata from chunks (conversation_id, tokens, etc.).
 
-        Available after iteration completes. Returns ``None`` if no metadata
-        was found in any chunk.
+        Available after the iterator returned by ``parse()`` is fully consumed.
+        Returns ``None`` if no metadata was found in any chunk.
         """
         return self._raw_done_data
 
-    def __iter__(self) -> Iterator[ChatResponseStreamEvent]:
+    def parse(self, lines: Iterable[str | bytes]) -> Iterator[ChatResponseStreamEvent]:
         """Parse SSE lines and yield events.
+
+        Each call resets internal state (including ``metadata``), making the
+        parser safe to reuse across multiple streams.
+
+        Args:
+            lines: An iterable of SSE lines (typically from
+                ``response.iter_lines(decode_unicode=True)``).
 
         Yields:
             ChatResponseStreamEvent for each parsed SSE event.
         """
+        self._raw_done_data = None
+
         event_type: str | None = None
         data_buffer: list[str] = []
 
-        for line in self._lines:
+        for line in lines:
             if line is None:
                 continue
 

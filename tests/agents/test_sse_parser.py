@@ -57,8 +57,8 @@ def make_stackspot_chunk(message: str, **extra: Any) -> str:
 
 def collect_events(lines: list[str]) -> list[Any]:
     """Parse SSE lines and return all events as a list."""
-    parser = SseEventParser(lines)
-    return list(parser)
+    parser = SseEventParser()
+    return list(parser.parse(lines))
 
 
 # =============================================================================
@@ -228,8 +228,8 @@ class TestSseParserLiteLLMFormat(unittest.TestCase):
             "data: [DONE]",
             "",
         ]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNotNone(parser.metadata)
         self.assertEqual(parser.metadata["stop_reason"], "stop")
@@ -250,8 +250,8 @@ class TestSseParserLiteLLMFormat(unittest.TestCase):
             "data: [DONE]",
             "",
         ]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNotNone(parser.metadata)
         tokens = parser.metadata["tokens"]
@@ -267,8 +267,8 @@ class TestSseParserLiteLLMFormat(unittest.TestCase):
             "conversation_id": "conv-123",
         })
         lines = [f"data: {chunk_with_conv}", "", "data: [DONE]", ""]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNotNone(parser.metadata)
         self.assertEqual(parser.metadata["conversation_id"], "conv-123")
@@ -318,8 +318,8 @@ class TestSseParserLiteLLMFormat(unittest.TestCase):
         lines.append("data: [DONE]")
         lines.append("")
 
-        parser = SseEventParser(lines)
-        events = list(parser)
+        parser = SseEventParser()
+        events = list(parser.parse(lines))
 
         texts = [e.text for e in events if e.is_delta and e.text]
         self.assertEqual(texts, ["Hello", "!"])
@@ -367,8 +367,8 @@ class TestSseParserStackSpotFormat(unittest.TestCase):
             f"data: {make_stackspot_chunk('', stop_reason='stop')}",
             "",
         ]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNotNone(parser.metadata)
         self.assertEqual(parser.metadata["stop_reason"], "stop")
@@ -379,8 +379,8 @@ class TestSseParserStackSpotFormat(unittest.TestCase):
             f"data: {make_stackspot_chunk('Hi', tokens={'input': 10, 'output': 5})}",
             "",
         ]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNotNone(parser.metadata)
         self.assertIn("tokens", parser.metadata)
@@ -391,8 +391,8 @@ class TestSseParserStackSpotFormat(unittest.TestCase):
             f"data: {make_stackspot_chunk('Hi', conversation_id='conv-456')}",
             "",
         ]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNotNone(parser.metadata)
         self.assertEqual(parser.metadata["conversation_id"], "conv-456")
@@ -403,8 +403,8 @@ class TestSseParserStackSpotFormat(unittest.TestCase):
             f"data: {make_stackspot_chunk('Hi', knowledge_source_id=['ks-1', 'ks-2'])}",
             "",
         ]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNotNone(parser.metadata)
         self.assertEqual(parser.metadata["knowledge_source_id"], ["ks-1", "ks-2"])
@@ -426,8 +426,8 @@ class TestSseParserStackSpotFormat(unittest.TestCase):
         lines.append(f"data: {metadata_chunk}")
         lines.append("")
 
-        parser = SseEventParser(lines)
-        events = list(parser)
+        parser = SseEventParser()
+        events = list(parser.parse(lines))
 
         texts = [e.text for e in events if e.is_delta and e.text]
         self.assertEqual("".join(texts), "Olá, estou funcionando!")
@@ -586,14 +586,14 @@ class TestSseParserEdgeCases(unittest.TestCase):
 
     def test_metadata_initially_none(self):
         """Metadata should be None before any chunks are processed."""
-        parser = SseEventParser([])
+        parser = SseEventParser()
         self.assertIsNone(parser.metadata)
 
     def test_metadata_none_when_no_metadata_fields(self):
         """Metadata should stay None if no metadata-bearing chunks appear."""
         lines = ["data: plain text", ""]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         self.assertIsNone(parser.metadata)
 
@@ -635,8 +635,8 @@ class TestSseParserEdgeCases(unittest.TestCase):
             "usage": {"prompt_tokens": 1, "completion_tokens": 2},
         })
         lines = [f"data: {chunk}", ""]
-        parser = SseEventParser(lines)
-        list(parser)
+        parser = SseEventParser()
+        list(parser.parse(lines))
 
         # StackSpot tokens should be tracked (set first)
         # LiteLLM usage should NOT overwrite because "tokens" already exists
@@ -654,10 +654,12 @@ class TestSseParserEdgeCases(unittest.TestCase):
 class TestSseParserIteratorProtocol(unittest.TestCase):
     """Tests for iterator behavior and protocol compliance."""
 
-    def test_is_iterable(self):
-        """SseEventParser should be iterable."""
-        parser = SseEventParser([])
-        self.assertTrue(hasattr(parser, "__iter__"))
+    def test_parse_returns_iterator(self):
+        """SseEventParser.parse() should return an iterator."""
+        parser = SseEventParser()
+        result = parser.parse([])
+        self.assertTrue(hasattr(result, "__iter__"))
+        self.assertTrue(hasattr(result, "__next__"))
 
     def test_yields_typed_events(self):
         """All yielded objects should be ChatResponseStreamEvent instances."""
@@ -667,9 +669,9 @@ class TestSseParserIteratorProtocol(unittest.TestCase):
             (None, '{"content": "hello"}'),
             ("done", '{"type": "done"}'),
         ])
-        parser = SseEventParser(lines)
+        parser = SseEventParser()
 
-        for event in parser:
+        for event in parser.parse(lines):
             self.assertIsInstance(event, ChatResponseStreamEvent)
 
     def test_event_types_are_correct_enum_values(self):

@@ -5,16 +5,22 @@ This module provides a synchronous client for interacting with StackSpot AI Agen
 supporting single message requests and conversation context.
 """
 
+from __future__ import annotations
+
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import requests
+
+if TYPE_CHECKING:
+    from stkai.agents._sse_parser import SseEventParser
 
 from stkai._config import AgentConfig
 from stkai._http import HttpClient
 from stkai._retry import Retrying
-from stkai.agents._conversation import ConversationContext, ConversationScope
+from stkai.agents._conversation import ConversationScope
 from stkai.agents._handlers import ChatResultHandler, ChatResultHandlerError
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
 from stkai.agents._stream import ChatResponseStream
@@ -51,7 +57,7 @@ class AgentOptions:
     retry_initial_delay: float | None = None
     max_workers: int | None = None
 
-    def with_defaults_from(self, cfg: AgentConfig) -> "AgentOptions":
+    def with_defaults_from(self, cfg: AgentConfig) -> AgentOptions:
         """
         Returns a new AgentOptions with None values filled from config.
 
@@ -356,6 +362,7 @@ class Agent:
         self,
         request: ChatRequest,
         result_handler: ChatResultHandler | None = None,
+        event_parser: SseEventParser | None = None,
     ) -> ChatResponseStream:
         """
         Send a message to the Agent and return a streaming response.
@@ -381,6 +388,10 @@ class Agent:
                 If None, uses RawResultHandler (returns accumulated text as-is).
                 The handler is applied once after the stream is fully consumed,
                 over the complete accumulated text — not per chunk.
+            event_parser: Optional SSE event parser. If None, uses the default
+                ``SseEventParser``. Subclass ``SseEventParser`` and pass an
+                instance here to handle protocol changes without waiting for
+                a new SDK release.
 
         Returns:
             A ChatResponseStream context manager for iterating SSE events.
@@ -449,18 +460,17 @@ class Agent:
 
                 logger.info(f"{request.id[:26]:<26} | Agent | 🛜 Stream opened successfully.")
 
+                def _track_conversation(response: ChatResponse) -> None:
+                    if conv_ctx is not None and response.conversation_id:
+                        conv_ctx.update_if_absent(conversation_id=response.conversation_id)
+
                 stream = ChatResponseStream(
                     request=request,
                     http_response=http_response,
                     result_handler=result_handler,
+                    event_parser=event_parser,
+                    on_response=_track_conversation if conv_ctx else None,
                 )
-
-                # Hook: after stream is fully consumed, update UseConversation
-                if conv_ctx is not None:
-                    stream._build_response = self._make_conversation_tracking_hook(  # type: ignore[assignment,method-assign]
-                        stream=stream,
-                        conv_ctx=conv_ctx,
-                    )
 
                 return stream
 
@@ -469,23 +479,6 @@ class Agent:
             "Unexpected error while opening stream: "
             "reached end of `chat_stream` method without returning a ChatResponseStream."
         )
-
-    @staticmethod
-    def _make_conversation_tracking_hook(
-        stream: ChatResponseStream,
-        conv_ctx: ConversationContext,
-    ) -> object:
-        """Create a _build_response hook that tracks conversation_id in UseConversation."""
-        original_build = stream._build_response
-
-        def _build_with_conversation_tracking() -> None:
-            original_build()
-            if stream._response is not None:
-                conv_id = stream._response.conversation_id
-                if conv_id:
-                    conv_ctx.update_if_absent(conversation_id=conv_id)
-
-        return _build_with_conversation_tracking
 
     def _do_chat(
         self,

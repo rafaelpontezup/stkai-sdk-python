@@ -20,12 +20,15 @@ Example:
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
+
+if TYPE_CHECKING:
+    from stkai.agents._sse_parser import SseEventParser
 
 from stkai.agents._handlers import ChatResultHandler
 from stkai.agents._models import ChatRequest, ChatResponse, ChatStatus
@@ -113,18 +116,24 @@ class ChatResponseStream:
         request: ChatRequest,
         http_response: requests.Response,
         result_handler: ChatResultHandler | None = None,
+        event_parser: SseEventParser | None = None,
+        on_response: Callable[[ChatResponse], None] | None = None,
     ) -> None:
         self._request = request
         self._http_response = http_response
         self._result_handler = result_handler
+        self._on_response = on_response
         self._accumulated_parts: list[str] = []
         self._response: ChatResponse | None = None
         self._closed = False
         self._iterated = False
 
-        # Lazy import to avoid circular dependency
-        from stkai.agents._sse_parser import SseEventParser
-        self._event_parser = SseEventParser(http_response.iter_lines(decode_unicode=True))
+        if event_parser is not None:
+            self._event_parser = event_parser
+        else:
+            # Lazy import to avoid circular dependency (_sse_parser imports from _stream)
+            from stkai.agents._sse_parser import SseEventParser
+            self._event_parser = SseEventParser()
 
     @property
     def request(self) -> ChatRequest:
@@ -189,7 +198,8 @@ class ChatResponseStream:
         self._iterated = True
 
         try:
-            for event in self._event_parser:
+            lines = self._http_response.iter_lines(decode_unicode=True)
+            for event in self._event_parser.parse(lines):
                 if event.is_delta and event.text:
                     self._accumulated_parts.append(event.text)
                 yield event
@@ -199,6 +209,8 @@ class ChatResponseStream:
             return
         # SSE completed: build a success response (handler runs here).
         self._build_response()
+        if self._on_response is not None and self._response is not None:
+            self._on_response(self._response)
 
     @property
     def text_stream(self) -> Iterator[str]:
