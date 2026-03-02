@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Documentation for experimental streaming (`chat_stream()`) in `docs/agents/` and `CLAUDE.md`
+
 ## [0.4.17] - 2026-03-02
 
 ### Added
